@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Uploads (data lives outside git, on disk in production)
+uploads/*
+!uploads/.gitkeep
+
+# Local DB if using SQLite for dev
+*.db
+*.sqlite
+
+# OS
+.DS_Store
+*.swp
