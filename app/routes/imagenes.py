@@ -10,7 +10,8 @@ from __future__ import annotations
 from typing import List
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Body
+from pydantic import BaseModel, HttpUrl
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -106,6 +107,48 @@ async def subir(
     for img in created:
         db.refresh(img)
     return created
+
+
+class ImagenUrlIn(BaseModel):
+    url: str
+    categoria: str = "Otro"
+    es_principal: bool = False
+
+
+@router.post("/url", response_model=ImagenOut, status_code=status.HTTP_201_CREATED)
+def registrar_url(
+    proyecto_id: str,
+    body: ImagenUrlIn,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(super_admin),
+):
+    """Registra una imagen por URL externa (sin subir archivo).
+    Útil para importar fotos de JetBrokers u otros servicios externos.
+    """
+    proy = _ensure_project(db, proyecto_id)
+
+    if body.es_principal:
+        for other in db.query(Imagen).filter(Imagen.proyecto_id == proyecto_id).all():
+            other.es_principal = False
+
+    img_id = "img-" + uuid.uuid4().hex[:10]
+    img = Imagen(
+        id=img_id,
+        proyecto_id=proyecto_id,
+        url=body.url,
+        categoria=body.categoria,
+        es_principal=body.es_principal,
+        orden=db.query(Imagen).filter(Imagen.proyecto_id == proyecto_id).count(),
+        bytes=0,
+        mime="image/external",
+    )
+    if body.es_principal:
+        proy.foto_principal_url = body.url
+
+    db.add(img)
+    db.commit()
+    db.refresh(img)
+    return img
 
 
 @router.patch("/{imagen_id}", response_model=ImagenOut)
