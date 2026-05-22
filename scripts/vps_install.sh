@@ -64,11 +64,15 @@ log "2) Usuario de servicio: $SERVICE_USER"
 id -u "$SERVICE_USER" &>/dev/null || useradd --system --shell /usr/sbin/nologin --home "$INSTALL_DIR" "$SERVICE_USER"
 
 log "3) Clonar/actualizar repo en $INSTALL_DIR"
+# Si REPO_URL es SSH (git@…) asegurate de tener la deploy key en /root/.ssh/
+# Para repos privados sin SSH key, podés usar HTTPS con un PAT:
+#   REPO_URL=https://<TOKEN>@github.com/<user>/bc-api.git bash vps_install.sh
 if [[ -d "$INSTALL_DIR/.git" ]]; then
+    git -C "$INSTALL_DIR" remote set-url origin "$REPO_URL" || true
     git -C "$INSTALL_DIR" fetch --depth 1 origin main
     git -C "$INSTALL_DIR" reset --hard origin/main
 else
-    git clone --depth 1 "$REPO_URL" "$INSTALL_DIR"
+    git clone --depth 1 "$REPO_URL" "$INSTALL_DIR" || die "git clone falló. Si es repo privado, revisá REPO_URL (SSH key en /root/.ssh/ o PAT en HTTPS)."
 fi
 mkdir -p "$INSTALL_DIR/uploads"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"

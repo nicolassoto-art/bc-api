@@ -1,4 +1,5 @@
 """CRUD de proyectos."""
+from typing import List, Optional
 import re
 import uuid
 from datetime import datetime
@@ -19,12 +20,12 @@ def slugify(s: str) -> str:
     return s or "proyecto-" + uuid.uuid4().hex[:6]
 
 
-@router.get("", response_model=list[ProyectoSummary])
+@router.get("", response_model=List[ProyectoSummary])
 def listar(
-    q: str | None = Query(None, description="Búsqueda en nombre/inmobiliaria/comuna"),
-    activo: bool | None = None,
-    fase: str | None = None,
-    comuna: str | None = None,
+    q: Optional[str] = Query(None, description="Búsqueda en nombre/inmobiliaria/comuna"),
+    activo: Optional[bool] = None,
+    fase: Optional[str] = None,
+    comuna: Optional[str] = None,
     db: Session = Depends(get_db),
     _: Usuario = Depends(super_admin),
 ):

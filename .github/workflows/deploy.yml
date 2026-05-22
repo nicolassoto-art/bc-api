@@ -48,10 +48,11 @@ jobs:
           # Migrations
           sudo -u $SERVICE_USER bash -lc "cd $INSTALL_DIR && .venv/bin/alembic upgrade head"
 
-          # Restart service
-          sudo systemctl restart bc-api.service
+          # Restart service (sudo solo si no somos root)
+          if [ "\$(id -u)" = "0" ]; then SUDO=""; else SUDO="sudo"; fi
+          \$SUDO systemctl restart bc-api.service
           sleep 2
-          sudo systemctl is-active --quiet bc-api.service || { echo "Service no arrancó"; exit 1; }
+          \$SUDO systemctl is-active --quiet bc-api.service || { echo "Service no arrancó"; exit 1; }
 
           # Health check
           curl -fsS http://127.0.0.1:8001/health || { echo "Health check falló"; exit 1; }

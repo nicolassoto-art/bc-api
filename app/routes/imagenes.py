@@ -6,6 +6,8 @@ y se sirven como estáticos por nginx/Caddy en /uploads/...
 URL devuelta al frontend: relativa ("/uploads/<proyecto>/<uuid>.<ext>") para
 que el navegador resuelva contra el dominio actual de la API.
 """
+from __future__ import annotations
+from typing import List
 import uuid
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
@@ -34,7 +36,7 @@ def _ensure_project(db: Session, proyecto_id: str) -> Proyecto:
     return p
 
 
-@router.get("", response_model=list[ImagenOut])
+@router.get("", response_model=List[ImagenOut])
 def listar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(super_admin)):
     _ensure_project(db, proyecto_id)
     return (
@@ -45,10 +47,10 @@ def listar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends
     )
 
 
-@router.post("", response_model=list[ImagenOut], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=List[ImagenOut], status_code=status.HTTP_201_CREATED)
 async def subir(
     proyecto_id: str,
-    files: list[UploadFile] = File(...),
+    files: List[UploadFile] = File(...),
     categoria: str = Form("Otro"),
     es_principal: bool = Form(False),
     db: Session = Depends(get_db),
@@ -61,7 +63,7 @@ async def subir(
     proj_dir: Path = settings.upload_path / proyecto_id
     proj_dir.mkdir(parents=True, exist_ok=True)
 
-    created: list[Imagen] = []
+    created: List[Imagen] = []
     for f in files:
         if f.content_type not in ALLOWED_MIMES:
             raise HTTPException(

@@ -1,3 +1,5 @@
+from __future__ import annotations
+from typing import Optional
 from pydantic import BaseModel, EmailStr
 
 
@@ -15,5 +17,5 @@ class TokenOut(BaseModel):
 class UserOut(BaseModel):
     id: int
     email: EmailStr
-    nombre: str | None = None
+    nombre: Optional[str] = None
     is_admin: bool

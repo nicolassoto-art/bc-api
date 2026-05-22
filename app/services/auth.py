@@ -1,4 +1,5 @@
 """JWT + password hashing."""
+from typing import Optional, Tuple
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
 from passlib.context import CryptContext
@@ -18,7 +19,7 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def create_token(*, sub: str, extra: dict | None = None) -> tuple[str, int]:
+def create_token(*, sub: str, extra: Optional[dict] = None) -> Tuple[str, int]:
     """Returns (token, expires_in_seconds)."""
     ttl = timedelta(hours=settings.jwt_ttl_hours)
     exp = datetime.utcnow() + ttl

@@ -1,4 +1,5 @@
 """Centralized settings loaded from environment via pydantic-settings."""
+from typing import List
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -24,11 +25,11 @@ class Settings(BaseSettings):
         return p
 
     @property
-    def cors_origins_list(self) -> list[str]:
+    def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
-    def super_admins_list(self) -> list[str]:
+    def super_admins_list(self) -> List[str]:
         return [e.strip().lower() for e in self.super_admins.split(",") if e.strip()]
 
     @property

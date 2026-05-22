@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .proyecto import (  # noqa: F401
     ProyectoIn, ProyectoOut, ProyectoSummary,
     UnidadIn, UnidadOut,

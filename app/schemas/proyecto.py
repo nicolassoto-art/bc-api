@@ -1,4 +1,5 @@
 """Pydantic schemas: input/output shapes para los endpoints REST."""
+from typing import Dict, List, Optional
 from datetime import datetime
 from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
@@ -8,19 +9,19 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class UnidadIn(BaseModel):
     numero: str
-    modelo: str | None = None
-    tipologia: str | None = None
-    tipo: str | None = "Depto"
-    orientacion: str | None = None
-    sup_total: float | None = None
-    sup_interior: float | None = None
-    sup_terraza: float | None = None
-    sup_logia: float | None = None
-    sup_jardin: float | None = None
-    precio_lista_uf: float | None = None
+    modelo: Optional[str] = None
+    tipologia: Optional[str] = None
+    tipo: Optional[str] = "Depto"
+    orientacion: Optional[str] = None
+    sup_total: Optional[float] = None
+    sup_interior: Optional[float] = None
+    sup_terraza: Optional[float] = None
+    sup_logia: Optional[float] = None
+    sup_jardin: Optional[float] = None
+    precio_lista_uf: Optional[float] = None
     descuento_pct: float = 0
     bono_pie_pct: float = 0
-    precio_final_uf: float | None = None
+    precio_final_uf: Optional[float] = None
     estac_flag: str = "optional"
     bodega_flag: str = "optional"
     pack_flag: str = "optional"
@@ -43,15 +44,15 @@ class ImagenOut(BaseModel):
     categoria: str
     es_principal: bool
     orden: int
-    bytes: int | None = None
-    mime: str | None = None
+    bytes: Optional[int] = None
+    mime: Optional[str] = None
     created_at: datetime
 
 
 class ImagenUpdate(BaseModel):
-    categoria: str | None = None
-    es_principal: bool | None = None
-    orden: int | None = None
+    categoria: Optional[str] = None
+    es_principal: Optional[bool] = None
+    orden: Optional[int] = None
 
 
 # ── Documento ─────────────────────────────────────────────────
@@ -61,10 +62,10 @@ class DocumentoOut(BaseModel):
     id: str
     proyecto_id: str
     nombre: str
-    tipo: str | None
+    tipo: Optional[str]
     url: str
-    bytes: int | None = None
-    mime: str | None = None
+    bytes: Optional[int] = None
+    mime: Optional[str] = None
     created_at: datetime
 
 
@@ -72,37 +73,37 @@ class DocumentoOut(BaseModel):
 
 class ProyectoBase(BaseModel):
     nombre: str
-    inmobiliaria: str | None = None
-    comuna: str | None = None
-    region: str | None = None
-    direccion: str | None = None
-    gps_lat: float | None = None
-    gps_lon: float | None = None
-    fase: str | None = None
-    modalidad: str | None = None
+    inmobiliaria: Optional[str] = None
+    comuna: Optional[str] = None
+    region: Optional[str] = None
+    direccion: Optional[str] = None
+    gps_lat: Optional[float] = None
+    gps_lon: Optional[float] = None
+    fase: Optional[str] = None
+    modalidad: Optional[str] = None
     activo: bool = True
     disponible: bool = True
-    fecha_entrega: str | None = None
-    ano_entrega: int | None = None
-    foto_principal_url: str | None = None
-    external_url: str | None = None
-    extra: dict[str, Any] = Field(default_factory=dict)
-    notas: str | None = None
+    fecha_entrega: Optional[str] = None
+    ano_entrega: Optional[int] = None
+    foto_principal_url: Optional[str] = None
+    external_url: Optional[str] = None
+    extra: Dict[str, Any] = Field(default_factory=dict)
+    notas: Optional[str] = None
 
 
 class ProyectoIn(ProyectoBase):
-    id: str | None = None  # opcional al crear; el server genera slug si falta
+    id: Optional[str] = None  # opcional al crear; el server genera slug si falta
 
 
 class ProyectoOut(ProyectoBase):
     model_config = ConfigDict(from_attributes=True)
     id: str
-    stock_last_upload: dict[str, Any] | None = None
+    stock_last_upload: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
-    unidades: list[UnidadOut] = []
-    imagenes: list[ImagenOut] = []
-    documentos: list[DocumentoOut] = []
+    unidades: List[UnidadOut] = []
+    imagenes: List[ImagenOut] = []
+    documentos: List[DocumentoOut] = []
 
 
 class ProyectoSummary(BaseModel):
@@ -110,13 +111,13 @@ class ProyectoSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
     nombre: str
-    inmobiliaria: str | None
-    comuna: str | None
-    fase: str | None
+    inmobiliaria: Optional[str]
+    comuna: Optional[str]
+    fase: Optional[str]
     activo: bool
     disponible: bool
-    fecha_entrega: str | None
-    foto_principal_url: str | None
+    fecha_entrega: Optional[str]
+    foto_principal_url: Optional[str]
     updated_at: datetime
     unidades_total: int = 0
     unidades_disponibles: int = 0

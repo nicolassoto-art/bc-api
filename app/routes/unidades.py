@@ -1,4 +1,5 @@
 """Unidades de un proyecto: CRUD + upload/download Excel."""
+from typing import List
 import io
 import uuid
 from datetime import datetime
@@ -38,7 +39,7 @@ def _num_or_none(v):
         return None
 
 
-@router.get("", response_model=list[UnidadOut])
+@router.get("", response_model=List[UnidadOut])
 def listar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(super_admin)):
     _ensure_project(db, proyecto_id)
     return db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).order_by(Unidad.numero).all()
