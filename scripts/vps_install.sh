@@ -32,7 +32,7 @@ DB_NAME="${DB_NAME:-bcapi}"
 DB_USER="${DB_USER:-bcapi}"
 DB_PASS_FILE="/root/.bcapi-db-pass"  # generado en la primera corrida
 DOMAIN="${DOMAIN:-api.bigcapital.cl}"
-PORT="${PORT:-8001}"
+PORT="${PORT:-8011}"  # :8001 ya lo usa otro python en el VPS
 
 # ──────────────────────────────────────────────────
 

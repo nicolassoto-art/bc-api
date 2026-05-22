@@ -55,6 +55,6 @@ jobs:
           \$SUDO systemctl is-active --quiet bc-api.service || { echo "Service no arrancó"; exit 1; }
 
           # Health check
-          curl -fsS http://127.0.0.1:8001/health || { echo "Health check falló"; exit 1; }
+          curl -fsS http://127.0.0.1:8011/health || { echo "Health check falló"; exit 1; }
           echo "✓ Deploy OK"
           EOF

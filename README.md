@@ -2,8 +2,10 @@
 
 Backend privado de BigCapital. FastAPI + PostgreSQL, corre en el VPS Hetzner detrás de Caddy.
 
-- **Producción**: https://api.bigcapital.cl
+- **Producción**: https://api.bigcapital.cl (requiere DNS A record activo)
 - **Docs interactivas**: https://api.bigcapital.cl/docs
+- **VPS**: `178.105.91.29` puerto interno `:8011` (`:8001` lo usa otro Python)
+- **Service**: `systemctl status bc-api` · logs: `journalctl -u bc-api -f`
 - **Auth**: bearer JWT (super admin only, audiencia "tools internas")
 
 ## Stack
