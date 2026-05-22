@@ -23,3 +23,8 @@ uploads/*
 # OS
 .DS_Store
 *.swp
+
+# JetBroker session (no commitear nunca)
+.jb_session
+.jetbroker_*
+*.session
