@@ -64,6 +64,8 @@ log "2) Usuario de servicio: $SERVICE_USER"
 id -u "$SERVICE_USER" &>/dev/null || useradd --system --shell /usr/sbin/nologin --home "$INSTALL_DIR" "$SERVICE_USER"
 
 log "3) Clonar/actualizar repo en $INSTALL_DIR"
+# Para que root pueda hacer git pull sobre repo owned por bcapi (deploy desde CI)
+git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
 # Si REPO_URL es SSH (git@…) asegurate de tener la deploy key en /root/.ssh/
 # Para repos privados sin SSH key, podés usar HTTPS con un PAT:
 #   REPO_URL=https://<TOKEN>@github.com/<user>/bc-api.git bash vps_install.sh
