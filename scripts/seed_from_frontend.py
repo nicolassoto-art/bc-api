@@ -102,9 +102,13 @@ def seed(js_path: Path) -> None:
                 ))
 
             # Imágenes
+            # IDs del seed se prefijan con proyecto_id para evitar colisión
+            # global (varios proyectos podían tener mismo img-XYZ en el mock)
             for i, im in enumerate(src.get("imagenes") or []):
+                raw_id = im.get("id") or "img-" + uuid.uuid4().hex[:10]
+                unique_id = f"{pid}--{raw_id}"[:64]
                 db.add(Imagen(
-                    id=im.get("id") or "img-" + uuid.uuid4().hex[:10],
+                    id=unique_id,
                     proyecto_id=pid,
                     url=im.get("url", ""),
                     categoria=im.get("categoria", "Otro"),
