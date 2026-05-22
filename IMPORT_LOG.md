@@ -31,10 +31,37 @@ Tracking de proyectos importados a la DB de producción `bcapi` en el VPS.
 
 ---
 
+---
+
+## 2026-05-22 · Hallazgo: bigcapital.cl Worker API es pública
+
+| Campo | Detalle |
+|---|---|
+| URL API | `https://bigcapital-worker.nsotofchile.workers.dev/api/proyectos` |
+| Total proyectos | 175 (91 market + 84 private) |
+| Auth requerida | ❌ Ninguna |
+| Fotos | `https://api.jetbrokers.io/api/gallery/download/uv13koru/<fileId>` (públicas) |
+
+**Script creado**: `scripts/import_from_bigcapital.py`  
+**Comando**:
+```bash
+python scripts/import_from_bigcapital.py \
+  --bcapi-url https://bc-api.178-105-91-29.nip.io \
+  --bcapi-email nicolas.soto@bigcapital.cl \
+  --bcapi-pass-file ~/.bcapi-admin-pass \
+  --dry-run
+```
+
+**Larraín Prieto en bigcapital.cl**: Solo 4 proyectos (vs 83 en JetBroker autenticado).  
+Los 4 disponibles: Zapadores 1821 (Conchalí), Edificio Conexión Independencia, Edificio Ñuñoa Zañartu, Edificio Missouri 3885.
+
+---
+
 ## Próximos imports (TODO)
 
-- [ ] Larraín Prieto — pendiente confirmar fuente
-- [ ] Empresas Socovesa (14 proy / 424 uni) — disponible en JetBroker
+- [ ] Larraín Prieto completo (83 proyectos) — requiere sesión JetBroker activa (snippet manual)
+- [ ] bigcapital.cl completo (175 proy) — **LISTO**: `python scripts/import_from_bigcapital.py`
+- [ ] Empresas Socovesa (14 proy / 424 uni) — disponible en JetBroker  
 - [ ] Maestra (14 proy / 1.369 uni)
 - [ ] Socovesa Sur (9 proy / 208 uni)
 
