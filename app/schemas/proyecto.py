@@ -117,7 +117,12 @@ class ProyectoSummary(BaseModel):
     activo: bool
     disponible: bool
     fecha_entrega: Optional[str]
+    ano_entrega: Optional[int] = None
     foto_principal_url: Optional[str]
+    external_url: Optional[str] = None
     updated_at: datetime
     unidades_total: int = 0
     unidades_disponibles: int = 0
+    # Campos extraídos de extra.comercial para el listado
+    pie_pct: Optional[float] = None
+    precio_desde_uf: Optional[float] = None

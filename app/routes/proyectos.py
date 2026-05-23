@@ -57,12 +57,33 @@ def listar(
     ).all()
     counts = {pid: (total or 0, disp or 0) for pid, total, disp in rows}
 
+    # Precio mínimo de unidades disponibles por proyecto (1 query, no N+1)
+    precio_rows = db.execute(
+        select(
+            Unidad.proyecto_id,
+            func.min(
+                func.coalesce(Unidad.precio_final_uf, Unidad.precio_lista_uf)
+            ),
+        )
+        .where(Unidad.disponible == True)
+        .where(func.coalesce(Unidad.precio_final_uf, Unidad.precio_lista_uf) > 0)
+        .group_by(Unidad.proyecto_id)
+    ).all()
+    precios_min = {pid: precio for pid, precio in precio_rows if precio}
+
     out = []
     for p in proys:
         total, disp = counts.get(p.id, (0, 0))
+        extra = p.extra or {}
+        comercial = extra.get("comercial") or {}
         out.append(
             ProyectoSummary.model_validate(p).model_copy(
-                update={"unidades_total": int(total), "unidades_disponibles": int(disp)}
+                update={
+                    "unidades_total": int(total),
+                    "unidades_disponibles": int(disp),
+                    "pie_pct": comercial.get("pie_pct"),
+                    "precio_desde_uf": precios_min.get(p.id),
+                }
             )
         )
     return out
@@ -143,6 +164,12 @@ def set_estado(
         select(func.count(Unidad.id), func.sum(func.cast(Unidad.disponible, Integer)))
         .where(Unidad.proyecto_id == proyecto_id)
     ).one()
+    extra = p.extra or {}
+    comercial = extra.get("comercial") or {}
     return ProyectoSummary.model_validate(p).model_copy(
-        update={"unidades_total": int(total or 0), "unidades_disponibles": int(disp or 0)}
+        update={
+            "unidades_total": int(total or 0),
+            "unidades_disponibles": int(disp or 0),
+            "pie_pct": comercial.get("pie_pct"),
+        }
     )
