@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     max_upload_mb: int = 10
     cors_origins: str = "http://localhost:8765"
     super_admins: str = "nicolas.soto@bigcapital.cl"
+    legacy_api_url: str = "http://127.0.0.1/backend/api.php"
     env: str = "development"
     log_level: str = "INFO"
 
