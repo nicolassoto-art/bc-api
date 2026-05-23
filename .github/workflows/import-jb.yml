@@ -1,0 +1,93 @@
+name: Import JetBrokers project to bc-api
+
+on:
+  workflow_dispatch:
+    inputs:
+      jb_id:
+        description: 'JetBrokers project ID (ej: Sfp8j2Sq) — o "all" para iterar los 80'
+        required: true
+        default: 'Sfp8j2Sq'
+      skip_assets:
+        description: 'Saltear descarga de fotos y planos'
+        type: boolean
+        default: false
+      skip_verify:
+        description: 'No correr los 3 tests de verificación'
+        type: boolean
+        default: false
+  # Para activar refresh masivo automático, descomentar:
+  # schedule:
+  #   - cron: '0 6 * * 0'  # domingo 6am UTC
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+
+      - name: Exchange BC_TOKEN → JWT
+        env:
+          BC_TOKEN: ${{ secrets.BC_TOKEN }}
+        run: |
+          set -euo pipefail
+          JWT=$(curl -fsS -X POST https://bc-api.178-105-91-29.nip.io/auth/exchange \
+            -H "Content-Type: application/json" \
+            -d "{\"bc_token\":\"$BC_TOKEN\"}" | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+          if [ -z "$JWT" ]; then echo "JWT vacío"; exit 1; fi
+          echo "::add-mask::$JWT"
+          echo "BC_API_JWT=$JWT" >> "$GITHUB_ENV"
+
+      - name: Import project
+        env:
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+          BC_TOKEN:         ${{ secrets.BC_TOKEN }}
+          BC_API_BASE:      https://bc-api.178-105-91-29.nip.io
+          HEADLESS:         '1'
+          IMPORTS_DIR:      imports
+        run: |
+          if [ "${{ github.event.inputs.jb_id }}" = "all" ]; then
+            python3 scripts/import_jb.py --all \
+              ${{ github.event.inputs.skip_assets == 'true' && '--skip-assets' || '' }}
+          else
+            python3 scripts/import_jb.py "${{ github.event.inputs.jb_id }}" \
+              ${{ github.event.inputs.skip_assets == 'true' && '--skip-assets' || '' }}
+          fi
+
+      - name: Verify (3 tests)
+        if: ${{ github.event.inputs.skip_verify != 'true' && github.event.inputs.jb_id != 'all' }}
+        env:
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+          BC_TOKEN:         ${{ secrets.BC_TOKEN }}
+          BC_API_BASE:      https://bc-api.178-105-91-29.nip.io
+          HEADLESS:         '1'
+          IMPORTS_DIR:      imports
+        run: |
+          python3 scripts/verify_jb_all.py "${{ github.event.inputs.jb_id }}"
+        continue-on-error: true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: import-${{ github.event.inputs.jb_id }}-${{ github.run_id }}
+          path: imports/
+          retention-days: 30
+          if-no-files-found: warn
