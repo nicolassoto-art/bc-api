@@ -41,14 +41,15 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install chromium --with-deps
 
-      - name: Exchange BC_TOKEN → JWT
+      - name: Login bc-api → JWT
         env:
-          BC_TOKEN: ${{ secrets.BC_TOKEN }}
+          BC_API_EMAIL: nicolas.soto@bigcapital.cl
+          BC_API_PASSWORD: ${{ secrets.BC_API_PASSWORD }}
         run: |
           set -euo pipefail
-          JWT=$(curl -fsS -X POST https://bc-api.178-105-91-29.nip.io/auth/exchange \
+          JWT=$(curl -fsS -X POST https://bc-api.178-105-91-29.nip.io/auth/login \
             -H "Content-Type: application/json" \
-            -d "{\"bc_token\":\"$BC_TOKEN\"}" | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+            -d "{\"email\":\"$BC_API_EMAIL\",\"password\":\"$BC_API_PASSWORD\"}" | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
           if [ -z "$JWT" ]; then echo "JWT vacío"; exit 1; fi
           echo "::add-mask::$JWT"
           echo "BC_API_JWT=$JWT" >> "$GITHUB_ENV"
@@ -57,7 +58,6 @@ jobs:
         env:
           JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
           JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
-          BC_TOKEN:         ${{ secrets.BC_TOKEN }}
           BC_API_BASE:      https://bc-api.178-105-91-29.nip.io
           HEADLESS:         '1'
           IMPORTS_DIR:      imports
@@ -75,7 +75,6 @@ jobs:
         env:
           JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
           JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
-          BC_TOKEN:         ${{ secrets.BC_TOKEN }}
           BC_API_BASE:      https://bc-api.178-105-91-29.nip.io
           HEADLESS:         '1'
           IMPORTS_DIR:      imports
