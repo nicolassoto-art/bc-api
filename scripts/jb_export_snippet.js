@@ -1,92 +1,104 @@
-/* JetBroker · Export snippet (uso humano-asistido)
-   ===================================================
+/* JetBroker · Export snippet v2
+   ================================
    Pegá este código en la consola de Chrome (F12 → Console)
-   estando LOGUEADO en https://app.jetbrokers.io.
+   estando LOGUEADO en https://app.jetbrokers.io/catalog
 
-   Llama los mismos endpoints que la UI de JetBroker usa cuando
-   navegás por tus proyectos (no es scraping, es tu propia sesión).
-   Te descarga un archivo `jb_export.json` con todos tus proyectos
-   visibles + sus unidades.
+   Filtra: Disponible: Sí + JetStock: No  →  los 83 proyectos del catálogo
+   que no están en tu stock interno todavía.
 
-   Después corrés:
-     python scripts/import_from_jetbroker.py \
-       --input ~/Downloads/jb_export.json \
-       --org "Larraín Prieto" \
-       --bcapi-url https://bc-api.178-105-91-29.nip.io \
-       --bcapi-email nicolas.soto@bigcapital.cl \
-       --bcapi-pass-file ~/.bcapi-admin-pass \
-       --dry-run
+   Al terminar descarga `jb_export_YYYY-MM-DD.json`.
+   Luego subí ese archivo en:
+     https://herramientas.bigcapital.cl/src/importador/
 */
 (async () => {
-  const API = 'https://api.jetbrokers.io';
+  const BASE = 'https://app.jetbrokers.io/api';
 
-  // Helper: fetch con credenciales (usa tu cookie de sesión actual)
-  const get = (url) => fetch(url, { credentials: 'include' })
-    .then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${url}`)));
-
-  console.log('1) Listando proyectos visibles...');
-  // Probar endpoints hasta encontrar el que devuelve la lista
-  let projects = null;
-  for (const path of [
-    '/api/projects', '/api/v1/projects', '/api/me/projects',
-    '/api/broker/projects', '/api/catalog/projects',
-  ]) {
-    try {
-      const data = await get(API + path);
-      projects = Array.isArray(data) ? data
-        : (data.data || data.projects || data.items || data.results);
-      if (Array.isArray(projects)) {
-        console.log(`   ✓ ${path} → ${projects.length} proyectos`);
-        break;
-      }
-    } catch(e) { console.log(`   · ${path} → ${e.message}`); }
-  }
-
-  if (!projects) {
-    console.error('No pude listar proyectos. Tu sesión puede estar expirada o JB cambió endpoints.');
+  // Token de la sesión activa
+  const token = localStorage.getItem('broker-storage_broker-user-token');
+  if (!token) {
+    console.error('❌ No hay token. ¿Estás logueado en https://app.jetbrokers.io ?');
     return;
   }
 
-  console.log(`\n2) Tomando detalle + unidades de ${projects.length} proyectos...`);
-  console.log('   (esto puede tomar varios minutos · podés pausar el script cerrando la tab)');
+  const H = {
+    'Authorization': `Bearer ${token}`,
+    'jet-brokers-version': '7.42.0',
+    'device': 'w',
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+  const get  = url  => fetch(url, { headers: H }).then(r => r.ok ? r.json() : Promise.reject(`${r.status} ${url}`));
+  const post = (url, body) => fetch(url, { method:'POST', headers: H, body: JSON.stringify(body) })
+                               .then(r => r.ok ? r.json() : Promise.reject(`${r.status} ${url}`));
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+  // ── Paso 1: todas las unidades disponibles con JetStock: No ──────────────
+  console.log('🔍 Paso 1/3 — Obteniendo unidades (Disponible:Sí + JetStock:No)...');
+  const PAGE = 30;
+  const SEARCH_BODY = {
+    modality:'new', stage:null, project:null, developer:null,
+    comuna:null, tipology:null, facing:null, discountRate:null,
+    bonoPie:null, finalPriceFrom:null, finalPriceTo:null,
+    sort:null, unitType:null, jetstock:false, element:0,
+  };
+
+  const first = await post(`${BASE}/apartment/catalog-search`, SEARCH_BODY);
+  const total = first.count || 0;
+  let allUnits = [...(first.elements || [])];
+  console.log(`   Total unidades: ${total}`);
+
+  for (let offset = PAGE; offset < total; offset += PAGE) {
+    await sleep(600 + Math.random() * 600);
+    const page = await post(`${BASE}/apartment/catalog-search`, { ...SEARCH_BODY, element: offset });
+    allUnits.push(...(page.elements || []));
+    if (offset % 150 < PAGE) console.log(`   Progreso: ${Math.min(offset + PAGE, total)}/${total}`);
+  }
+  console.log(`   ✓ ${allUnits.length} unidades descargadas`);
+
+  // ── Agrupar unidades por proyecto ────────────────────────────────────────
+  const projMap = {};
+  for (const u of allUnits) {
+    const proj = u.project;
+    if (!proj?.id) continue;
+    if (!projMap[proj.id]) projMap[proj.id] = { _basic: proj, _units: [] };
+    projMap[proj.id]._units.push(u);
+  }
+  const pids = Object.keys(projMap);
+  console.log(`\n📦 Paso 2/3 — Detalle de ${pids.length} proyectos únicos...`);
+
+  // ── Paso 2: detalle completo de cada proyecto ────────────────────────────
   const enriched = [];
-  for (let i = 0; i < projects.length; i++) {
-    const p = projects[i];
-    const pid = p.id;
+  for (let i = 0; i < pids.length; i++) {
+    const pid = pids[i];
+    await sleep(500 + Math.random() * 800);
     try {
-      // Detalle (puede que ya venga en la lista; lo refrescamos)
-      const detail = await get(`${API}/api/project/${pid}`);
-      // Units
-      const unitsRaw = await get(`${API}/api/project/${pid}/units`).catch(() => []);
-      const units = Array.isArray(unitsRaw) ? unitsRaw : (unitsRaw.data || []);
-      enriched.push({ ...detail, units });
-      console.log(`   [${i+1}/${projects.length}] ${detail.name} · ${units.length} unidades`);
+      const detail = await get(`${BASE}/project/${pid}`);
+      enriched.push({
+        ...detail,
+        units: projMap[pid]._units,
+        _meta: { exportedAt: new Date().toISOString(), filter: 'disponible:si+jetstock:no' },
+      });
+      const org = (detail.organization?.name || projMap[pid]._basic.organization?.name || '—');
+      console.log(`   [${i+1}/${pids.length}] ${detail.name} · ${org} · ${projMap[pid]._units.length} unidades`);
     } catch(e) {
-      console.warn(`   [${i+1}/${projects.length}] ${p.name || pid}: ${e.message}`);
-      enriched.push({ ...p, units: [], _error: e.message });
+      console.warn(`   [${i+1}/${pids.length}] ${pid}: ${e}`);
+      enriched.push({ ...projMap[pid]._basic, units: projMap[pid]._units, _error: String(e) });
     }
-    // Pequeña pausa humana entre proyectos (1-3s aleatorio)
-    await new Promise(r => setTimeout(r, 1000 + Math.random() * 2000));
   }
 
-  console.log('\n3) Generando archivo de descarga...');
-  const blob = new Blob([JSON.stringify(enriched, null, 2)], { type: 'application/json' });
+  // ── Paso 3: descargar JSON ───────────────────────────────────────────────
+  console.log('\n💾 Paso 3/3 — Generando archivo...');
+  const blob = new Blob([JSON.stringify(enriched, null, 2)], { type:'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `jb_export_${new Date().toISOString().slice(0,10)}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  document.body.appendChild(a); a.click(); a.remove();
 
-  // Resumen por organization
   const byOrg = {};
-  enriched.forEach(p => {
-    const n = (p.organization?.name || p.organization || '—').toString();
-    byOrg[n] = (byOrg[n] || 0) + 1;
-  });
-  console.log('\n✓ Descargado. Resumen por inmobiliaria:');
-  Object.entries(byOrg).sort((a,b) => b[1] - a[1]).forEach(([n, c]) => {
-    console.log(`   ${String(c).padStart(4)} · ${n}`);
-  });
+  enriched.forEach(p => { const n = p.organization?.name || '—'; byOrg[n] = (byOrg[n]||0)+1; });
+  console.log(`\n✅ ${enriched.length} proyectos exportados. Por inmobiliaria:`);
+  Object.entries(byOrg).sort((a,b)=>b[1]-a[1]).forEach(([n,c]) =>
+    console.log(`   ${String(c).padStart(4)} · ${n}`)
+  );
+  console.log('\n📥 Ahora subí el archivo en: https://herramientas.bigcapital.cl/src/importador/');
 })();
