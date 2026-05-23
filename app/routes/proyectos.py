@@ -4,6 +4,7 @@ import re
 import uuid
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from pydantic import BaseModel
 from sqlalchemy import select, func, Integer
 from sqlalchemy.orm import Session, selectinload
 
@@ -117,3 +118,31 @@ def eliminar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depen
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
     db.delete(p)
     db.commit()
+
+
+class _EstadoBody(BaseModel):
+    activo: bool
+
+
+@router.patch("/{proyecto_id}/estado", response_model=ProyectoSummary)
+def set_estado(
+    proyecto_id: str,
+    body: _EstadoBody,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(super_admin),
+):
+    """Activa (activo=true) o desactiva (activo=false) un proyecto. Usado por el validador."""
+    p = db.get(Proyecto, proyecto_id)
+    if not p:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
+    p.activo = body.activo
+    p.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(p)
+    total, disp = db.execute(
+        select(func.count(Unidad.id), func.sum(func.cast(Unidad.disponible, Integer)))
+        .where(Unidad.proyecto_id == proyecto_id)
+    ).one()
+    return ProyectoSummary.model_validate(p).model_copy(
+        update={"unidades_total": int(total or 0), "unidades_disponibles": int(disp or 0)}
+    )

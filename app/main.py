@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .routes import auth, proyectos, imagenes, unidades
+from .routes import auth, proyectos, imagenes, unidades, importador
 from .settings import settings
 
 logging.basicConfig(level=settings.log_level)
@@ -37,6 +37,7 @@ app.include_router(auth.router)
 app.include_router(proyectos.router)
 app.include_router(imagenes.router)
 app.include_router(unidades.router)
+app.include_router(importador.router)
 
 
 @app.get("/health", tags=["meta"])
