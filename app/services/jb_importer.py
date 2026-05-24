@@ -599,7 +599,11 @@ class JBImporter:
             }""")
             if html_notas and len(html_notas) > 20:
                 self._set_path(out, "extra.notas_html", html_notas)
-                log.info(f"   ✓ Notas extraídas ({len(html_notas)} chars)")
+                # También guardar como texto plano (más legible / buscable)
+                notas_text = self._html_to_text(html_notas)
+                if notas_text:
+                    self._set_path(out, "extra.notas_text", notas_text)
+                log.info(f"   ✓ Notas extraídas ({len(html_notas)} chars HTML, {len(notas_text)} chars texto)")
         except Exception as e:
             log.warning(f"   notas → {e}")
 
@@ -867,6 +871,57 @@ class JBImporter:
                 JBImporter._deep_merge(dst[k], v)
             else:
                 dst[k] = v
+
+    @staticmethod
+    def _html_to_text(html: str) -> str:
+        """Convierte HTML a texto plano legible, preservando estructura.
+        - <p>, <br>, </tr>, </li> → newline
+        - <li> → "- "
+        - tablas → cells separadas con " | "
+        - imágenes y blob: → omitidos
+        - resto de tags → eliminados
+        """
+        if not html:
+            return ""
+        s = html
+        # Quitar imágenes (incluyendo blob:)
+        s = re.sub(r'<img[^>]*>', '', s, flags=re.IGNORECASE)
+        # Tablas: cell separator + row separator
+        s = re.sub(r'</td>\s*<td[^>]*>', ' | ', s, flags=re.IGNORECASE)
+        s = re.sub(r'</tr>', '\n', s, flags=re.IGNORECASE)
+        # Listas
+        s = re.sub(r'<li[^>]*>', '\n- ', s, flags=re.IGNORECASE)
+        # Párrafos y line breaks
+        s = re.sub(r'<br[^>]*/?>', '\n', s, flags=re.IGNORECASE)
+        s = re.sub(r'</p>', '\n\n', s, flags=re.IGNORECASE)
+        s = re.sub(r'</h[1-6]>', '\n\n', s, flags=re.IGNORECASE)
+        s = re.sub(r'</div>', '\n', s, flags=re.IGNORECASE)
+        # Resto de tags → ""
+        s = re.sub(r'<[^>]+>', '', s)
+        # Entidades HTML comunes
+        replacements = {
+            '&nbsp;': ' ', '&amp;': '&', '&lt;': '<', '&gt;': '>',
+            '&quot;': '"', '&#39;': "'", '&apos;': "'", '&ntilde;': 'ñ',
+            '&Ntilde;': 'Ñ', '&aacute;': 'á', '&eacute;': 'é',
+            '&iacute;': 'í', '&oacute;': 'ó', '&uacute;': 'ú',
+        }
+        for ent, ch in replacements.items():
+            s = s.replace(ent, ch)
+        # Normalizar whitespace
+        # Quitar espacios al inicio/fin de cada línea
+        lines = [ln.strip() for ln in s.split('\n')]
+        # Colapsar 3+ líneas vacías en 2 (max 1 línea en blanco entre párrafos)
+        out_lines = []
+        blank_count = 0
+        for ln in lines:
+            if ln == "":
+                blank_count += 1
+                if blank_count <= 1:
+                    out_lines.append("")
+            else:
+                blank_count = 0
+                out_lines.append(ln)
+        return "\n".join(out_lines).strip()
 
     @staticmethod
     def _count_leaves(obj: Any) -> int:
