@@ -351,13 +351,17 @@ class JBImporter:
         ("Formas de pagar el pie", "Valor Cuota"):         "extra.formas_pago_pie.valor_cuota_clp",
         ("Formas de pagar el pie", "Valor en UF"):         "extra.formas_pago_pie.valor_cuota_uf",
         ("Formas de pagar el pie", "Destino Reserva"):     "extra.formas_pago_pie.destino_reserva",
-        # Sección "Cuenta de Reserva"
-        ("Cuenta de Reserva", "Nombre"):           "extra.cuenta_reserva.titular_nombre",
-        ("Cuenta de Reserva", "RUT"):              "extra.cuenta_reserva.titular_rut",
-        ("Cuenta de Reserva", "Tipo de cuenta"):   "extra.cuenta_reserva.tipo_cuenta",
-        ("Cuenta de Reserva", "Numero de cuenta"): "extra.cuenta_reserva.numero_cuenta",
-        ("Cuenta de Reserva", "Banco"):            "extra.cuenta_reserva.banco",
-        ("Cuenta de Reserva", "Link de Pago Online"): "extra.cuenta_reserva.link_pago",
+        # Sección "Cuenta reserva" (JB usa este nombre exacto)
+        ("Cuenta reserva", "Nombre"):           "extra.cuenta_reserva.titular_nombre",
+        ("Cuenta reserva", "RUT"):              "extra.cuenta_reserva.titular_rut",
+        ("Cuenta reserva", "Tipo de cuenta"):   "extra.cuenta_reserva.tipo_cuenta",
+        ("Cuenta reserva", "Numero de cuenta"): "extra.cuenta_reserva.numero_cuenta",
+        ("Cuenta reserva", "Banco"):            "extra.cuenta_reserva.banco",
+        ("Cuenta reserva", "Link de Pago Online"): "extra.cuenta_reserva.link_pago",
+        # Sección "Reserva" (separada de Condiciones Comerciales)
+        ("Reserva", "Reserva"):              "extra.comercial.valor_reserva_clp",
+        ("Reserva", "Tipo Reserva"):         "extra.comercial.tipo_reserva",
+        ("Reserva", "Destino Reserva"):      "extra.comercial.destino_reserva",
         # Sección SPA
         ("SPA del Proyecto", "Nombre"):    "extra.spa_proyecto.nombre",
         ("SPA del Proyecto", "RUT"):       "extra.spa_proyecto.rut",
