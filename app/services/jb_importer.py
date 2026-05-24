@@ -1267,6 +1267,67 @@ class JBImporter:
             return sum(JBImporter._count_leaves(v) for v in obj)
         return 1
 
+    # ── Wipe interno (parte del pipeline) ────────────────────────────────
+    async def _wipe_proyecto_full(self, proyecto_id: str, current: dict) -> dict:
+        """Borra TODO del proyecto antes de importar.
+        - Todas las unidades
+        - Todas las imagenes (cualquier categoría)
+        - Reset extra (preservando solo jb_id)
+        Hace los re-imports 100% idempotentes (JB como single source of truth).
+        """
+        deleted = {"imagenes": 0, "unidades": 0, "extra_keys": 0}
+
+        # Imágenes
+        for img in current.get("imagenes", []):
+            try:
+                r = await self._bc_client.delete(f"/proyectos/{proyecto_id}/imagenes/{img['id']}")
+                if r.status_code in (200, 204):
+                    deleted["imagenes"] += 1
+            except Exception as e:
+                log.warning(f"   wipe imagen {img.get('id')}: {e}")
+
+        # Unidades
+        for u in current.get("unidades", []):
+            try:
+                r = await self._bc_client.delete(f"/proyectos/{proyecto_id}/unidades/{u['id']}")
+                if r.status_code in (200, 204):
+                    deleted["unidades"] += 1
+            except Exception as e:
+                log.warning(f"   wipe unidad {u.get('id')}: {e}")
+
+        # Extra (preservar solo jb_id)
+        old_extra = current.get("extra") or {}
+        jb_id_preserved = old_extra.get("jb_id")
+        new_extra = {"jb_id": jb_id_preserved} if jb_id_preserved else {}
+        deleted["extra_keys"] = len(old_extra) - len(new_extra)
+        # PUT con extra reseteado (mantenemos campos top-level del proyecto)
+        body = {
+            "nombre": current["nombre"],
+            "inmobiliaria": current.get("inmobiliaria"),
+            "comuna": current.get("comuna"),
+            "region": current.get("region"),
+            "direccion": current.get("direccion"),
+            "gps_lat": current.get("gps_lat"),
+            "gps_lon": current.get("gps_lon"),
+            "fase": current.get("fase"),
+            "modalidad": current.get("modalidad"),
+            "activo": current.get("activo", True),
+            "disponible": current.get("disponible", True),
+            "fecha_entrega": current.get("fecha_entrega"),
+            "ano_entrega": current.get("ano_entrega"),
+            "foto_principal_url": None,  # se re-importa
+            "external_url": current.get("external_url"),
+            "notas": None,  # se re-importa
+            "extra": new_extra,
+        }
+        try:
+            await self._bc_client.put(f"/proyectos/{proyecto_id}", json=body)
+        except Exception as e:
+            log.warning(f"   wipe extra reset: {e}")
+
+        log.info(f"   🧹 Wipe: {deleted['imagenes']} imgs, {deleted['unidades']} units, {deleted['extra_keys']} extra keys")
+        return deleted
+
     # ── Pipeline completo ────────────────────────────────────────────────
     async def run(self, jb_id: str, skip_assets: bool = False, dry_run: bool = False) -> ImportReport:
         rep = ImportReport(jb_id=jb_id, started_at=time.time())
@@ -1277,6 +1338,13 @@ class JBImporter:
                 rep.errors.append(f"Proyecto con extra.jb_id={jb_id} no encontrado en bc-api")
                 return rep
             rep.proyecto_id = current["id"]
+
+            # 2. WIPE — etapa inherente del pipeline (JB = single source of truth)
+            if not dry_run:
+                wipe_stats = await self._wipe_proyecto_full(rep.proyecto_id, current)
+                rep.warnings.append(f"wipe: {wipe_stats}")
+                # Re-fetch current para tener el estado post-wipe
+                current = await self.get_proyecto(rep.proyecto_id)
 
             # 2. API JB
             api_data = await self.fetch_api(jb_id)
