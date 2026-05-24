@@ -279,29 +279,44 @@ def ai_vision_compare(jb_png: Path, bc_png: Path, tab_name: str) -> dict:
         import httpx
         jb_b64 = base64.b64encode(jb_png.read_bytes()).decode()
         bc_b64 = base64.b64encode(bc_png.read_bytes()).decode()
-        prompt = f"""Eres un QA visual ESTRICTO 100%. Te muestro dos screenshots del MISMO proyecto inmobiliario en su editor:
+        prompt = f"""Eres un QA de DATOS (no UX). Te muestro dos screenshots del MISMO proyecto inmobiliario en su editor:
 
 IMAGEN 1: JetBrokers (JB) — fuente de verdad, tab "{tab_name}".
-IMAGEN 2: BigCapital (BC) — nuestro sistema, tab "{tab_name}".
+IMAGEN 2: BigCapital (BC) — nuestro sistema, tab "{tab_name}". BC es un editor con botones de edición; JB es más vista.
 
-REGLA #1: JB es la SOURCE OF TRUTH. BC debe contener EXACTAMENTE lo mismo que JB.
-REGLA #2: CUALQUIER diferencia es MISMATCH. No importa si es "cosmética" o "extra que BC agrega".
-REGLA #3: Solo verdict=OK si todos los datos visibles en JB están en BC con MISMO valor visible.
-REGLA #4: Si BC muestra campos/secciones que JB no tiene → MISMATCH (incluso si son útiles).
-REGLA #5: Si JB muestra X (no disponible, no aplica, 0) y BC muestra otra cosa → MISMATCH.
+OBJETIVO: detectar diferencias en DATOS / VALORES / CONTENIDO real, NO diferencias de UX/UI.
+
+IGNORÁ (NO son MISMATCH, son diseño intencional):
+- Iconos vs badges/pills mostrando el MISMO valor (ej: ✓/✗ en JB vs 'Sí'/'No' en BC — son lo mismo)
+- Botones de edición que solo BC tiene (Guardar, Descartar, +Agregar, candado, papelera, lápiz)
+- Headers abreviados/expandidos con mismo significado (ej: 'Disp.' vs 'Disponible', 'Fecha' vs 'Fecha de creación')
+- Capitalización ('Foto' vs 'FOTO', 'areas comunes' vs 'AREAS COMUNES')
+- Paginación: JB muestra 30 de 108, BC muestra todas → NO es MISMATCH, BC tiene más visible y eso está OK
+- Diferencias de formato de fecha ('15/04/2025' vs '15-04-2025') con MISMO valor
+- Secciones extras en BC (Inmobiliaria, SPA, Cuenta reserva expandida) que JB no tiene visible
+- Breadcrumbs, indicadores 'Guardado', timestamps de sync
+- Sufijos de unidad (BC ya tiene 'UF' visible o no — chequeá valor numérico)
+- Placeholders 'https://...' o '---' cuando el valor real está vacío en ambos
+
+SÍ son MISMATCH (data real distinta):
+- Valores numéricos diferentes en mismo campo (precio JB=389 / BC=400)
+- Filas/items que JB tiene con datos y BC NO tiene (ej: bodega 348 con precio 70 UF en JB, ausente en BC)
+- Texto/nombres distintos (etiqueta JB='Crédito Interno' / BC='Crédito hipotecario')
+- Documentos/imágenes/notas con contenido distinto entre JB y BC
+- Campos vacíos en BC cuando JB los tiene llenos (ej: 'Tipo Pie' JB='Obligatorio' / BC vacío)
+- HTML crudo visible como texto, imágenes rotas
+- Estado disponibilidad MISMA cosa mostrada diferente NO cuenta, pero VALOR distinto sí (ej: JB dice 'No disp' y BC dice 'Sí')
 
 JSON estricto, sin markdown:
 {{
   "verdict": "OK" | "MISMATCH" | "BC_EMPTY",
-  "missing_in_bc": ["TODO dato/campo/imagen visible en JB que NO está IDÉNTICO en BC (sé exhaustivo)"],
-  "extra_in_bc": ["TODO campo/sección que BC tiene y JB no — cada uno cuenta como diferencia"],
-  "value_diffs": ["campo X: JB='valor1' / BC='valor2' (mismo campo, distinto valor)"],
-  "render_issues": ["HTML raw visible, imágenes rotas, layout roto, caracteres extraños, placeholders"],
-  "summary": "1-2 frases describiendo el delta total"
+  "missing_in_bc": ["DATOS visibles en JB que faltan en BC (items, filas con contenido, valores)"],
+  "value_diffs": ["campo X: JB='valor1' / BC='valor2' (mismo campo, valor numérico/texto realmente distinto)"],
+  "render_issues": ["HTML raw, imágenes rotas, caracteres extraños"],
+  "summary": "1-2 frases sobre paridad de DATOS"
 }}
 
-Verdict OK SOLO si: missing_in_bc=[], extra_in_bc=[], value_diffs=[], render_issues=[].
-Si hay UNA sola diferencia (campo extra, valor distinto, render) → MISMATCH."""
+Verdict OK si los datos coinciden aunque la UI se vea diferente. MISMATCH solo si hay valores realmente distintos o data faltante."""
         r = httpx.post(
             "https://api.anthropic.com/v1/messages",
             headers={
