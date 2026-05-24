@@ -218,21 +218,53 @@ class JBImporter:
         except Exception:
             await self._page.keyboard.press("Enter")
 
-        # Esperar JWT
-        for _ in range(15):
+        # Esperar a que cargue la app (dashboard, no /login)
+        for i in range(15):
+            url = self._page.url
+            if "login" not in url.lower() and "jetbrokers.io" in url:
+                # Logueado: extraer token de localStorage
+                try:
+                    storage_data = await self._page.evaluate("""() => {
+                        const keys = Object.keys(localStorage);
+                        const out = {};
+                        for (const k of keys) {
+                            const v = localStorage.getItem(k);
+                            if (v && v.length > 20) out[k] = v;
+                        }
+                        return out;
+                    }""")
+                    # Buscar el token entre los valores de localStorage
+                    for k, v in storage_data.items():
+                        # JWT format
+                        if isinstance(v, str) and v.startswith("eyJ") and v.count(".") == 2:
+                            token_found = v
+                            log.info(f"   ✓ Token JWT desde localStorage[{k}]")
+                            break
+                        # Plain session token (alfanumérico largo)
+                        if isinstance(v, str) and 20 < len(v) < 200 and v.replace("-", "").replace("_", "").isalnum():
+                            # Verificar si es probable token
+                            if not token_found:
+                                token_found = v
+                                log.info(f"   ⚠ Token candidate desde localStorage[{k}] ({len(v)} chars)")
+                    if token_found:
+                        break
+                except Exception as e:
+                    log.warning(f"   read localStorage: {e}")
             if token_found:
                 break
             await self._page.wait_for_timeout(2_000)
         if not token_found:
-            # Debug: capturar screenshot + HTML + URL para entender qué pasó
+            # Debug: capturar screenshot + HTML + URL + localStorage
             try:
                 debug_dir = self.imports_dir / "_debug_login"
                 debug_dir.mkdir(parents=True, exist_ok=True)
                 await self._page.screenshot(path=str(debug_dir / "login_fail.png"), full_page=True)
                 html = await self._page.content()
                 (debug_dir / "login_fail.html").write_text(html, encoding="utf-8")
+                ls = await self._page.evaluate("() => Object.fromEntries(Object.entries(localStorage).map(([k,v])=>[k, v?.length || 0]))")
+                (debug_dir / "localStorage_keys.json").write_text(json.dumps(ls, indent=2), encoding="utf-8")
                 log.error(f"   Debug login: URL={self._page.url}")
-                log.error(f"   Screenshot + HTML guardados en {debug_dir}")
+                log.error(f"   localStorage keys+lengths: {ls}")
             except Exception as e:
                 log.error(f"   No pude guardar debug: {e}")
             raise RuntimeError("Login JB falló: no se capturó el token")
