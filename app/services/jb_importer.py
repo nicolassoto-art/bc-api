@@ -688,6 +688,35 @@ class JBImporter:
         except Exception as e:
             log.warning(f"   estac tab → {e}")
 
+        # ── Tab Stock: descargar Excel del stock (formato canónico para futuras updates) ──
+        try:
+            await self._click_tab("Stock")
+            await self._page.wait_for_timeout(2_500)
+            await self._page.screenshot(path=str(debug_dir / "tab-stock.png"), full_page=True)
+            # Buscar botón "Descargar Excel" / "Exportar" / "Excel"
+            xlsx_path = self.imports_dir / jb_id / f"stock-jb-{time.strftime('%Y%m%d')}.xlsx"
+            xlsx_path.parent.mkdir(parents=True, exist_ok=True)
+            for btn_text in ("Descargar Excel", "Exportar", "Excel", "Descargar"):
+                try:
+                    async with self._page.expect_download(timeout=15_000) as dl_info:
+                        await self._page.locator(f"button:has-text('{btn_text}'), a:has-text('{btn_text}')").first.click(timeout=4_000)
+                    download = await dl_info.value
+                    await download.save_as(str(xlsx_path))
+                    if xlsx_path.exists() and xlsx_path.stat().st_size > 1024:
+                        log.info(f"   📊 Excel stock descargado: {xlsx_path.name} ({xlsx_path.stat().st_size} bytes)")
+                        self._set_path(out, "extra._jb_stock_excel", {
+                            "path": str(xlsx_path),
+                            "size": xlsx_path.stat().st_size,
+                            "downloaded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        })
+                        break
+                except Exception:
+                    continue
+            else:
+                log.warning(f"   stock excel → no se encontró botón de descarga")
+        except Exception as e:
+            log.warning(f"   stock tab → {e}")
+
         # ── Tab Notas ──
         try:
             await self._click_tab("Notas")
