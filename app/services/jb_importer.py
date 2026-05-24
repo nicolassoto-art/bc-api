@@ -468,6 +468,35 @@ class JBImporter:
         def norm(s):
             return s.lower().replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ñ","n").strip()
 
+        # Normalizar valor numérico: "20,00" → 20.0, "200.000" → 200000
+        def normalize_value(path: str, value: str):
+            # Paths que son numéricos
+            numeric_paths = (
+                "pie_pct", "cuoton_", "_pct", "valor_", "cuotas_",
+                "pisos", "unidades_", "estacionamientos_", "bodegas_", "ascensores",
+                "_clp", "_uf",
+            )
+            if not any(p in path for p in numeric_paths):
+                return value
+            if value is None or value == "":
+                return None
+            try:
+                s = str(value).strip()
+                # Quitar separadores miles (.) y normalizar decimal (,)
+                if "," in s and "." in s:
+                    # "1.234,56" → "1234.56"
+                    s = s.replace(".", "").replace(",", ".")
+                elif "," in s:
+                    # "20,00" → "20.00"
+                    s = s.replace(",", ".")
+                elif s.count(".") > 1:
+                    # "200.000" → "200000" (thousand sep)
+                    s = s.replace(".", "")
+                n = float(s)
+                return int(n) if n == int(n) else n
+            except Exception:
+                return value
+
         unmatched = []
         for pair in all_pairs:
             label = pair.get("label", "").strip()
@@ -486,7 +515,7 @@ class JBImporter:
                             break
 
             if matched_path and not matched_path.startswith("_"):
-                self._set_path(out, matched_path, value)
+                self._set_path(out, matched_path, normalize_value(matched_path, value))
             elif not matched_path:
                 unmatched.append({"section": section, "label": label, "value": value[:60]})
 
