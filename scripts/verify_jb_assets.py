@@ -116,19 +116,30 @@ async def main(jb_id: str):
             log.error(f"No se encontró proyecto con extra.jb_id={jb_id}")
             sys.exit(2)
 
-        # Counts BC
+        # Counts BC — contamos SOLO categorías "jb-*" para comparar con JB
+        # (las imágenes legacy de otros imports no son parte del scope JB)
         imagenes = proj.get("imagenes") or []
         documentos = proj.get("documentos") or []
-        # Algunos sistemas guardan docs como categoria=documento en imagenes (fallback)
-        docs_in_imagenes = [i for i in imagenes if (i.get("categoria") or "").startswith("doc")]
-        modelos_bc = (proj.get("extra") or {}).get("modelos") or []
-        modelos_con_plano_bc = sum(1 for m in modelos_bc if m.get("plano_url"))
+        # JB fotos (no plantas, no docs): categoria jb-foto-* o cover
+        jb_fotos = [i for i in imagenes if (i.get("categoria") or "").startswith(("jb-foto-", "cover"))]
+        # JB plantas: categoria jb-planta-*
+        jb_plantas = [i for i in imagenes if (i.get("categoria") or "").startswith("jb-planta-")]
+        # JB docs: categoria jb-doc-*
+        docs_in_imagenes = [i for i in imagenes if (i.get("categoria") or "").startswith("jb-doc-")]
+        # Plantas también pueden estar en extra.modelos[] o extra.modelos_dom[]
+        extra = proj.get("extra") or {}
+        modelos_bc = extra.get("modelos") or extra.get("modelos_dom") or []
+        modelos_con_plano_bc = max(
+            len(jb_plantas),
+            sum(1 for m in modelos_bc if m.get("plano_url") or m.get("planta_url")),
+        )
 
-        # HEAD a cada URL
+        # HEAD a cada URL JB (no a las legacy)
         all_urls = []
-        all_urls += [i.get("url") for i in imagenes if i.get("url")]
+        all_urls += [i.get("url") for i in jb_fotos if i.get("url")]
+        all_urls += [i.get("url") for i in jb_plantas if i.get("url")]
+        all_urls += [i.get("url") for i in docs_in_imagenes if i.get("url")]
         all_urls += [d.get("url") for d in documentos if d.get("url")]
-        all_urls += [m.get("plano_url") for m in modelos_bc if m.get("plano_url")]
         all_urls = [u for u in all_urls if u]
 
         log.info(f"🔗 HEAD a {len(all_urls)} URLs...")
@@ -137,8 +148,8 @@ async def main(jb_id: str):
         broken = [r for r in head_results if not r["alive"]]
         all_alive = len(broken) == 0
 
-        # Resultado
-        bc_fotos = len(imagenes) - len(docs_in_imagenes) - len([i for i in imagenes if (i.get("categoria") or "").startswith("plano")])
+        # Resultado: contamos SOLO los que vienen de JB para comparar 1:1
+        bc_fotos = len(jb_fotos)
         bc_docs = len(documentos) + len(docs_in_imagenes)
         result = {
             "jb_id": jb_id,
