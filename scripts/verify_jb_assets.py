@@ -53,7 +53,7 @@ async def head_url(url: str, timeout: float = 15.0) -> dict:
 
 
 async def count_jb_assets(imp: JBImporter, jb_id: str) -> dict:
-    """Navegar JB editor + contar fotos, docs, modelos con plano."""
+    """Navegar JB editor → tab Documentos → contar por tipo (fotos/planos/docs)."""
     page = imp._page
     edit_url = f"https://app.jetbrokers.io/projects/edit/{jb_id}"
     if not page.url.startswith(edit_url):
@@ -62,28 +62,35 @@ async def count_jb_assets(imp: JBImporter, jb_id: str) -> dict:
 
     counts = {"fotos": 0, "documentos": 0, "modelos_con_plano": 0}
 
-    # Tab Fotos
-    try:
-        await imp._click_tab("Fotos")
-        await page.wait_for_timeout(1_500)
-        imgs = await page.query_selector_all(".gallery-item img, .photos-tab img, mat-grid-tile img")
-        counts["fotos"] = len(imgs)
-    except Exception as e:
-        log.warning(f"   contar fotos JB → {e}")
-
-    # Tab Documentos
+    # Todo vive en el tab Documentos. Clasificar por columna "Tipo" + extensión
     try:
         await imp._click_tab("Documentos")
-        await page.wait_for_timeout(1_500)
-        docs = await page.query_selector_all(".documents-tab mat-list-item, .docs-tab .doc-item")
-        counts["documentos"] = len(docs)
+        await page.wait_for_timeout(2_500)
+        rows = await page.evaluate("""() => {
+            const tables = document.querySelectorAll('table');
+            let best = null, bestN = 0;
+            tables.forEach(t => {
+                const n = t.querySelectorAll('tbody tr').length;
+                if (n > bestN) { best = t; bestN = n; }
+            });
+            if (!best) return [];
+            return [...best.querySelectorAll('tbody tr')].map(tr => {
+                const cells = [...tr.querySelectorAll('td')].map(c => c.innerText.trim());
+                return cells;
+            });
+        }""")
+        for cells in rows:
+            tipo = (cells[2] if len(cells) > 2 else "").lower()
+            ext = (cells[4] if len(cells) > 4 else "").lower()
+            if "foto" in tipo or "imagen" in tipo or ext in ("jpg", "jpeg", "png", "webp", "gif"):
+                counts["fotos"] += 1
+            elif "planta" in tipo or "plano" in tipo or "subter" in tipo:
+                counts["modelos_con_plano"] += 1
+            else:
+                counts["documentos"] += 1
+        log.info(f"   📄 Documentos table: {len(rows)} rows → {counts['fotos']} fotos, {counts['modelos_con_plano']} planos, {counts['documentos']} docs")
     except Exception as e:
-        log.warning(f"   contar documentos JB → {e}")
-
-    # Modelos con plano: vienen de API JB (apartmentModel.blueprint.id)
-    api_data = await imp.fetch_api(jb_id)
-    modelos = imp._extract_modelos(api_data.get("units") or [])
-    counts["modelos_con_plano"] = sum(1 for m in modelos if m.get("blueprint_jb_id"))
+        log.warning(f"   contar JB documentos → {e}")
 
     return counts
 

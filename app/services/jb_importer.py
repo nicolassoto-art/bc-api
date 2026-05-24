@@ -461,6 +461,64 @@ class JBImporter:
         except Exception as e:
             log.warning(f"   etiquetas → {e}")
 
+        # ── Tab Documentos: contiene fotos + planos + PDFs todos juntos ──
+        try:
+            await self._click_tab("Documentos")
+            await self._page.wait_for_timeout(2_500)
+            await self._page.screenshot(path=str(debug_dir / "tab-documentos.png"), full_page=True)
+            # Dump HTML para inspección de selectores
+            html_docs = await self._page.content()
+            (debug_dir / "tab-documentos.html").write_text(html_docs, encoding="utf-8")
+
+            # Extraer rows de la tabla de documentos
+            docs_rows = await self._page.evaluate("""() => {
+                // JB típicamente usa <table> con rows
+                const tables = document.querySelectorAll('table');
+                let bestTable = null;
+                let bestRows = 0;
+                tables.forEach(t => {
+                    const rows = t.querySelectorAll('tbody tr');
+                    if (rows.length > bestRows) {
+                        bestTable = t;
+                        bestRows = rows.length;
+                    }
+                });
+                if (!bestTable) return [];
+                const rows = bestTable.querySelectorAll('tbody tr');
+                return [...rows].map(tr => {
+                    const cells = [...tr.querySelectorAll('td')].map(c => c.innerText.trim());
+                    // Buscar link a archivo en la row
+                    const links = [...tr.querySelectorAll('a')].map(a => a.href).filter(h => h && h !== '#');
+                    const imgs = [...tr.querySelectorAll('img')].map(i => i.src).filter(s => s && !s.startsWith('data:'));
+                    // Botones (que disparan download)
+                    const btns = [...tr.querySelectorAll('button, [role="button"]')].map(b => b.title || b.getAttribute('aria-label') || b.innerText.trim()).filter(Boolean);
+                    return {cells, links, imgs, btn_titles: btns};
+                });
+            }""")
+            (debug_dir / "documentos_rows.json").write_text(json.dumps(docs_rows, indent=2, ensure_ascii=False), encoding="utf-8")
+            log.info(f"   📄 Documentos: {len(docs_rows)} rows encontradas")
+            # Clasificar por tipo (columna 2 o 3)
+            classified = {"fotos": [], "planos": [], "documentos": []}
+            for r in docs_rows:
+                cells = r.get("cells", [])
+                tipo = (cells[2] if len(cells) > 2 else "").lower()
+                ext = (cells[4] if len(cells) > 4 else "").lower()
+                item = {"tipo": cells[2] if len(cells) > 2 else "", "fecha": cells[0] if cells else "", "ext": ext, "links": r.get("links", [])}
+                if "foto" in tipo or "imagen" in tipo or ext in ("jpg", "jpeg", "png", "webp", "gif"):
+                    classified["fotos"].append(item)
+                elif "planta" in tipo or "plano" in tipo or "subter" in tipo:
+                    classified["planos"].append(item)
+                else:
+                    classified["documentos"].append(item)
+            out.setdefault("extra", {})["_jb_documentos_summary"] = {
+                "fotos_count": len(classified["fotos"]),
+                "planos_count": len(classified["planos"]),
+                "documentos_count": len(classified["documentos"]),
+            }
+            log.info(f"   📊 Clasificación: {len(classified['fotos'])} fotos, {len(classified['planos'])} planos, {len(classified['documentos'])} docs")
+        except Exception as e:
+            log.warning(f"   documentos → {e}")
+
         # ── Tab Notas ──
         try:
             await self._click_tab("Notas")
