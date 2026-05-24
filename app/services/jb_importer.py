@@ -166,6 +166,7 @@ class JBImporter:
         self._ctx: Optional[BrowserContext] = None
         self._page: Optional[Page] = None
         self._jb_token: Optional[str] = None
+        self._pending_plantas: list[dict] = []  # de modelos_dom para descargar luego
 
         # Cliente bc-api
         self._bc_client = httpx.AsyncClient(
@@ -614,7 +615,7 @@ class JBImporter:
         except Exception as e:
             log.warning(f"   documentos → {e}")
 
-        # ── Tab Modelos: tabla con planos (Plano column) ──
+        # ── Tab Modelos: tabla con plantas (Plano column) ──
         try:
             await self._click_tab("Modelos")
             await self._page.wait_for_timeout(2_500)
@@ -624,22 +625,32 @@ class JBImporter:
                 (debug_dir / "tab-modelos_rows.json").write_text(
                     json.dumps(modelos_rows, indent=2, ensure_ascii=False), encoding="utf-8"
                 )
-                # Cada row: nombre, cotiza_bodega, cotiza_estac, cotiza_pack, plano (img)
                 modelos_data = []
                 for r in modelos_rows:
                     cells = r.get("cells", [])
                     if len(cells) < 4:
                         continue
+                    thumb_src = (r.get("imgs") or [None])[0]
+                    # Extraer planta_id del thumb URL: .../download/{id}/35/35 o .../download/{id}
+                    planta_id = None
+                    if thumb_src:
+                        m = re.search(r"/download/([A-Za-z0-9_-]{4,})", thumb_src)
+                        if m:
+                            planta_id = m.group(1)
                     modelos_data.append({
                         "nombre": cells[0] if cells else "",
                         "cotiza_bodega": cells[1] if len(cells) > 1 else "",
                         "cotiza_estac": cells[2] if len(cells) > 2 else "",
                         "cotiza_pack": cells[3] if len(cells) > 3 else "",
-                        "plano_thumb_src": (r.get("imgs") or [None])[0],
+                        "planta_thumb_src": thumb_src,
+                        "planta_id": planta_id,
                     })
                 if modelos_data:
                     self._set_path(out, "extra.modelos_dom", modelos_data)
-                    log.info(f"   📐 Modelos tab: {len(modelos_data)} modelos en tabla")
+                    plantas_count = sum(1 for m in modelos_data if m.get("planta_id"))
+                    log.info(f"   📐 Modelos tab: {len(modelos_data)} modelos, {plantas_count} con planta")
+                    # Guardar para descarga posterior en download_assets
+                    self._pending_plantas = [m for m in modelos_data if m.get("planta_id")]
         except Exception as e:
             log.warning(f"   modelos tab → {e}")
 
@@ -888,13 +899,29 @@ class JBImporter:
                 else:
                     docs.append(dest)
 
-        # ── 2. Cover (puede ser separado) ──
+        # ── 2. Plantas de modelos (del tab Modelos DOM scrape) ──
+        # modelos arg viene de API (5 unique). Pero scrape DOM dejó modelos_dom en extra
+        # con planta_id por cada uno. Lo pasamos vía atributo en la instancia.
+        if self._pending_plantas:
+            for p in self._pending_plantas:
+                pid = p.get("planta_id")
+                if not pid:
+                    continue
+                # URL full-size: sin /35/35 al final
+                url = f"https://app.jetbrokers.io/api/file-unauthenticated/download/{pid}"
+                slug = re.sub(r"[^a-z0-9]+", "-", (p.get("nombre") or pid).lower()).strip("-")[:30]
+                dest = out_dir / f"planta-{slug}-{pid}.png"
+                if await fetch_with_retry(url, dest):
+                    planos.append(dest)
+                    p["_local_path"] = str(dest)
+
+        # ── 3. Cover (puede ser separado) ──
         if cover_url:
             dest = out_dir / "cover.jpg"
             if await fetch_with_retry(cover_url, dest):
                 fotos.append(dest)
 
-        log.info(f"   ⬇ fotos: {len(fotos)}, planos: {len(planos)}, docs: {len(docs)}")
+        log.info(f"   ⬇ fotos: {len(fotos)}, plantas: {len(planos)}, docs: {len(docs)}")
         return {"planos": planos, "fotos": fotos, "docs": docs, "_files_metadata": files_list}
 
     # ── Upload a bc-api ──────────────────────────────────────────────────
@@ -934,6 +961,17 @@ class JBImporter:
             url = await self._upload_imagen(proyecto_id, f, categoria="cover")
             if url:
                 uploaded["fotos"].append({"url": url, "details": "cover"})
+
+        # Plantas (del tab Modelos DOM scrape, ya descargadas)
+        for p in self._pending_plantas:
+            local = p.get("_local_path")
+            if not local or not Path(local).exists():
+                continue
+            slug = re.sub(r"[^a-z0-9]+", "-", (p.get("nombre") or "").lower()).strip("-")[:30]
+            url = await self._upload_imagen(proyecto_id, Path(local), categoria=f"jb-planta-{slug}")
+            if url:
+                p["planta_url"] = url
+                uploaded["planos"].append({"url": url, "modelo": p.get("nombre"), "jb_id": p.get("planta_id")})
 
         return uploaded
 
