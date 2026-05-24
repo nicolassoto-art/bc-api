@@ -516,12 +516,54 @@ class JBImporter:
 
         # ── Tab Documentos: contiene fotos + planos + PDFs todos juntos ──
         try:
+            # Interceptar respuestas API mientras se carga el tab (para encontrar endpoint de docs)
+            api_responses = []
+            async def capture_api(resp):
+                try:
+                    url = resp.url
+                    if "jetbrokers.io/api" not in url:
+                        return
+                    if not resp.headers.get("content-type", "").startswith("application/json"):
+                        return
+                    body = await resp.json()
+                    api_responses.append({"url": url, "status": resp.status, "body": body})
+                except Exception:
+                    pass
+            self._page.on("response", capture_api)
+
             await self._click_tab("Documentos")
-            await self._page.wait_for_timeout(2_500)
+            await self._page.wait_for_timeout(3_000)
+            self._page.remove_listener("response", capture_api)
+
             await self._page.screenshot(path=str(debug_dir / "tab-documentos.png"), full_page=True)
-            # Dump HTML para inspección de selectores
             html_docs = await self._page.content()
             (debug_dir / "tab-documentos.html").write_text(html_docs, encoding="utf-8")
+
+            # Dump las API responses para encontrar la que tiene la lista de docs
+            api_dump = []
+            for r in api_responses:
+                b = r["body"]
+                # Resumen: solo URL + estructura del body
+                summary = {"url": r["url"], "status": r["status"]}
+                if isinstance(b, list):
+                    summary["type"] = f"list({len(b)})"
+                    if b:
+                        summary["first_keys"] = list(b[0].keys()) if isinstance(b[0], dict) else None
+                        summary["sample"] = b[0] if isinstance(b[0], dict) else None
+                elif isinstance(b, dict):
+                    summary["type"] = "dict"
+                    summary["keys"] = list(b.keys())[:10]
+                    # Si tiene data/items/elements como array, capturar primer item
+                    for key in ("data", "items", "elements", "files", "documents", "photos", "medias"):
+                        if key in b and isinstance(b[key], list) and b[key]:
+                            summary["sample"] = {"key": key, "len": len(b[key]), "first": b[key][0]}
+                            break
+                api_dump.append(summary)
+            (debug_dir / "tab-documentos_api.json").write_text(
+                json.dumps(api_dump, indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+            log.info(f"   📡 {len(api_responses)} API responses capturadas durante tab Documentos")
 
             # Extraer rows de la tabla de documentos
             docs_rows = await self._page.evaluate("""() => {
