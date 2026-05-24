@@ -224,6 +224,17 @@ class JBImporter:
                 break
             await self._page.wait_for_timeout(2_000)
         if not token_found:
+            # Debug: capturar screenshot + HTML + URL para entender qué pasó
+            try:
+                debug_dir = self.imports_dir / "_debug_login"
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                await self._page.screenshot(path=str(debug_dir / "login_fail.png"), full_page=True)
+                html = await self._page.content()
+                (debug_dir / "login_fail.html").write_text(html, encoding="utf-8")
+                log.error(f"   Debug login: URL={self._page.url}")
+                log.error(f"   Screenshot + HTML guardados en {debug_dir}")
+            except Exception as e:
+                log.error(f"   No pude guardar debug: {e}")
             raise RuntimeError("Login JB falló: no se capturó el token")
         self._jb_token = token_found
         log.info(f"   ✓ Token JB capturado ({token_found[:20]}...)")
