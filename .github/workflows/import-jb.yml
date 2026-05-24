@@ -15,6 +15,11 @@ on:
         description: 'No correr los 3 tests de verificación'
         type: boolean
         default: false
+      clean_first:
+        description: 'Limpiar datos previos antes de importar (jb-only / full / no)'
+        type: choice
+        options: ['no', 'jb-only', 'full']
+        default: 'jb-only'
   # Para activar refresh masivo automático, descomentar:
   # schedule:
   #   - cron: '0 6 * * 0'  # domingo 6am UTC
@@ -65,6 +70,17 @@ jobs:
           if [ -z "$JWT" ]; then echo "JWT vacío"; exit 1; fi
           echo "::add-mask::$JWT"
           echo "BC_API_JWT=$JWT" >> "$GITHUB_ENV"
+
+      - name: Clean previous data (idempotency)
+        if: ${{ github.event.inputs.clean_first != 'no' && github.event.inputs.jb_id != 'all' }}
+        env:
+          BC_API_BASE: https://bc-api.178-105-91-29.nip.io
+          BC_API_JWT:  ${{ env.BC_API_JWT }}
+        run: |
+          MODE="${{ github.event.inputs.clean_first }}"
+          echo "::group::Wipe $MODE para ${{ github.event.inputs.jb_id }}"
+          python3 scripts/wipe_proyecto_jb.py "${{ github.event.inputs.jb_id }}" --$MODE || echo "wipe falló (no bloqueante)"
+          echo "::endgroup::"
 
       - name: Import project (with retry on JB transient errors)
         env:
