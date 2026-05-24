@@ -340,7 +340,7 @@ class JBImporter:
         ("Condiciones Comerciales", "Cuotón Inicial"):   "extra.comercial.cuoton_inicial_pct",
         ("Condiciones Comerciales", "Cuotón Final"):     "extra.comercial.cuoton_final_pct",
         ("Condiciones Comerciales", "Tipo Descuento"):   "extra.comercial.tipo_descuento",
-        ("Condiciones Comerciales", "Tipo Bono Pie"):    "extra.comercial.bono_pie_tipo",
+        ("Condiciones Comerciales", "Tipo Bono Pie"):    "extra.comercial.tipo_bono_pie",
         ("Condiciones Comerciales", "Reserva"):          "extra.comercial.valor_reserva_clp",
         ("Condiciones Comerciales", "Tipo Reserva"):     "extra.comercial.tipo_reserva",
         ("Condiciones Comerciales", "Destino Reserva"):  "extra.comercial.destino_reserva",
