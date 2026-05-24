@@ -55,6 +55,7 @@ def main():
     rc2, tail2 = run_subprocess("verify_jb_assets.py", jb_id)
     rc3, tail3 = run_subprocess("verify_jb_visual.py", jb_id)
     rc4, tail4 = run_subprocess("verify_jb_ui_parity.py", jb_id)
+    rc5, tail5 = run_subprocess("verify_jb_editor_walkthrough.py", jb_id)
 
     duration = round(time.time() - started, 1)
 
@@ -67,7 +68,8 @@ def main():
         "test2_assets":     {"rc": rc2, "passed": rc2 == 0, "tail": tail2, "critical": False, "note": "informacional"},
         "test3_visual":     {"rc": rc3, "passed": rc3 == 0, "tail": tail3, "critical": False, "note": "review humano"},
         "test4_ui_parity":  {"rc": rc4, "passed": rc4 == 0, "tail": tail4, "critical": True, "note": "BC vista vs JB editor"},
-        "overall_passed":   rc1 == 0,  # Test 1 bloqueante. Test 4 warns pero no bloquea (UI evoluciona).
+        "test5_walkthrough":{"rc": rc5, "passed": rc5 == 0, "tail": tail5, "critical": True, "note": "simulador humano clickeando tabs"},
+        "overall_passed":   rc1 == 0 and rc5 == 0,  # Test 1 (data) + Test 5 (UI walkthrough) bloqueantes
     }
     (out_dir / "SUMMARY.json").write_text(json.dumps(summary, indent=2))
 
@@ -81,6 +83,7 @@ Duración: {duration}s
 | 2. Assets (paridad binarios) | {'✅ OK' if rc2 == 0 else '⚠ warn'} | {rc2} | no |
 | 3. Visual (screenshots side-by-side) | {'✅ generado' if rc3 == 0 else '⚠ error'} | {rc3} | no |
 | **4. UI parity (BC vista vs JB editor)** | {'✅ PASS' if rc4 == 0 else '⚠ warn'} | {rc4} | warn |
+| **5. Walkthrough (clickear cada tab)** | {'✅ PASS' if rc5 == 0 else '❌ FAIL'} | {rc5} | sí |
 
 **Overall**: {'✅ PASS' if summary['overall_passed'] else '❌ FAIL'}
 
@@ -110,6 +113,11 @@ Duración: {duration}s
 ### Test 4 (UI parity)
 ```
 {tail4}
+```
+
+### Test 5 (Walkthrough humano clickeando tabs)
+```
+{tail5}
 ```
 """
     (out_dir / "SUMMARY.md").write_text(md)
