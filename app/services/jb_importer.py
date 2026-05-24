@@ -128,6 +128,7 @@ class ImportReport:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     extracted: dict = field(default_factory=dict)  # contenido del extra.X
+    live_verify: dict = field(default_factory=dict)  # resultado verify final contra bc-api
 
     @property
     def duration_s(self) -> float:
@@ -1118,6 +1119,86 @@ class JBImporter:
         return {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
                 ".pdf": "application/pdf", ".webp": "image/webp"}.get(ext, "application/octet-stream")
 
+    # ── Unidades: subir directo via POST /unidades ───────────────────────
+    async def upload_unidades(self, proyecto_id: str, units: list[dict]) -> dict:
+        """Inserta unidades en bc-api desde el array de API JB.
+
+        Usa el campo apartmentModel para derivar tipologia, modelo, etc.
+        Idempotente porque el wipe interno ya borró todas las unidades antes.
+        """
+        inserted = 0
+        errors: list[str] = []
+        seen = set()
+        for u in units:
+            numero = str(u.get("number") or u.get("numero") or "").strip()
+            if not numero or numero in seen:
+                continue
+            seen.add(numero)
+            am = u.get("apartmentModel") or {}
+            r, b = am.get("rooms"), am.get("bathrooms")
+            tipologia = f"{r}D - {b}B" if r and b else ""
+            data = {
+                "numero": numero,
+                "modelo": am.get("name") if isinstance(am, dict) else (u.get("model") or ""),
+                "tipologia": tipologia,
+                "tipo": "Depto",
+                "orientacion": u.get("facing") or "",
+                "sup_total": float(u.get("surfaceTotal") or 0) or None,
+                "sup_interior": float(u.get("surfaceInterior") or 0) or None,
+                "sup_terraza": float(u.get("surfaceTerrace") or 0) or None,
+                "sup_logia": float(u.get("surfaceLogia") or 0) or None,
+                "sup_jardin": float(u.get("surfaceGarden") or 0) or None,
+                "precio_lista_uf": float(u.get("price") or 0) or None,
+                "descuento_pct": float(u.get("discountRate") or 0),
+                "bono_pie_pct": float(u.get("bonoPie") or 0),
+                "precio_final_uf": float(u.get("finalPrice") or 0) or None,
+                "estac_flag": "optional",
+                "bodega_flag": "optional",
+                "pack_flag": "optional",
+                "disponible": bool(u.get("available", True)),
+            }
+            try:
+                resp = await self._bc_client.post(f"/proyectos/{proyecto_id}/unidades", json=data)
+                if resp.status_code in (200, 201):
+                    inserted += 1
+                else:
+                    errors.append(f"{numero}: HTTP {resp.status_code} {resp.text[:80]}")
+            except Exception as e:
+                errors.append(f"{numero}: {e}")
+        log.info(f"   📦 Unidades insertadas: {inserted}/{len(units)} (errors: {len(errors)})")
+        return {"inserted": inserted, "errors": errors}
+
+    # ── Verificación final en vivo contra bc-api ─────────────────────────
+    async def verify_live(self, proyecto_id: str, expected: dict) -> dict:
+        """GET /proyectos/{id} y compara contra expected counts. Devuelve dict con diff."""
+        try:
+            r = await self._bc_client.get(f"/proyectos/{proyecto_id}")
+            if r.status_code != 200:
+                return {"ok": False, "error": f"GET {r.status_code}"}
+            d = r.json()
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+        live = {
+            "unidades": len(d.get("unidades") or []),
+            "imagenes": len(d.get("imagenes") or []),
+            "jb_fotos": sum(1 for i in (d.get("imagenes") or []) if (i.get("categoria") or "").startswith("jb-foto")),
+            "jb_plantas": sum(1 for i in (d.get("imagenes") or []) if (i.get("categoria") or "").startswith("jb-planta-")),
+            "extra_keys": sorted((d.get("extra") or {}).keys()),
+            "notas_html_chars": len((d.get("extra") or {}).get("notas_html") or ""),
+            "modelos_dom_count": len(((d.get("extra") or {}).get("modelos_dom")) or []),
+            "bodegas_dom_count": len(((d.get("extra") or {}).get("bodegas_dom")) or []),
+            "estacionamientos_dom_count": len(((d.get("extra") or {}).get("estacionamientos_dom")) or []),
+        }
+        # Comparar contra expected
+        checks = []
+        for k, exp_val in expected.items():
+            live_val = live.get(k)
+            ok = (live_val == exp_val) if isinstance(exp_val, int) else bool(live_val)
+            checks.append({"field": k, "expected": exp_val, "live": live_val, "ok": ok})
+        all_ok = all(c["ok"] for c in checks)
+        return {"ok": all_ok, "live": live, "checks": checks}
+
     # ── PUT bc-api ───────────────────────────────────────────────────────
     async def get_proyecto(self, proyecto_id: str) -> dict:
         r = await self._bc_client.get(f"/proyectos/{proyecto_id}")
@@ -1391,7 +1472,7 @@ class JBImporter:
             else:
                 assets = {"planos": [], "fotos": [], "docs": []}
 
-            # 5. Upload assets + 6. PUT proyecto
+            # 5. Upload assets + 6. PUT proyecto + 7. Upload unidades
             if not dry_run:
                 if not skip_assets:
                     uploaded = await self.upload_to_bc_api(rep.proyecto_id, assets, modelos)
@@ -1399,11 +1480,34 @@ class JBImporter:
                     rep.photos_uploaded = len(uploaded.get("fotos", []))
                     rep.docs_uploaded = len(uploaded.get("docs", []))
                     rep.docs_downloaded = len(assets.get("docs", []))
-                # PUT
+                # PUT proyecto (con extra completo)
                 await self.put_proyecto(rep.proyecto_id, current, scraped, modelos)
                 log.info(f"   ✓ PUT /proyectos/{rep.proyecto_id} OK")
+                # Insertar unidades (gap: el wipe las borra, esto las re-crea)
+                api_units = api_data.get("units") or []
+                if api_units:
+                    units_result = await self.upload_unidades(rep.proyecto_id, api_units)
+                    rep.warnings.append(f"unidades: {units_result['inserted']} inserted")
             else:
                 log.info(f"   (dry-run) skip PUT")
+
+            # 8. VERIFICACIÓN FINAL EN VIVO contra bc-api
+            if not dry_run:
+                expected_modelos = self._count_leaves({"modelos_dom": self._pending_plantas}) if self._pending_plantas else 0
+                # Computar expectations desde lo que scrape + uploaded
+                api_units = api_data.get("units") or []
+                expected = {
+                    "unidades": len(set(str(u.get("number") or "") for u in api_units if u.get("number"))),
+                    "jb_fotos": rep.photos_uploaded,
+                    "jb_plantas": rep.planos_uploaded,
+                }
+                live_check = await self.verify_live(rep.proyecto_id, expected)
+                rep.live_verify = live_check
+                if live_check.get("ok"):
+                    log.info(f"   ✅ VERIFY LIVE: paridad 100% con bc-api")
+                else:
+                    log.warning(f"   ⚠ VERIFY LIVE: mismatch — {live_check.get('checks')}")
+                    rep.warnings.append(f"live_verify: {live_check}")
 
             rep.finished_at = time.time()
 
