@@ -715,6 +715,26 @@ class JBImporter:
         return list(seen.values())
 
     # ── Assets ────────────────────────────────────────────────────────────
+    async def fetch_project_files(self, jb_id: str) -> list[dict]:
+        """Llama /api/project-file/{jb_id}/list/0 para listar todos los archivos del proyecto."""
+        async with self._jb_httpx() as cli:
+            try:
+                r = await cli.get(f"/project-file/{jb_id}/list/0")
+                if r.status_code != 200:
+                    log.warning(f"   project-file/list → HTTP {r.status_code}")
+                    return []
+                data = r.json()
+                # Puede venir como list directa, o dict con data/items/elements
+                if isinstance(data, list):
+                    return data
+                for k in ("data", "items", "elements", "files", "documents"):
+                    if k in data and isinstance(data[k], list):
+                        return data[k]
+                return []
+            except Exception as e:
+                log.warning(f"   project-file/list error: {e}")
+                return []
+
     async def download_assets(
         self,
         jb_id: str,
@@ -722,7 +742,7 @@ class JBImporter:
         cover_url: Optional[str],
         skip: bool = False,
     ) -> dict[str, list[Path]]:
-        """Descarga planos de modelos + cover. Devuelve dict con paths locales."""
+        """Descarga TODOS los archivos del proyecto (fotos+planos+docs) + cover."""
         out_dir = self.imports_dir / jb_id / "assets"
         if skip:
             return {"planos": [], "fotos": [], "docs": []}
@@ -747,24 +767,54 @@ class JBImporter:
             return False
 
         planos: list[Path] = []
-        for m in modelos:
-            bp = m.get("blueprint_jb_id")
-            if not bp:
-                continue
-            url = f"https://api.jetbrokers.io/api/gallery/download/{self.org_id}/{bp}"
-            dest = out_dir / f"plano-{m['id']}.jpg"
-            if await fetch_with_retry(url, dest):
-                planos.append(dest)
-                m["_local_path"] = dest
-
         fotos: list[Path] = []
+        docs: list[Path] = []
+
+        # ── 1. Listar TODOS los archivos del proyecto via API JB ──
+        files_list = await self.fetch_project_files(jb_id)
+        log.info(f"   📋 {len(files_list)} archivos en project-file/list")
+
+        # Helper para clasificar
+        def classify(f: dict) -> str:
+            mime = (f.get("mime") or "").lower()
+            tipo = (f.get("type") or "").lower()
+            details = (f.get("details") or "").lower()
+            if "apartmentmodel" in tipo or "plant" in details or "plano" in details:
+                return "plano"
+            if mime.startswith("image/"):
+                return "foto"
+            if "pdf" in mime or mime.startswith("application/"):
+                return "doc"
+            return "foto"  # default
+
+        for f in files_list:
+            fid = f.get("id")
+            if not fid:
+                continue
+            cat = classify(f)
+            ext_map = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "application/pdf": ".pdf"}
+            ext = ext_map.get((f.get("mime") or "").lower(), ".bin")
+            url = f"https://api.jetbrokers.io/api/gallery/download/{self.org_id}/{fid}"
+            dest = out_dir / f"{cat}-{fid}{ext}"
+            if await fetch_with_retry(url, dest):
+                # Guardar metadata para upload posterior
+                f["_local_path"] = str(dest)
+                f["_category"] = cat
+                if cat == "foto":
+                    fotos.append(dest)
+                elif cat == "plano":
+                    planos.append(dest)
+                else:
+                    docs.append(dest)
+
+        # ── 2. Cover (puede ser separado) ──
         if cover_url:
             dest = out_dir / "cover.jpg"
             if await fetch_with_retry(cover_url, dest):
                 fotos.append(dest)
 
-        log.info(f"   ⬇ planos: {len(planos)}, fotos: {len(fotos)}")
-        return {"planos": planos, "fotos": fotos, "docs": []}
+        log.info(f"   ⬇ fotos: {len(fotos)}, planos: {len(planos)}, docs: {len(docs)}")
+        return {"planos": planos, "fotos": fotos, "docs": docs, "_files_metadata": files_list}
 
     # ── Upload a bc-api ──────────────────────────────────────────────────
     async def upload_to_bc_api(
@@ -773,28 +823,36 @@ class JBImporter:
         assets: dict[str, list[Path]],
         modelos: list[dict],
     ) -> dict:
-        """Sube assets como imágenes a bc-api. Devuelve URLs públicas."""
-        uploaded = {"planos": {}, "fotos": []}
+        """Sube TODOS los assets descargados a bc-api con categoria apropiada."""
+        uploaded = {"fotos": [], "planos": [], "docs": []}
 
-        # Planos por modelo
-        for m in modelos:
-            local = m.get("_local_path")
+        # Subir cada archivo con su metadata
+        for f_meta in assets.get("_files_metadata", []):
+            local = f_meta.get("_local_path")
+            cat = f_meta.get("_category", "foto")
             if not local or not Path(local).exists():
                 continue
-            url = await self._upload_imagen(
-                proyecto_id,
-                Path(local),
-                categoria=f"plano-modelo-{m['id']}",
-            )
+            local_path = Path(local)
+            details = f_meta.get("details", "")
+            mime = f_meta.get("mime", "")
+            jb_type = f_meta.get("type", "")
+            # Categoría más informativa: tipo-{details slug}
+            categoria = f"jb-{cat}"
+            if details:
+                slug = re.sub(r"[^a-z0-9]+", "-", details.lower()).strip("-")[:40]
+                categoria = f"jb-{cat}-{slug}"
+            url = await self._upload_imagen(proyecto_id, local_path, categoria=categoria)
             if url:
-                m["plano_url"] = url
-                uploaded["planos"][m["id"]] = url
+                uploaded[f"{cat}s"].append({"url": url, "jb_id": f_meta.get("id"), "details": details})
 
-        # Fotos (cover principalmente)
+        # Cover separado (si existe en assets.fotos y no estaba en files_metadata)
+        files_meta_paths = {Path(f.get("_local_path", "")).name for f in assets.get("_files_metadata", [])}
         for f in assets.get("fotos", []):
+            if f.name in files_meta_paths:
+                continue  # ya subido por el loop anterior
             url = await self._upload_imagen(proyecto_id, f, categoria="cover")
             if url:
-                uploaded["fotos"].append(url)
+                uploaded["fotos"].append({"url": url, "details": "cover"})
 
         return uploaded
 
@@ -1012,8 +1070,10 @@ class JBImporter:
             if not dry_run:
                 if not skip_assets:
                     uploaded = await self.upload_to_bc_api(rep.proyecto_id, assets, modelos)
-                    rep.planos_uploaded = len(uploaded.get("planos", {}))
+                    rep.planos_uploaded = len(uploaded.get("planos", []))
                     rep.photos_uploaded = len(uploaded.get("fotos", []))
+                    rep.docs_uploaded = len(uploaded.get("docs", []))
+                    rep.docs_downloaded = len(assets.get("docs", []))
                 # PUT
                 await self.put_proyecto(rep.proyecto_id, current, scraped, modelos)
                 log.info(f"   ✓ PUT /proyectos/{rep.proyecto_id} OK")
