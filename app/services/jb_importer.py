@@ -765,22 +765,48 @@ class JBImporter:
         }""")
 
     async def _click_tab(self, tab_label: str) -> None:
-        """Click en un tab del editor JB por su label visible."""
-        # Probar locators progresivamente
+        """Click en un tab del editor JB por su label visible. Tolerante a icons/badges."""
+        # Regex flexible: matchea el label aunque tenga texto extra alrededor
+        flex_pattern = re.compile(re.escape(tab_label), re.I)
         for locator_fn in (
-            lambda: self._page.get_by_role("tab", name=re.compile(rf"^{re.escape(tab_label)}$", re.I)),
+            lambda: self._page.get_by_role("tab", name=flex_pattern),
+            lambda: self._page.get_by_role("link", name=flex_pattern),
+            lambda: self._page.get_by_role("button", name=flex_pattern),
             lambda: self._page.locator(f"button:has-text('{tab_label}')").first,
             lambda: self._page.locator(f"a:has-text('{tab_label}')").first,
-            lambda: self._page.locator(f"mat-tab:has-text('{tab_label}')").first,
+            lambda: self._page.locator(f"li:has-text('{tab_label}')").first,
+            lambda: self._page.locator(f"div[role='tab']:has-text('{tab_label}')").first,
+            lambda: self._page.locator(f"nav >> text=/{re.escape(tab_label)}/i").first,
+            lambda: self._page.locator(f"text=/^\\s*{re.escape(tab_label)}\\s*$/i").first,
         ):
             try:
                 loc = locator_fn()
                 count = await loc.count()
                 if count > 0:
-                    await loc.first.click(timeout=5_000)
+                    await loc.first.click(timeout=4_000)
                     return
             except Exception:
                 continue
+        # Fallback: click por JS evaluando elementos visibles con ese texto
+        try:
+            clicked = await self._page.evaluate(f"""(label) => {{
+                const all = document.querySelectorAll('a, button, li, [role="tab"], div');
+                for (const el of all) {{
+                    const t = (el.innerText || '').trim();
+                    if (t === label || t.startsWith(label)) {{
+                        const r = el.getBoundingClientRect();
+                        if (r.width > 0 && r.height > 0) {{
+                            el.click();
+                            return true;
+                        }}
+                    }}
+                }}
+                return false;
+            }}""", tab_label)
+            if clicked:
+                return
+        except Exception:
+            pass
         raise RuntimeError(f"Tab '{tab_label}' no encontrado")
 
     # ── Modelos (combinar API + DOM) ──────────────────────────────────────
