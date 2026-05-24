@@ -370,12 +370,31 @@ class JBImporter:
         ("SPA del Proyecto", "Dirección"): "extra.spa_proyecto.direccion",
     }
 
+    async def _dismiss_popups(self) -> None:
+        """Cierra el modal '¿Ya descargaste nuestra APP?' u otros que tapan el contenido.
+        Sin esto, los screenshots y scrapes pueden quedar bloqueados por el popup."""
+        try:
+            await self._page.evaluate("""() => {
+                document.querySelectorAll('mat-dialog-container button, .modal button, .cdk-overlay-container button').forEach(b => {
+                    const t = (b.innerText || '').trim().toLowerCase();
+                    if (/^(cerrar|cancelar|cancel|×|x|no gracias|ahora no|m[áa]s tarde|close)$/i.test(t)) {
+                        try { b.click(); } catch(e){}
+                    }
+                });
+                document.querySelectorAll('mat-dialog-container [mat-dialog-close], mat-dialog-container .close, mat-dialog-container [aria-label*="close" i]').forEach(b => { try { b.click(); } catch(e){} });
+                document.querySelectorAll('.cdk-overlay-backdrop').forEach(b => { try { b.click(); } catch(e){} });
+            }""")
+            await self._page.wait_for_timeout(400)
+        except Exception:
+            pass
+
     async def scrape_editor(self, jb_id: str) -> dict:
         """Navega al editor y extrae todos los campos visibles via label-based scraping."""
         log.info(f"🖱  Scrapeando editor de {jb_id}...")
         edit_url = f"https://app.jetbrokers.io/projects/edit/{jb_id}"
         await self._page.goto(edit_url, wait_until="networkidle", timeout=60_000)
         await self._page.wait_for_timeout(5_000)
+        await self._dismiss_popups()
 
         debug_dir = self.imports_dir / jb_id / "_debug_scrape"
         debug_dir.mkdir(parents=True, exist_ok=True)
@@ -891,6 +910,8 @@ class JBImporter:
 
     async def _click_tab(self, tab_label: str) -> None:
         """Click en un tab del editor JB por su label visible. Tolerante a icons/badges."""
+        # Cerrar popup que puede reaparecer tras navegar
+        await self._dismiss_popups()
         # Regex flexible: matchea el label aunque tenga texto extra alrededor
         flex_pattern = re.compile(re.escape(tab_label), re.I)
         for locator_fn in (
