@@ -209,11 +209,37 @@ async def walk_bc_editor(page, jb_id: str, proyecto_id: str, bc_jwt: str, out_di
     return results
 
 
+async def _dismiss_jb_popups(page) -> None:
+    """JB muestra un modal '¿Ya descargaste nuestra APP?' que tapa los screenshots.
+    Cierra cualquier modal visible (X, Cerrar, Cancel, etc) antes de capturar."""
+    try:
+        await page.evaluate("""() => {
+            const close = (sel) => document.querySelectorAll(sel).forEach(b => { try { b.click(); } catch(e){} });
+            // Botones de cierre típicos
+            close('mat-dialog-container button[mat-dialog-close]');
+            close('mat-dialog-container .close, mat-dialog-container [aria-label*="close" i]');
+            close('mat-dialog-container button.btn-close, .modal button.close');
+            // Botones cuyo texto contenga Cerrar/Cancel/X/No gracias
+            document.querySelectorAll('mat-dialog-container button, .modal button, .cdk-overlay-container button').forEach(b => {
+                const t = (b.innerText || '').trim().toLowerCase();
+                if (/^(cerrar|cancelar|cancel|×|x|no gracias|ahora no|más tarde|mas tarde|close)$/i.test(t)) {
+                    try { b.click(); } catch(e){}
+                }
+            });
+            // Backdrop click como último recurso
+            document.querySelectorAll('.cdk-overlay-backdrop').forEach(b => { try { b.click(); } catch(e){} });
+        }""")
+        await page.wait_for_timeout(500)
+    except Exception:
+        pass
+
+
 async def walk_jb_editor(imp: JBImporter, jb_id: str, out_dir: Path) -> dict:
     """Abre JB editor, clickea cada tab, screenshot + extrae datos."""
     edit_url = f"https://app.jetbrokers.io/projects/edit/{jb_id}"
     await imp._page.goto(edit_url, wait_until="networkidle", timeout=60_000)
     await imp._page.wait_for_timeout(4_000)
+    await _dismiss_jb_popups(imp._page)
 
     results = {}
     for bc_label, _, jb_label in TABS_TO_CHECK:
@@ -223,6 +249,7 @@ async def walk_jb_editor(imp: JBImporter, jb_id: str, out_dir: Path) -> dict:
         try:
             await imp._click_tab(jb_label)
             await imp._page.wait_for_timeout(2_000)
+            await _dismiss_jb_popups(imp._page)  # popup puede reaparecer al cambiar tab
             png_path = out_dir / f"jb-tab-{jb_label.lower()}.png"
             await imp._page.screenshot(path=str(png_path), full_page=True)
             info = await imp._page.evaluate(EXTRACT_JS, None)
