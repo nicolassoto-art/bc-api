@@ -311,7 +311,7 @@ Si hay UNA sola diferencia (campo extra, valor distinto, render) → MISMATCH.""
             },
             json={
                 "model": "claude-opus-4-5",
-                "max_tokens": 800,
+                "max_tokens": 2500,
                 "messages": [{
                     "role": "user",
                     "content": [
@@ -331,7 +331,27 @@ Si hay UNA sola diferencia (campo extra, valor distinto, render) → MISMATCH.""
         try:
             parsed = json.loads(txt)
         except Exception:
-            return {"error": "no JSON parse", "raw": txt[:300]}
+            # Recovery: cerrar JSON truncado. Si quedó "..., \"missing_in_bc\": [\"x" → cortar al último ítem completo.
+            try:
+                # Buscar último "]," antes del final y truncar
+                for end in (txt.rfind('},'), txt.rfind('],'), txt.rfind('"')):
+                    if end > 100:
+                        # intentar cerrar todos los brackets abiertos
+                        candidate = txt[:end+1]
+                        # contar brackets
+                        opens_sq = candidate.count('[') - candidate.count(']')
+                        opens_br = candidate.count('{') - candidate.count('}')
+                        if opens_sq >= 0 and opens_br >= 0:
+                            candidate = candidate + (']' * opens_sq) + ('}' * opens_br)
+                            try:
+                                parsed = json.loads(candidate)
+                                parsed["_truncated"] = True
+                                return parsed
+                            except Exception:
+                                continue
+            except Exception:
+                pass
+            return {"error": "no JSON parse", "raw": txt[:400]}
         return parsed
     except Exception as e:
         return {"error": str(e)}
