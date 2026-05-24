@@ -73,6 +73,7 @@ EXTRACT_JS = """(attr) => {
     }
     if (!el) return null;
     const text = el.innerText || '';
+    const html = el.innerHTML || '';
     const tbody = el.querySelectorAll('tbody');
     const rows = [];
     tbody.forEach(tb => {
@@ -90,14 +91,15 @@ EXTRACT_JS = """(attr) => {
             if (cells.some(c => c && c.length > 0)) rows.push(cells);
         });
     });
-    // Form fields (label → value)
+    // Form fields (label → value) — TODOS, incluyendo vacíos y 0
     const fields = [];
     el.querySelectorAll('input:not([type="hidden"]):not([type="search"]), select, textarea, mat-select').forEach(inp => {
         let v = inp.value || (inp.options ? inp.options[inp.selectedIndex]?.text : '') || '';
         if (inp.tagName === 'MAT-SELECT') {
             v = (inp.querySelector('.mat-mdc-select-value-text, span')?.innerText || '').trim();
         }
-        if (!v || /^(seleccionar|seleccione)/i.test(v)) return;
+        // No skip por valor vacío — el LABEL importa también
+        if (/^(seleccionar|seleccione)/i.test(v)) v = '';
         // Buscar label
         let label = '';
         if (inp.id) {
@@ -112,9 +114,40 @@ EXTRACT_JS = """(attr) => {
                 p = p.parentElement;
             }
         }
-        fields.push({label, value: v.trim()});
+        if (label) fields.push({label, value: (v||'').trim()});
     });
-    return { text_chars: text.length, rows_count: rows.length, rows, fields };
+
+    // RENDER INTEGRITY CHECKS
+    // Detección HTML raw: tags visibles como texto (<p>, <br>, &nbsp; literal)
+    const text_lower = text.toLowerCase();
+    const html_raw_detected = /<\\/?(p|br|div|span|strong|em|ul|li|h[1-6])[ >]/i.test(text)
+        || /&(nbsp|amp|lt|gt|quot);/i.test(text);
+
+    // Imágenes presentes en el tab (relevante para Modelos, Fotos)
+    const imgs = [...el.querySelectorAll('img')]
+        .filter(i => i.src && !i.src.startsWith('data:') && i.naturalWidth !== 0)
+        .map(i => ({src: i.src, w: i.naturalWidth, h: i.naturalHeight}));
+    const broken_imgs = [...el.querySelectorAll('img')]
+        .filter(i => i.complete && i.naturalWidth === 0 && i.src && !i.src.startsWith('data:'))
+        .length;
+
+    // Empty states detectados
+    const empty_msgs = [];
+    el.querySelectorAll('.empty, .sp-empty, .no-data, [class*="empty"]').forEach(e => {
+        const t = (e.innerText || '').trim();
+        if (t) empty_msgs.push(t.slice(0, 80));
+    });
+
+    return {
+        text_chars: text.length,
+        rows_count: rows.length,
+        rows,
+        fields,
+        html_raw_detected,
+        imgs_count: imgs.length,
+        broken_imgs,
+        empty_msgs
+    };
 }"""
 
 
@@ -265,12 +298,43 @@ async def main(jb_id: str):
                 if n: vals.add(n)
             return vals
 
+        # LEVEL 2: comparar LABELS (no solo values) — detecta campos faltantes en BC
+        def collect_labels(d):
+            labels = set()
+            for f in d.get("fields", []) or []:
+                lbl = (f.get("label") or "").strip().lower()
+                lbl = " ".join(lbl.split())
+                # Normalizar acentos
+                repl = str.maketrans("áéíóúñ", "aeioun")
+                lbl = lbl.translate(repl)
+                if lbl and len(lbl) >= 3:
+                    labels.add(lbl)
+            return labels
+
         jb_vals = collect_values(jb)
         bc_vals = collect_values(bc)
+        jb_labels = collect_labels(jb)
+        bc_labels = collect_labels(bc)
 
         only_jb = jb_vals - bc_vals  # valores en JB que NO están en BC
         only_bc = bc_vals - jb_vals
         common = jb_vals & bc_vals
+        labels_only_jb = jb_labels - bc_labels  # campos que JB pide y BC no tiene
+        labels_common = jb_labels & bc_labels
+
+        # LEVEL 3: render integrity — flags
+        render_issues = []
+        if bc.get("html_raw_detected") and not jb.get("html_raw_detected"):
+            render_issues.append("BC muestra HTML como texto raw (etiquetas <p> o &nbsp; visibles)")
+        if bc_label in ("Modelos", "Fotos"):
+            jb_imgs = jb.get("imgs_count", 0)
+            bc_imgs = bc.get("imgs_count", 0)
+            if jb_imgs > 0 and bc_imgs == 0:
+                render_issues.append(f"BC sin imágenes (JB tiene {jb_imgs})")
+            elif jb_imgs > 0 and bc_imgs < jb_imgs * 0.5:
+                render_issues.append(f"BC con pocas imágenes: {bc_imgs} vs JB {jb_imgs}")
+        if bc.get("broken_imgs", 0) > 0:
+            render_issues.append(f"BC tiene {bc['broken_imgs']} imágenes rotas")
 
         # Status
         if jb_label is None:
@@ -280,17 +344,26 @@ async def main(jb_id: str):
             fail_count += 1
         elif jb_has and bc_has:
             # Ambos con data — chequear si los VALORES coinciden
-            # Considerar OK si BC contiene al menos 80% de los valores JB
             coverage = len(common) / max(len(jb_vals), 1)
-            if coverage >= 0.8:
-                status = f"AMBOS_OK ({coverage*100:.0f}% match)"
+            lbl_coverage = len(labels_common) / max(len(jb_labels), 1) if jb_labels else 1.0
+            if coverage >= 0.8 and lbl_coverage >= 0.7 and not render_issues:
+                status = f"AMBOS_OK (vals {coverage*100:.0f}% / labels {lbl_coverage*100:.0f}%)"
             else:
-                status = f"DATA_MISMATCH ({coverage*100:.0f}% match)"
+                bits = []
+                if coverage < 0.8: bits.append(f"vals {coverage*100:.0f}%")
+                if lbl_coverage < 0.7: bits.append(f"labels {lbl_coverage*100:.0f}%")
+                if render_issues: bits.append("RENDER")
+                status = f"MISMATCH ({', '.join(bits)})"
                 fail_count += 1
         elif not jb_has and not bc_has:
             status = "AMBOS_VACIOS"
         else:
             status = "BC_TIENE_PERO_JB_NO"
+
+        # Render issues fuera de comparación normal también cuentan como fail
+        if render_issues and "MISMATCH" not in status and "VACIO" not in status:
+            status += " · RENDER_ISSUE"
+            fail_count += 1
 
         comparison.append({
             "tab": bc_label,
@@ -303,6 +376,13 @@ async def main(jb_id: str):
             "only_bc_count": len(only_bc),
             "only_jb_sample": sorted(only_jb)[:8],
             "only_bc_sample": sorted(only_bc)[:8],
+            "labels_common": len(labels_common),
+            "labels_only_jb_count": len(labels_only_jb),
+            "labels_only_jb_sample": sorted(labels_only_jb)[:8],
+            "render_issues": render_issues,
+            "bc_imgs": bc.get("imgs_count", 0),
+            "jb_imgs": jb.get("imgs_count", 0),
+            "bc_html_raw": bc.get("html_raw_detected", False),
             "status": status,
         })
 
@@ -326,19 +406,29 @@ async def main(jb_id: str):
         jb_png = f"jb-tab-{jb_png_label.lower()}.png" if jb_png_label else ""
         only_jb_html = ""
         if c.get("only_jb_count", 0) > 0:
-            only_jb_html = f"<div style='font-size:11px;color:#ff9'><b>En JB pero NO en BC ({c['only_jb_count']}):</b> {', '.join(c.get('only_jb_sample', []))}</div>"
+            only_jb_html = f"<div style='font-size:11px;color:#ff9'><b>Valores en JB pero NO en BC ({c['only_jb_count']}):</b> {escape(', '.join(c.get('only_jb_sample', [])))}</div>"
         only_bc_html = ""
         if c.get("only_bc_count", 0) > 0:
-            only_bc_html = f"<div style='font-size:11px;color:#9ef'><b>En BC pero NO en JB ({c['only_bc_count']}):</b> {', '.join(c.get('only_bc_sample', []))}</div>"
+            only_bc_html = f"<div style='font-size:11px;color:#9ef'><b>Valores en BC pero NO en JB ({c['only_bc_count']}):</b> {escape(', '.join(c.get('only_bc_sample', [])))}</div>"
+        labels_html = ""
+        if c.get("labels_only_jb_count", 0) > 0:
+            labels_html = f"<div style='font-size:11px;color:#fc9'><b>LABELS en JB pero NO en BC ({c['labels_only_jb_count']}):</b> {escape(', '.join(c.get('labels_only_jb_sample', [])))}</div>"
+        render_html = ""
+        if c.get("render_issues"):
+            render_html = "<div style='font-size:11px;color:#f88'><b>⚠ RENDER:</b> " + escape(' · '.join(c['render_issues'])) + "</div>"
+        imgs_html = f"<div style='font-size:11px;color:#aaa'>imgs BC={c.get('bc_imgs',0)} JB={c.get('jb_imgs',0)}</div>" if (c.get('bc_imgs',0) or c.get('jb_imgs',0)) else ""
         rows_html += f"""
 <tr style="background:{bg}">
   <td><b>{escape(c['tab'])}</b></td>
   <td>{escape(c['status'])}</td>
   <td>
     BC: rows={c['bc_rows_count']}, fields={c['bc_fields']} · JB: rows={c['jb_rows_count']}, fields={c['jb_fields']}<br>
-    <span style='color:#7dc242'>Match: {c['common_values']}</span>
+    <span style='color:#7dc242'>Match values: {c['common_values']} · Match labels: {c.get('labels_common',0)}</span>
+    {render_html}
+    {labels_html}
     {only_jb_html}
     {only_bc_html}
+    {imgs_html}
   </td>
 </tr>
 <tr>

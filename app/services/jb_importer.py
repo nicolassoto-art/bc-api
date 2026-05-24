@@ -460,11 +460,12 @@ class JBImporter:
                     // Filtrar placeholder text típicos
                     if (/^(seleccion|elegir|placeholder)/i.test(v)) v = '';
                 }
-                if (v == null || v === '' || v === '0') return;
+                // Capturamos TODO los inputs que tengan label, incluyendo valores '' y '0'.
+                // Esto permite ver que el campo EXISTE en JB aunque tenga valor 0/vacío.
                 const label = findLabel(el);
                 if (!label) return;
                 const section = findSection(el);
-                out.push({label, section, value: v, type: el.type || el.tagName, name: el.name || el.id || ''});
+                out.push({label, section, value: (v == null ? '' : v), type: el.type || el.tagName, name: el.name || el.id || ''});
             });
             return out;
         }""")
