@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -238,6 +239,69 @@ async def walk_jb_editor(imp: JBImporter, jb_id: str, out_dir: Path) -> dict:
     return results
 
 
+def ai_vision_compare(jb_png: Path, bc_png: Path, tab_name: str) -> dict:
+    """LEVEL 5: Claude mira ambos screenshots y reporta diferencias visibles.
+    Retorna {verdict, missing, extra, render_issues, raw} o {error} si falla.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return {"skipped": "no ANTHROPIC_API_KEY"}
+    if not jb_png.exists() or not bc_png.exists():
+        return {"error": "missing screenshots"}
+    try:
+        import httpx
+        jb_b64 = base64.b64encode(jb_png.read_bytes()).decode()
+        bc_b64 = base64.b64encode(bc_png.read_bytes()).decode()
+        prompt = f"""Eres un QA visual. Te muestro dos screenshots del MISMO proyecto inmobiliario en su editor:
+
+IMAGEN 1: JetBrokers (JB) — fuente de verdad, tab "{tab_name}".
+IMAGEN 2: BigCapital (BC) — nuestro sistema, tab "{tab_name}".
+
+Compara como humano. JSON estricto, sin markdown:
+{{
+  "verdict": "OK" | "MISMATCH" | "BC_EMPTY",
+  "missing_in_bc": ["lista corta de campos/datos visibles en JB que NO están en BC"],
+  "extra_in_bc": ["datos en BC que no están en JB (puede ser OK)"],
+  "render_issues": ["HTML raw visible, imágenes rotas, layout roto, caracteres extraños, etc"],
+  "summary": "1-2 frases"
+}}
+
+Sé estricto: si BC muestra <p> como texto, render_issue. Si JB tiene fotos de plantas y BC no, missing_in_bc. Si campo "Valor Cuota" está en JB con 0 y en BC falta, missing_in_bc."""
+        r = httpx.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-5",
+                "max_tokens": 800,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": jb_b64}},
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": bc_b64}},
+                        {"type": "text", "text": prompt},
+                    ],
+                }],
+            },
+            timeout=60.0,
+        )
+        if r.status_code != 200:
+            return {"error": f"HTTP {r.status_code}: {r.text[:200]}"}
+        txt = r.json()["content"][0]["text"].strip()
+        # Strip ```json fences si vienen
+        txt = re.sub(r'^```(?:json)?\s*|\s*```$', '', txt, flags=re.MULTILINE).strip()
+        try:
+            parsed = json.loads(txt)
+        except Exception:
+            return {"error": "no JSON parse", "raw": txt[:300]}
+        return parsed
+    except Exception as e:
+        return {"error": str(e)}
+
+
 async def main(jb_id: str):
     out_dir = Path(os.environ.get("IMPORTS_DIR", "imports")) / jb_id / "verify"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -365,6 +429,18 @@ async def main(jb_id: str):
             status += " · RENDER_ISSUE"
             fail_count += 1
 
+        # LEVEL 5: AI Vision (solo si hay screenshots y API key)
+        ai = {}
+        if jb_label and os.environ.get("ANTHROPIC_API_KEY"):
+            bc_png = out_dir / f"bc-tab-{[t[1] for t in TABS_TO_CHECK if t[0]==bc_label][0]}.png"
+            jb_png = out_dir / f"jb-tab-{jb_label.lower()}.png"
+            log.info(f"   🤖 AI Vision {bc_label}...")
+            ai = ai_vision_compare(jb_png, bc_png, bc_label)
+            verdict = ai.get("verdict")
+            if verdict in ("MISMATCH", "BC_EMPTY") and "MISMATCH" not in status and "VACIO" not in status:
+                status += f" · AI_{verdict}"
+                fail_count += 1
+
         comparison.append({
             "tab": bc_label,
             "bc_rows_count": bc.get("rows_count"),
@@ -383,6 +459,7 @@ async def main(jb_id: str):
             "bc_imgs": bc.get("imgs_count", 0),
             "jb_imgs": jb.get("imgs_count", 0),
             "bc_html_raw": bc.get("html_raw_detected", False),
+            "ai_vision": ai,
             "status": status,
         })
 
@@ -417,6 +494,22 @@ async def main(jb_id: str):
         if c.get("render_issues"):
             render_html = "<div style='font-size:11px;color:#f88'><b>⚠ RENDER:</b> " + escape(' · '.join(c['render_issues'])) + "</div>"
         imgs_html = f"<div style='font-size:11px;color:#aaa'>imgs BC={c.get('bc_imgs',0)} JB={c.get('jb_imgs',0)}</div>" if (c.get('bc_imgs',0) or c.get('jb_imgs',0)) else ""
+        ai = c.get("ai_vision") or {}
+        ai_html = ""
+        if ai and not ai.get("skipped"):
+            if ai.get("error"):
+                ai_html = f"<div style='font-size:11px;color:#888'>🤖 AI error: {escape(str(ai['error']))}</div>"
+            else:
+                vc = ai.get("verdict", "?")
+                color = "#7dc242" if vc == "OK" else "#ff7"
+                bits = []
+                if ai.get("missing_in_bc"):
+                    bits.append(f"<b>Falta en BC:</b> {escape(', '.join(ai['missing_in_bc'][:6]))}")
+                if ai.get("render_issues"):
+                    bits.append(f"<b>Render:</b> {escape(', '.join(ai['render_issues'][:4]))}")
+                if ai.get("summary"):
+                    bits.append(f"<i>{escape(ai['summary'])}</i>")
+                ai_html = f"<div style='font-size:11px;color:{color};border-left:3px solid {color};padding-left:6px;margin-top:4px'>🤖 <b>AI {vc}</b> · " + " · ".join(bits) + "</div>"
         rows_html += f"""
 <tr style="background:{bg}">
   <td><b>{escape(c['tab'])}</b></td>
@@ -429,6 +522,7 @@ async def main(jb_id: str):
     {only_jb_html}
     {only_bc_html}
     {imgs_html}
+    {ai_html}
   </td>
 </tr>
 <tr>

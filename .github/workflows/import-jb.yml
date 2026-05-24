@@ -105,14 +105,15 @@ jobs:
           echo "❌ Import falló tras $MAX_ATTEMPTS intentos"
           exit 1
 
-      - name: Verify (3 tests)
+      - name: Verify (5 tests + AI Vision)
         if: ${{ github.event.inputs.skip_verify != 'true' && github.event.inputs.jb_id != 'all' }}
         env:
-          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
-          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
-          BC_API_BASE:      https://bc-api.178-105-91-29.nip.io
-          HEADLESS:         '1'
-          IMPORTS_DIR:      imports
+          JETBROKERS_EMAIL:  ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:   ${{ secrets.JETBROKERS_PASS }}
+          BC_API_BASE:       https://bc-api.178-105-91-29.nip.io
+          HEADLESS:          '1'
+          IMPORTS_DIR:       imports
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           python3 scripts/verify_jb_all.py "${{ github.event.inputs.jb_id }}"
         continue-on-error: true
