@@ -614,6 +614,69 @@ class JBImporter:
         except Exception as e:
             log.warning(f"   documentos → {e}")
 
+        # ── Tab Modelos: tabla con planos (Plano column) ──
+        try:
+            await self._click_tab("Modelos")
+            await self._page.wait_for_timeout(2_500)
+            await self._page.screenshot(path=str(debug_dir / "tab-modelos.png"), full_page=True)
+            modelos_rows = await self._scrape_table_rows()
+            if modelos_rows:
+                (debug_dir / "tab-modelos_rows.json").write_text(
+                    json.dumps(modelos_rows, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
+                # Cada row: nombre, cotiza_bodega, cotiza_estac, cotiza_pack, plano (img)
+                modelos_data = []
+                for r in modelos_rows:
+                    cells = r.get("cells", [])
+                    if len(cells) < 4:
+                        continue
+                    modelos_data.append({
+                        "nombre": cells[0] if cells else "",
+                        "cotiza_bodega": cells[1] if len(cells) > 1 else "",
+                        "cotiza_estac": cells[2] if len(cells) > 2 else "",
+                        "cotiza_pack": cells[3] if len(cells) > 3 else "",
+                        "plano_thumb_src": (r.get("imgs") or [None])[0],
+                    })
+                if modelos_data:
+                    self._set_path(out, "extra.modelos_dom", modelos_data)
+                    log.info(f"   📐 Modelos tab: {len(modelos_data)} modelos en tabla")
+        except Exception as e:
+            log.warning(f"   modelos tab → {e}")
+
+        # ── Tab Bodegas: tabla con bodegas individuales ──
+        try:
+            await self._click_tab("Bodegas")
+            await self._page.wait_for_timeout(2_500)
+            await self._page.screenshot(path=str(debug_dir / "tab-bodegas.png"), full_page=True)
+            bodegas_rows = await self._scrape_table_rows()
+            if bodegas_rows:
+                (debug_dir / "tab-bodegas_rows.json").write_text(
+                    json.dumps(bodegas_rows, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
+                bodegas_data = [{"cells": r.get("cells", [])} for r in bodegas_rows if r.get("cells")]
+                if bodegas_data:
+                    self._set_path(out, "extra.bodegas_dom", bodegas_data)
+                    log.info(f"   📦 Bodegas tab: {len(bodegas_data)} rows")
+        except Exception as e:
+            log.warning(f"   bodegas tab → {e}")
+
+        # ── Tab Estacionamientos: tabla con estac individuales ──
+        try:
+            await self._click_tab("Estacionamientos")
+            await self._page.wait_for_timeout(2_500)
+            await self._page.screenshot(path=str(debug_dir / "tab-estac.png"), full_page=True)
+            estac_rows = await self._scrape_table_rows()
+            if estac_rows:
+                (debug_dir / "tab-estac_rows.json").write_text(
+                    json.dumps(estac_rows, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
+                estac_data = [{"cells": r.get("cells", [])} for r in estac_rows if r.get("cells")]
+                if estac_data:
+                    self._set_path(out, "extra.estacionamientos_dom", estac_data)
+                    log.info(f"   🅿  Estac tab: {len(estac_data)} rows")
+        except Exception as e:
+            log.warning(f"   estac tab → {e}")
+
         # ── Tab Notas ──
         try:
             await self._click_tab("Notas")
@@ -671,6 +734,24 @@ class JBImporter:
         if val is None or val == "":
             return None
         return val.strip()
+
+    async def _scrape_table_rows(self) -> list[dict]:
+        """Scrapea la tabla principal de la página actual. Devuelve lista de rows con cells/links/imgs."""
+        return await self._page.evaluate("""() => {
+            const tables = document.querySelectorAll('table');
+            let best = null, bestN = 0;
+            tables.forEach(t => {
+                const n = t.querySelectorAll('tbody tr').length;
+                if (n > bestN) { best = t; bestN = n; }
+            });
+            if (!best) return [];
+            return [...best.querySelectorAll('tbody tr')].map(tr => {
+                const cells = [...tr.querySelectorAll('td')].map(c => c.innerText.trim());
+                const links = [...tr.querySelectorAll('a')].map(a => a.href).filter(h => h && h !== '#');
+                const imgs = [...tr.querySelectorAll('img')].map(i => i.src).filter(s => s);
+                return {cells, links, imgs};
+            });
+        }""")
 
     async def _click_tab(self, tab_label: str) -> None:
         """Click en un tab del editor JB por su label visible."""
