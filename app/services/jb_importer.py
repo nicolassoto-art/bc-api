@@ -490,16 +490,18 @@ class JBImporter:
                 return None
             try:
                 s = str(value).strip()
-                # Quitar separadores miles (.) y normalizar decimal (,)
-                if "," in s and "." in s:
-                    # "1.234,56" → "1234.56"
+                # Heurística español:
+                # - Con coma → coma=decimal, punto=miles. "1.234,56" → 1234.56
+                # - Sin coma + punto seguido de exactamente 3 dígitos al final → miles. "200.000" → 200000
+                # - Sin coma + punto con otros dígitos → decimal. "20.5" → 20.5
+                if "," in s:
                     s = s.replace(".", "").replace(",", ".")
-                elif "," in s:
-                    # "20,00" → "20.00"
-                    s = s.replace(",", ".")
-                elif s.count(".") > 1:
-                    # "200.000" → "200000" (thousand sep)
-                    s = s.replace(".", "")
+                else:
+                    # Sin coma. Si todos los grupos post-dot tienen 3 dígitos → thousand sep
+                    import re as _re
+                    parts = s.split(".")
+                    if len(parts) > 1 and all(len(p) == 3 for p in parts[1:]):
+                        s = s.replace(".", "")
                 n = float(s)
                 return int(n) if n == int(n) else n
             except Exception:
