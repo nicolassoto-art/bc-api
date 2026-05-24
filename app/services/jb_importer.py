@@ -855,9 +855,17 @@ class JBImporter:
         Cada row además trae cells_icons (lista por celda con mat-icon name + flags de check/close)
         para detectar disponible/no-disponible cuando el texto está vacío y solo hay un ícono."""
         return await self._page.evaluate(r"""() => {
-            const tables = document.querySelectorAll('table');
+            // CRÍTICO: restringir búsqueda al tab ACTIVO de JB, sino picamos tablas
+            // de otros tabs (ej: 'Descuentos por entidad' con bancos) que tienen más rows.
+            const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active, .mat-tab-body-active, [class*="tab-body-active"]')
+                || document.querySelector('mat-card mat-card-content:not([style*="display: none"])')
+                || document;
+            const tables = scope.querySelectorAll('table');
             let best = null, bestN = 0;
             tables.forEach(t => {
+                // Sanity: ignorar tablas invisibles
+                const rect = t.getBoundingClientRect();
+                if (rect.width === 0 || rect.height === 0) return;
                 const n = t.querySelectorAll('tbody tr').length;
                 if (n > bestN) { best = t; bestN = n; }
             });
