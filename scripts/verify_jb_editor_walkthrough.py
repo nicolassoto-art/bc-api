@@ -56,7 +56,21 @@ EMPTY_PATTERNS = [
 
 
 EXTRACT_JS = """(attr) => {
-    const el = attr ? document.querySelector(`[data-content="${attr}"]`) : document.body;
+    let el;
+    if (attr) {
+        // BC: el contenedor del tab tiene data-content="..."
+        el = document.querySelector(`[data-content="${attr}"]`);
+    } else {
+        // JB: el tab visible es mat-tab-body-active, mat-tab-body con class active, o card-body
+        el = document.querySelector('mat-tab-body.mat-mdc-tab-body-active, .mat-tab-body-active, [class*="tab-body-active"]')
+          || document.querySelector('mat-card mat-card-content, .card-body, .tab-pane.active')
+          || document.body;
+        // Si terminamos en body, intentar restringir excluyendo sidebar/nav
+        if (el === document.body) {
+            const main = document.querySelector('main, [role="main"], .main-content, app-projects-edit');
+            if (main) el = main;
+        }
+    }
     if (!el) return null;
     const text = el.innerText || '';
     const tbody = el.querySelectorAll('tbody');
