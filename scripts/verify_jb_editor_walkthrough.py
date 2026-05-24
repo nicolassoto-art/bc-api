@@ -252,21 +252,29 @@ def ai_vision_compare(jb_png: Path, bc_png: Path, tab_name: str) -> dict:
         import httpx
         jb_b64 = base64.b64encode(jb_png.read_bytes()).decode()
         bc_b64 = base64.b64encode(bc_png.read_bytes()).decode()
-        prompt = f"""Eres un QA visual. Te muestro dos screenshots del MISMO proyecto inmobiliario en su editor:
+        prompt = f"""Eres un QA visual ESTRICTO 100%. Te muestro dos screenshots del MISMO proyecto inmobiliario en su editor:
 
 IMAGEN 1: JetBrokers (JB) — fuente de verdad, tab "{tab_name}".
 IMAGEN 2: BigCapital (BC) — nuestro sistema, tab "{tab_name}".
 
-Compara como humano. JSON estricto, sin markdown:
+REGLA #1: JB es la SOURCE OF TRUTH. BC debe contener EXACTAMENTE lo mismo que JB.
+REGLA #2: CUALQUIER diferencia es MISMATCH. No importa si es "cosmética" o "extra que BC agrega".
+REGLA #3: Solo verdict=OK si todos los datos visibles en JB están en BC con MISMO valor visible.
+REGLA #4: Si BC muestra campos/secciones que JB no tiene → MISMATCH (incluso si son útiles).
+REGLA #5: Si JB muestra X (no disponible, no aplica, 0) y BC muestra otra cosa → MISMATCH.
+
+JSON estricto, sin markdown:
 {{
   "verdict": "OK" | "MISMATCH" | "BC_EMPTY",
-  "missing_in_bc": ["lista corta de campos/datos visibles en JB que NO están en BC"],
-  "extra_in_bc": ["datos en BC que no están en JB (puede ser OK)"],
-  "render_issues": ["HTML raw visible, imágenes rotas, layout roto, caracteres extraños, etc"],
-  "summary": "1-2 frases"
+  "missing_in_bc": ["TODO dato/campo/imagen visible en JB que NO está IDÉNTICO en BC (sé exhaustivo)"],
+  "extra_in_bc": ["TODO campo/sección que BC tiene y JB no — cada uno cuenta como diferencia"],
+  "value_diffs": ["campo X: JB='valor1' / BC='valor2' (mismo campo, distinto valor)"],
+  "render_issues": ["HTML raw visible, imágenes rotas, layout roto, caracteres extraños, placeholders"],
+  "summary": "1-2 frases describiendo el delta total"
 }}
 
-Sé estricto: si BC muestra <p> como texto, render_issue. Si JB tiene fotos de plantas y BC no, missing_in_bc. Si campo "Valor Cuota" está en JB con 0 y en BC falta, missing_in_bc."""
+Verdict OK SOLO si: missing_in_bc=[], extra_in_bc=[], value_diffs=[], render_issues=[].
+Si hay UNA sola diferencia (campo extra, valor distinto, render) → MISMATCH."""
         r = httpx.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -504,12 +512,16 @@ async def main(jb_id: str):
                 color = "#7dc242" if vc == "OK" else "#ff7"
                 bits = []
                 if ai.get("missing_in_bc"):
-                    bits.append(f"<b>Falta en BC:</b> {escape(', '.join(ai['missing_in_bc'][:6]))}")
+                    bits.append(f"<b>Falta en BC ({len(ai['missing_in_bc'])}):</b> " + escape('; '.join(ai['missing_in_bc'][:8])))
+                if ai.get("value_diffs"):
+                    bits.append(f"<b>Valores distintos ({len(ai['value_diffs'])}):</b> " + escape('; '.join(ai['value_diffs'][:8])))
+                if ai.get("extra_in_bc"):
+                    bits.append(f"<b>Extras BC ({len(ai['extra_in_bc'])}):</b> " + escape('; '.join(ai['extra_in_bc'][:6])))
                 if ai.get("render_issues"):
-                    bits.append(f"<b>Render:</b> {escape(', '.join(ai['render_issues'][:4]))}")
+                    bits.append(f"<b>Render:</b> " + escape('; '.join(ai['render_issues'][:4])))
                 if ai.get("summary"):
                     bits.append(f"<i>{escape(ai['summary'])}</i>")
-                ai_html = f"<div style='font-size:11px;color:{color};border-left:3px solid {color};padding-left:6px;margin-top:4px'>🤖 <b>AI {vc}</b> · " + " · ".join(bits) + "</div>"
+                ai_html = f"<div style='font-size:11px;color:{color};border-left:3px solid {color};padding-left:6px;margin-top:4px'>🤖 <b>AI {vc}</b><br>" + "<br>".join(bits) + "</div>"
         rows_html += f"""
 <tr style="background:{bg}">
   <td><b>{escape(c['tab'])}</b></td>
