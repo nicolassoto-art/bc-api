@@ -834,24 +834,48 @@ class JBImporter:
 
     # ── Assets ────────────────────────────────────────────────────────────
     async def fetch_project_files(self, jb_id: str) -> list[dict]:
-        """Llama /api/project-file/{jb_id}/list/0 para listar todos los archivos del proyecto."""
+        """Llama /api/project-file/{jb_id}/list/0 para listar todos los archivos del proyecto.
+
+        Prueba varios endpoints alternativos en caso de paginación o filtros.
+        """
+        files: list[dict] = []
+        endpoints_to_try = [
+            f"/project-file/{jb_id}/list/0",
+            f"/project-file/{jb_id}/list/1",
+            f"/project-file/{jb_id}/list/2",
+            f"/project-file/{jb_id}/list/all",
+            f"/project-file/{jb_id}",
+        ]
+        seen_ids = set()
         async with self._jb_httpx() as cli:
-            try:
-                r = await cli.get(f"/project-file/{jb_id}/list/0")
-                if r.status_code != 200:
-                    log.warning(f"   project-file/list → HTTP {r.status_code}")
-                    return []
-                data = r.json()
-                # Puede venir como list directa, o dict con data/items/elements
-                if isinstance(data, list):
-                    return data
-                for k in ("data", "items", "elements", "files", "documents"):
-                    if k in data and isinstance(data[k], list):
-                        return data[k]
-                return []
-            except Exception as e:
-                log.warning(f"   project-file/list error: {e}")
-                return []
+            for ep in endpoints_to_try:
+                try:
+                    r = await cli.get(ep)
+                    if r.status_code != 200:
+                        continue
+                    data = r.json()
+                    if isinstance(data, list):
+                        items = data
+                    else:
+                        items = []
+                        for k in ("data", "items", "elements", "files", "documents"):
+                            if k in data and isinstance(data[k], list):
+                                items = data[k]
+                                break
+                    for it in items:
+                        fid = it.get("id")
+                        if fid and fid not in seen_ids:
+                            seen_ids.add(fid)
+                            files.append(it)
+                except Exception:
+                    continue
+        log.info(f"   project-file/list: {len(files)} archivos únicos (vía {len(endpoints_to_try)} endpoints)")
+        # Imprimir distribución por type
+        from collections import Counter
+        types_count = Counter((f.get("type") or "_no_type") for f in files)
+        for t, c in types_count.most_common():
+            log.info(f"     {c} × {t}")
+        return files
 
     async def download_assets(
         self,
@@ -897,11 +921,18 @@ class JBImporter:
             mime = (f.get("mime") or "").lower()
             tipo = (f.get("type") or "").lower()
             details = (f.get("details") or "").lower()
-            if "apartmentmodel" in tipo or "plant" in details or "plano" in details:
+            # PLANTAS: tipos del modelo, planta, blueprint, subterráneo
+            if any(k in tipo for k in ("apartmentmodel", "blueprint", "model", "floor", "planta")):
                 return "plano"
+            if any(k in details for k in ("plant", "plano", "subter", "modelo")):
+                return "plano"
+            # DOCUMENTOS PDF
+            if "pdf" in mime:
+                return "doc"
+            # FOTOS (imágenes)
             if mime.startswith("image/"):
                 return "foto"
-            if "pdf" in mime or mime.startswith("application/"):
+            if mime.startswith("application/"):
                 return "doc"
             return "foto"  # default
 
