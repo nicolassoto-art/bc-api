@@ -275,7 +275,7 @@ Sé estricto: si BC muestra <p> como texto, render_issue. Si JB tiene fotos de p
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-sonnet-4-5",
+                "model": "claude-opus-4-5",
                 "max_tokens": 800,
                 "messages": [{
                     "role": "user",
