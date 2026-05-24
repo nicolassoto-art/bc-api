@@ -410,22 +410,34 @@ class JBImporter:
                 const placeholder = el.placeholder || el.getAttribute?.('aria-label') || '';
                 return placeholder.trim();
             };
-            // Buscar la sección donde está el input: <h2>/<h3>/<h4>/<legend> anterior más cercano
+            // Buscar la sección: JB usa Angular con <div class="card">...<div class="card-header">SECTION</div>...</div>
+            // Estrategia: ancestor más cercano con .card-header como hijo directo o nieto
             const findSection = (el) => {
-                // Walker hacia atrás en el DOM buscando un heading
-                const headingTags = ['H1','H2','H3','H4','H5','LEGEND'];
-                let node = el;
-                const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
-                // Coleccionar todos los headings que están ANTES del input en orden de documento
-                const allHeadings = document.querySelectorAll('h1,h2,h3,h4,h5,legend');
+                // 1. Ascender por ancestros buscando un .card
+                let node = el.parentElement;
+                while (node && node !== document.body) {
+                    if (node.classList && (node.classList.contains('card') || node.classList.contains('panel') || node.classList.contains('section'))) {
+                        // Buscar card-header dentro de este card
+                        const header = node.querySelector(':scope > .card-header, :scope > .panel-heading, :scope > header, :scope > h1, :scope > h2, :scope > h3, :scope > h4');
+                        if (header) {
+                            const t = header.innerText.trim().split('\\n')[0].trim();
+                            if (t) return t;
+                        }
+                    }
+                    node = node.parentElement;
+                }
+                // 2. Fallback: cualquier .card-header anterior en el DOM
+                const headers = document.querySelectorAll('.card-header, .panel-heading, h1, h2, h3, h4, h5, legend');
                 let lastBefore = null;
-                for (const h of allHeadings) {
+                for (const h of headers) {
                     if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) {
-                        // h aparece antes que el
                         lastBefore = h;
                     }
                 }
-                return lastBefore ? lastBefore.innerText.trim() : '';
+                if (lastBefore) {
+                    return lastBefore.innerText.trim().split('\\n')[0].trim();
+                }
+                return '';
             };
             const inputs = document.querySelectorAll('input:not([type="hidden"]), select, textarea');
             inputs.forEach(el => {
