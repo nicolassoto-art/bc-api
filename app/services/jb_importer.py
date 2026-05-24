@@ -1176,9 +1176,11 @@ class JBImporter:
             if not numero or numero in seen:
                 continue
             seen.add(numero)
-            am = u.get("apartmentModel") or {}
-            # Solo importar como UNIDAD si tiene apartmentModel (es Depto, no parking/bodega)
-            if not am or not isinstance(am, dict) or not am.get("name"):
+            am = u.get("apartmentModel") if isinstance(u.get("apartmentModel"), dict) else {}
+            # Filtrar parking/bodega: solo importar si tiene rooms (es depto)
+            # u.type también puede indicar: 'apartment' vs 'parking' vs 'storage'
+            u_type = (u.get("type") or "").lower()
+            if u_type in ("parking", "storage", "store", "bodega", "estacionamiento"):
                 continue
             r, b = am.get("rooms"), am.get("bathrooms")
             tipologia = f"{r}D - {b}B" if r and b else ""
