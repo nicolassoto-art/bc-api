@@ -300,44 +300,195 @@ class JBImporter:
         return {"project": proj, "units": units}
 
     # ── DOM scraping ──────────────────────────────────────────────────────
+    # Mapeo label JB → path en extra (label visible en pantalla → bc-api path)
+    LABEL_MAP = {
+        # General tab — datos físicos
+        "Pisos":                "extra.fisicos.pisos",
+        "Unidades totales":     "extra.fisicos.unidades_totales",
+        "Unidades por piso":    "extra.fisicos.unidades_por_piso",
+        "Estacionamientos totales": "extra.fisicos.estacionamientos_totales",
+        "Bodegas totales":      "extra.fisicos.bodegas_totales",
+        "Ascensores":           "extra.fisicos.ascensores",
+        "Constructora":         "extra.fisicos.constructora",
+        "Permiso construccion": "extra.fisicos.permiso_construccion",
+        "Numero permiso":       "extra.fisicos.numero_permiso",
+        "Acepta cesion":        "extra.fisicos.acepta_cesion",
+        # Identidad básica (top-level, no extra)
+        "Nombre":               "_nombre",  # marcador, no se usa
+        "Direccion":            "_direccion",
+        "Comuna":               "_comuna",
+        "Region":               "_region",
+        # Estado / fechas
+        "Fecha de entrega":     "_fecha_entrega",
+        "Año de entrega":       "_ano_entrega",
+        "Estado":               "_estado",
+        "Modalidad":            "_modalidad",
+        "Stock":                "extra.stock_type",
+        "Disponible":           "_disponible",
+        "Solicita Preaprobacion": "extra.solicita_preaprobacion",
+        "Solicita Preaprobación": "extra.solicita_preaprobacion",
+        # Comercial
+        "Pie":                  "extra.comercial.pie_pct",
+        "Tipo Pie":             "extra.comercial.tipo_pie",
+        "Cuoton Inicial":       "extra.comercial.cuoton_inicial_pct",
+        "Cuoton Final":         "extra.comercial.cuoton_final_pct",
+        "Tipo Descuento":       "extra.comercial.tipo_descuento",
+        "Tipo Bono Pie":        "extra.comercial.bono_pie_tipo",
+        "Valor reserva":        "extra.comercial.valor_reserva_clp",
+        "Tipo Reserva":         "extra.comercial.tipo_reserva",
+        "Destino Reserva":      "extra.comercial.destino_reserva",
+        # Plan pago / formas pie
+        "Cuotas Pre Entrega":   "extra.formas_pago_pie.cuotas_pre_entrega",
+        "Cuotas Post Entrega":  "extra.formas_pago_pie.cuotas_post_entrega",
+        "Pago Pre Entrega":     "extra.formas_pago_pie.pago_pre_entrega",
+        "Pago Post Entrega":    "extra.formas_pago_pie.pago_post_entrega",
+        "Pago Cuoton Inicial":  "extra.formas_pago_pie.pago_cuoton_inicial",
+        "Valor Cuota":          "extra.formas_pago_pie.valor_cuota_clp",
+        # Inmobiliaria
+        "Inmobiliaria Nombre":  "extra.inmobiliaria.nombre",
+        "Inmobiliaria Web":     "extra.inmobiliaria.web",
+        "Inmobiliaria RUT":     "extra.inmobiliaria.rut",
+        "Inmobiliaria Direccion": "extra.inmobiliaria.direccion",
+        # Cuenta reserva
+        "Titular":              "extra.cuenta_reserva.titular_nombre",
+        "RUT":                  "extra.cuenta_reserva.titular_rut",
+        "Banco":                "extra.cuenta_reserva.banco",
+        "Tipo Cuenta":          "extra.cuenta_reserva.tipo_cuenta",
+        "Numero Cuenta":        "extra.cuenta_reserva.numero_cuenta",
+        "Link Pago":            "extra.cuenta_reserva.link_pago",
+    }
+
     async def scrape_editor(self, jb_id: str) -> dict:
-        """Navega al editor y extrae todos los campos visibles."""
+        """Navega al editor y extrae todos los campos visibles via label-based scraping."""
         log.info(f"🖱  Scrapeando editor de {jb_id}...")
         edit_url = f"https://app.jetbrokers.io/projects/edit/{jb_id}"
         await self._page.goto(edit_url, wait_until="networkidle", timeout=60_000)
         await self._page.wait_for_timeout(5_000)
 
+        debug_dir = self.imports_dir / jb_id / "_debug_scrape"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+
+        # ── Dump del HTML del tab General ──
+        html_general = await self._page.content()
+        (debug_dir / "tab-general.html").write_text(html_general, encoding="utf-8")
+        await self._page.screenshot(path=str(debug_dir / "tab-general.png"), full_page=True)
+
         out: dict[str, Any] = {}
 
-        # Tab General — ya está abierto por default
-        general = TABS_SELECTORS["General"]
-        for path, selector in general.items():
-            try:
-                val = await self._read_field(selector)
-                if val is not None and val != "":
-                    self._set_path(out, path, val)
-            except Exception as e:
-                log.warning(f"   selector {path} → {e}")
+        # ── Estrategia label-based: extraer pares label/value de inputs visibles ──
+        # JS heurístico: para cada input/select visible, buscar el label más cercano
+        # (label[for=id], label que envuelve, label hermano previo, o div con texto)
+        all_pairs = await self._page.evaluate("""() => {
+            const out = [];
+            const visible = el => {
+                if (!el.offsetParent && el.tagName !== 'OPTION') return false;
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+            };
+            const findLabel = (el) => {
+                if (el.id) {
+                    const l = document.querySelector(`label[for="${el.id}"]`);
+                    if (l) return l.innerText.trim();
+                }
+                let p = el.parentElement;
+                let hops = 0;
+                while (p && hops < 5) {
+                    const lbl = p.querySelector('label');
+                    if (lbl && lbl.contains(el) === false) {
+                        const t = lbl.innerText.trim();
+                        if (t) return t;
+                    }
+                    const prev = p.previousElementSibling;
+                    if (prev && prev.tagName === 'LABEL') return prev.innerText.trim();
+                    p = p.parentElement;
+                    hops++;
+                }
+                const placeholder = el.placeholder || el.getAttribute?.('aria-label') || '';
+                return placeholder.trim();
+            };
+            const inputs = document.querySelectorAll('input:not([type="hidden"]), select, textarea');
+            inputs.forEach(el => {
+                if (!visible(el)) return;
+                let v = el.value;
+                if (el.tagName === 'SELECT') {
+                    v = el.options[el.selectedIndex]?.text || el.value;
+                }
+                if (v == null || v === '' || v === '0') return;
+                const label = findLabel(el);
+                if (!label) return;
+                out.push({label, value: v, type: el.type || el.tagName, name: el.name || el.id || ''});
+            });
+            return out;
+        }""")
 
-        # Etiquetas (chips)
+        log.info(f"   {len(all_pairs)} pares label/value encontrados")
+        (debug_dir / "labels_found.json").write_text(json.dumps(all_pairs, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        # Mapear labels conocidos a paths en extra
+        for pair in all_pairs:
+            label = pair.get("label", "").strip()
+            value = pair.get("value", "").strip()
+            # Normalizar label (quitar mayúsculas/acentos para match flexible)
+            norm = label.replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ñ","n")
+            for known_label, path in self.LABEL_MAP.items():
+                norm_known = known_label.replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ñ","n")
+                if norm.lower() == norm_known.lower():
+                    if path.startswith("_"):
+                        # Campos top-level del proyecto — los manejamos en put_proyecto
+                        continue
+                    self._set_path(out, path, value)
+                    break
+
+        # ── Etiquetas (chips): buscar elementos con texto cortos en row de Etiquetas ──
         try:
-            chips = await self._page.query_selector_all(ETIQUETAS_SELECTOR)
-            tags = [(await c.inner_text()).strip().replace("cancel", "").strip() for c in chips]
-            tags = [t for t in tags if t]
-            if tags:
-                self._set_path(out, "extra.etiquetas", tags)
+            chip_texts = await self._page.evaluate("""() => {
+                const candidates = [
+                    'mat-chip-row', 'mat-chip', '.chip', '.tag',
+                    '[class*="chip"]', '[class*="tag"]',
+                ];
+                const seen = new Set();
+                for (const sel of candidates) {
+                    const els = document.querySelectorAll(sel);
+                    if (els.length) {
+                        const texts = [...els].map(e => e.innerText.replace(/cancel|×|x/gi,'').trim()).filter(t => t && t.length < 50);
+                        return texts;
+                    }
+                }
+                return [];
+            }""")
+            if chip_texts:
+                self._set_path(out, "extra.etiquetas", chip_texts)
         except Exception as e:
             log.warning(f"   etiquetas → {e}")
 
-        # Tab Notas
+        # ── Tab Notas ──
         try:
             await self._click_tab("Notas")
-            await self._page.wait_for_timeout(1_500)
-            html = await self._page.evaluate(
-                f"() => document.querySelector('{NOTAS_SELECTOR}')?.innerHTML || ''"
-            )
-            if html and len(html) > 20:
-                self._set_path(out, "extra.notas_html", html)
+            await self._page.wait_for_timeout(2_000)
+            await self._page.screenshot(path=str(debug_dir / "tab-notas.png"), full_page=True)
+            html_notas = await self._page.evaluate("""() => {
+                // Probar múltiples selectores comunes de editores rich
+                const selectors = [
+                    'quill-editor .ql-editor',
+                    '.ql-editor',
+                    'div[contenteditable="true"]',
+                    'textarea[name*="not"]',
+                    'textarea',
+                    '.note-editable',
+                    '.tox-edit-area iframe',
+                ];
+                for (const s of selectors) {
+                    const el = document.querySelector(s);
+                    if (el) {
+                        const content = el.innerHTML || el.value || '';
+                        if (content && content.length > 20) return content;
+                    }
+                }
+                return '';
+            }""")
+            if html_notas and len(html_notas) > 20:
+                self._set_path(out, "extra.notas_html", html_notas)
+                log.info(f"   ✓ Notas extraídas ({len(html_notas)} chars)")
         except Exception as e:
             log.warning(f"   notas → {e}")
 
