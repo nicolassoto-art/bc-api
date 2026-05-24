@@ -1011,13 +1011,44 @@ class JBImporter:
         return {"planos": planos, "fotos": fotos, "docs": docs, "_files_metadata": files_list}
 
     # ── Upload a bc-api ──────────────────────────────────────────────────
+    async def _delete_existing_jb_assets(self, proyecto_id: str) -> int:
+        """Borra todas las Imagenes con categoria que empieza con 'jb-' o 'cover'.
+        Hace los re-runs idempotentes (no acumula duplicados).
+        """
+        deleted = 0
+        try:
+            r = await self._bc_client.get(f"/proyectos/{proyecto_id}")
+            if r.status_code != 200:
+                return 0
+            proj = r.json()
+            for img in proj.get("imagenes", []):
+                cat = (img.get("categoria") or "").lower()
+                if cat.startswith("jb-") or cat == "cover":
+                    img_id = img.get("id")
+                    if not img_id:
+                        continue
+                    dr = await self._bc_client.delete(f"/proyectos/{proyecto_id}/imagenes/{img_id}")
+                    if dr.status_code in (200, 204):
+                        deleted += 1
+        except Exception as e:
+            log.warning(f"   delete existing jb-*: {e}")
+        if deleted:
+            log.info(f"   🧹 Borrados {deleted} assets previos (jb-*/cover) para idempotencia")
+        return deleted
+
     async def upload_to_bc_api(
         self,
         proyecto_id: str,
         assets: dict[str, list[Path]],
         modelos: list[dict],
     ) -> dict:
-        """Sube TODOS los assets descargados a bc-api con categoria apropiada."""
+        """Sube TODOS los assets descargados a bc-api con categoria apropiada.
+
+        IDEMPOTENTE: borra los assets previos con categoría jb-* o cover antes de subir.
+        """
+        # Idempotencia: limpiar antes de subir
+        await self._delete_existing_jb_assets(proyecto_id)
+
         uploaded = {"fotos": [], "planos": [], "docs": []}
 
         # Subir cada archivo con su metadata
@@ -1262,6 +1293,27 @@ class JBImporter:
             scraped = await self.scrape_editor(jb_id)
             rep.fields_extracted = self._count_leaves(scraped)
             rep.extracted = scraped
+
+            # ── HEALTH CHECK: detectar run degradado ──
+            # Si el scraping extrae <20 campos, JB rechazó o falló silenciosamente
+            MIN_FIELDS_OK = 20
+            if rep.fields_extracted < MIN_FIELDS_OK:
+                rep.warnings.append(
+                    f"⚠ HEALTH: solo {rep.fields_extracted} campos extraídos "
+                    f"(esperado >={MIN_FIELDS_OK}). JB pudo haber bloqueado el scrape."
+                )
+                # Si <5 es fail crítico: el proyecto está fundamentalmente sin data
+                if rep.fields_extracted < 5:
+                    rep.errors.append(f"HEALTH FAIL: solo {rep.fields_extracted} campos extraídos")
+                    rep.finished_at = time.time()
+                    # Guardar reporte ANTES de hacer raise para tener traza
+                    out_dir = self.imports_dir / jb_id
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    (out_dir / "report.json").write_text(json.dumps(rep.to_dict(), indent=2, default=str))
+                    raise RuntimeError(
+                        f"Run degradado: fields={rep.fields_extracted} < 5. "
+                        f"JB pudo estar caído o el token expiró durante el scrape."
+                    )
 
             # 4. Download assets
             if not skip_assets:

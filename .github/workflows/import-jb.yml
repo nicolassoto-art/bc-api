@@ -66,7 +66,7 @@ jobs:
           echo "::add-mask::$JWT"
           echo "BC_API_JWT=$JWT" >> "$GITHUB_ENV"
 
-      - name: Import project
+      - name: Import project (with retry on JB transient errors)
         env:
           JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
           JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
@@ -74,13 +74,34 @@ jobs:
           HEADLESS:         '1'
           IMPORTS_DIR:      imports
         run: |
-          if [ "${{ github.event.inputs.jb_id }}" = "all" ]; then
-            python3 scripts/import_jb.py --all \
-              ${{ github.event.inputs.skip_assets == 'true' && '--skip-assets' || '' }}
-          else
-            python3 scripts/import_jb.py "${{ github.event.inputs.jb_id }}" \
-              ${{ github.event.inputs.skip_assets == 'true' && '--skip-assets' || '' }}
-          fi
+          set +e
+          JB_ID="${{ github.event.inputs.jb_id }}"
+          SKIP_ASSETS="${{ github.event.inputs.skip_assets == 'true' && '--skip-assets' || '' }}"
+          ATTEMPT=1
+          MAX_ATTEMPTS=3
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "::group::Import attempt $ATTEMPT/$MAX_ATTEMPTS"
+            if [ "$JB_ID" = "all" ]; then
+              python3 scripts/import_jb.py --all $SKIP_ASSETS
+            else
+              python3 scripts/import_jb.py "$JB_ID" $SKIP_ASSETS
+            fi
+            CODE=$?
+            echo "::endgroup::"
+            if [ $CODE -eq 0 ]; then
+              echo "✓ Import OK en intento $ATTEMPT"
+              exit 0
+            fi
+            echo "⚠ Intento $ATTEMPT falló (exit $CODE)"
+            ATTEMPT=$((ATTEMPT+1))
+            if [ $ATTEMPT -le $MAX_ATTEMPTS ]; then
+              SLEEP=$((ATTEMPT * 30))
+              echo "🕐 Esperando ${SLEEP}s antes de reintentar..."
+              sleep $SLEEP
+            fi
+          done
+          echo "❌ Import falló tras $MAX_ATTEMPTS intentos"
+          exit 1
 
       - name: Verify (3 tests)
         if: ${{ github.event.inputs.skip_verify != 'true' && github.event.inputs.jb_id != 'all' }}
@@ -93,6 +114,35 @@ jobs:
         run: |
           python3 scripts/verify_jb_all.py "${{ github.event.inputs.jb_id }}"
         continue-on-error: true
+
+      - name: Job summary (visible en GH UI)
+        if: always()
+        run: |
+          JB_ID="${{ github.event.inputs.jb_id }}"
+          REPORT="imports/$JB_ID/report.json"
+          {
+            echo "# Import JB $JB_ID"
+            echo ""
+            if [ -f "$REPORT" ]; then
+              echo "## 📊 Reporte"
+              echo '```json'
+              cat "$REPORT" | python3 -c "
+          import sys, json
+          d=json.load(sys.stdin)
+          out={k:d[k] for k in ('jb_id','proyecto_id','fields_extracted','photos_uploaded','planos_uploaded','docs_uploaded','duration_s') if k in d}
+          out['errors']=len(d.get('errors',[]))
+          out['warnings']=len(d.get('warnings',[]))
+          print(json.dumps(out, indent=2, default=str))
+          "
+              echo '```'
+              if [ -f "imports/$JB_ID/verify/SUMMARY.md" ]; then
+                echo ""
+                cat "imports/$JB_ID/verify/SUMMARY.md"
+              fi
+            else
+              echo "❌ No se generó report.json — import falló"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifacts
         if: always()
