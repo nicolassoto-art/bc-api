@@ -708,10 +708,26 @@ class JBImporter:
                 (debug_dir / "tab-bodegas_rows.json").write_text(
                     json.dumps(bodegas_rows, indent=2, ensure_ascii=False), encoding="utf-8"
                 )
-                bodegas_data = [{"cells": r.get("cells", [])} for r in bodegas_rows if r.get("cells")]
+                bodegas_data = []
+                for r in bodegas_rows:
+                    if not r.get("cells"): continue
+                    # Detectar columna disponible: la que tenga al menos un check o close icon
+                    icons = r.get("cells_icons") or []
+                    disponible = None
+                    for ic in icons:
+                        if ic.get("hasCheck"):
+                            disponible = True; break
+                        if ic.get("hasClose"):
+                            disponible = False; break
+                    bodegas_data.append({
+                        "cells": r.get("cells", []),
+                        "disponible": disponible,  # None si no se detectó, True/False si sí
+                    })
                 if bodegas_data:
                     self._set_path(out, "extra.bodegas_dom", bodegas_data)
-                    log.info(f"   📦 Bodegas tab: {len(bodegas_data)} rows")
+                    n_dis = sum(1 for b in bodegas_data if b.get("disponible") is True)
+                    n_no  = sum(1 for b in bodegas_data if b.get("disponible") is False)
+                    log.info(f"   📦 Bodegas tab: {len(bodegas_data)} rows ({n_dis} disp, {n_no} no-disp)")
         except Exception as e:
             log.warning(f"   bodegas tab → {e}")
 
@@ -725,10 +741,25 @@ class JBImporter:
                 (debug_dir / "tab-estac_rows.json").write_text(
                     json.dumps(estac_rows, indent=2, ensure_ascii=False), encoding="utf-8"
                 )
-                estac_data = [{"cells": r.get("cells", [])} for r in estac_rows if r.get("cells")]
+                estac_data = []
+                for r in estac_rows:
+                    if not r.get("cells"): continue
+                    icons = r.get("cells_icons") or []
+                    disponible = None
+                    for ic in icons:
+                        if ic.get("hasCheck"):
+                            disponible = True; break
+                        if ic.get("hasClose"):
+                            disponible = False; break
+                    estac_data.append({
+                        "cells": r.get("cells", []),
+                        "disponible": disponible,
+                    })
                 if estac_data:
                     self._set_path(out, "extra.estacionamientos_dom", estac_data)
-                    log.info(f"   🅿  Estac tab: {len(estac_data)} rows")
+                    n_dis = sum(1 for e in estac_data if e.get("disponible") is True)
+                    n_no  = sum(1 for e in estac_data if e.get("disponible") is False)
+                    log.info(f"   🅿  Estac tab: {len(estac_data)} rows ({n_dis} disp, {n_no} no-disp)")
         except Exception as e:
             log.warning(f"   estac tab → {e}")
 
@@ -820,8 +851,10 @@ class JBImporter:
         return val.strip()
 
     async def _scrape_table_rows(self) -> list[dict]:
-        """Scrapea la tabla principal de la página actual. Devuelve lista de rows con cells/links/imgs."""
-        return await self._page.evaluate("""() => {
+        """Scrapea la tabla principal de la página actual. Devuelve lista de rows con cells/links/imgs.
+        Cada row además trae cells_icons (lista por celda con mat-icon name + flags de check/close)
+        para detectar disponible/no-disponible cuando el texto está vacío y solo hay un ícono."""
+        return await self._page.evaluate(r"""() => {
             const tables = document.querySelectorAll('table');
             let best = null, bestN = 0;
             tables.forEach(t => {
@@ -829,11 +862,22 @@ class JBImporter:
                 if (n > bestN) { best = t; bestN = n; }
             });
             if (!best) return [];
+            const headers = [...best.querySelectorAll('thead th')].map(h => (h.innerText || '').trim());
             return [...best.querySelectorAll('tbody tr')].map(tr => {
-                const cells = [...tr.querySelectorAll('td')].map(c => c.innerText.trim());
+                const tds = [...tr.querySelectorAll('td')];
+                const cells = tds.map(c => c.innerText.trim());
+                const cells_icons = tds.map(c => {
+                    const icons = [...c.querySelectorAll('mat-icon, .material-icons, .mat-icon')]
+                        .map(i => (i.innerText || i.getAttribute('fonticon') || '').trim().toLowerCase())
+                        .filter(t => t);
+                    const inner = c.innerHTML || '';
+                    const hasCheck = icons.some(i => /check|done/.test(i)) || /class="[^"]*(check|done|available|green|success)/i.test(inner);
+                    const hasClose = icons.some(i => /close|clear|cancel/.test(i)) || /class="[^"]*(close|clear|cancel|red|danger|warn)/i.test(inner);
+                    return {icons, hasCheck, hasClose};
+                });
                 const links = [...tr.querySelectorAll('a')].map(a => a.href).filter(h => h && h !== '#');
                 const imgs = [...tr.querySelectorAll('img')].map(i => i.src).filter(s => s);
-                return {cells, links, imgs};
+                return {cells, cells_icons, links, imgs, headers};
             });
         }""")
 
