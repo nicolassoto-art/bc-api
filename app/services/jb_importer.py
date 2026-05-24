@@ -300,62 +300,68 @@ class JBImporter:
         return {"project": proj, "units": units}
 
     # ── DOM scraping ──────────────────────────────────────────────────────
-    # Mapeo label JB → path en extra (label visible en pantalla → bc-api path)
+    # Mapeo (section, label) → path. Si section es "" matchea cualquier sección.
+    # Labels son los EXACTOS que JB devuelve (incluyendo acentos y guiones).
     LABEL_MAP = {
-        # General tab — datos físicos
-        "Pisos":                "extra.fisicos.pisos",
-        "Unidades totales":     "extra.fisicos.unidades_totales",
-        "Unidades por piso":    "extra.fisicos.unidades_por_piso",
-        "Estacionamientos totales": "extra.fisicos.estacionamientos_totales",
-        "Bodegas totales":      "extra.fisicos.bodegas_totales",
-        "Ascensores":           "extra.fisicos.ascensores",
-        "Constructora":         "extra.fisicos.constructora",
-        "Permiso construccion": "extra.fisicos.permiso_construccion",
-        "Numero permiso":       "extra.fisicos.numero_permiso",
-        "Acepta cesion":        "extra.fisicos.acepta_cesion",
-        # Identidad básica (top-level, no extra)
-        "Nombre":               "_nombre",  # marcador, no se usa
-        "Direccion":            "_direccion",
-        "Comuna":               "_comuna",
-        "Region":               "_region",
-        # Estado / fechas
-        "Fecha de entrega":     "_fecha_entrega",
-        "Año de entrega":       "_ano_entrega",
-        "Estado":               "_estado",
-        "Modalidad":            "_modalidad",
-        "Stock":                "extra.stock_type",
-        "Disponible":           "_disponible",
-        "Solicita Preaprobacion": "extra.solicita_preaprobacion",
-        "Solicita Preaprobación": "extra.solicita_preaprobacion",
-        # Comercial
-        "Pie":                  "extra.comercial.pie_pct",
-        "Tipo Pie":             "extra.comercial.tipo_pie",
-        "Cuoton Inicial":       "extra.comercial.cuoton_inicial_pct",
-        "Cuoton Final":         "extra.comercial.cuoton_final_pct",
-        "Tipo Descuento":       "extra.comercial.tipo_descuento",
-        "Tipo Bono Pie":        "extra.comercial.bono_pie_tipo",
-        "Valor reserva":        "extra.comercial.valor_reserva_clp",
-        "Tipo Reserva":         "extra.comercial.tipo_reserva",
-        "Destino Reserva":      "extra.comercial.destino_reserva",
-        # Plan pago / formas pie
-        "Cuotas Pre Entrega":   "extra.formas_pago_pie.cuotas_pre_entrega",
-        "Cuotas Post Entrega":  "extra.formas_pago_pie.cuotas_post_entrega",
-        "Pago Pre Entrega":     "extra.formas_pago_pie.pago_pre_entrega",
-        "Pago Post Entrega":    "extra.formas_pago_pie.pago_post_entrega",
-        "Pago Cuoton Inicial":  "extra.formas_pago_pie.pago_cuoton_inicial",
-        "Valor Cuota":          "extra.formas_pago_pie.valor_cuota_clp",
-        # Inmobiliaria
-        "Inmobiliaria Nombre":  "extra.inmobiliaria.nombre",
-        "Inmobiliaria Web":     "extra.inmobiliaria.web",
-        "Inmobiliaria RUT":     "extra.inmobiliaria.rut",
-        "Inmobiliaria Direccion": "extra.inmobiliaria.direccion",
-        # Cuenta reserva
-        "Titular":              "extra.cuenta_reserva.titular_nombre",
-        "RUT":                  "extra.cuenta_reserva.titular_rut",
-        "Banco":                "extra.cuenta_reserva.banco",
-        "Tipo Cuenta":          "extra.cuenta_reserva.tipo_cuenta",
-        "Numero Cuenta":        "extra.cuenta_reserva.numero_cuenta",
-        "Link Pago":            "extra.cuenta_reserva.link_pago",
+        # Sección sin header (top del form) — datos básicos del proyecto
+        ("", "Nombre"):                     "_nombre",  # placeholder (top-level)
+        ("", "Dirección"):                  "_direccion",
+        ("", "Comuna"):                     "_comuna",
+        ("", "Región"):                     "_region",
+        ("", "Fecha de entrega"):           "_fecha_entrega",
+        ("", "Año de entrega"):             "_ano_entrega",
+        ("", "Estado"):                     "_estado",
+        ("", "Modalidad"):                  "_modalidad",
+        ("", "Disponible"):                 "_disponible",
+        ("", "Stock"):                      "extra.stock_type",
+        ("", "Solicita Preaprobación"):     "extra.solicita_preaprobacion",
+        ("", "Descripción"):                "extra.descripcion",
+        # Datos físicos (top del form también, pero pueden estar en sección)
+        ("", "Pisos"):                      "extra.fisicos.pisos",
+        ("", "Unidades totales"):           "extra.fisicos.unidades_totales",
+        ("", "Unidades por piso"):          "extra.fisicos.unidades_por_piso",
+        ("", "Estacionamientos totales"):   "extra.fisicos.estacionamientos_totales",
+        ("", "Bodegas totales"):            "extra.fisicos.bodegas_totales",
+        ("", "Ascensores"):                 "extra.fisicos.ascensores",
+        ("", "Constructora"):               "extra.fisicos.constructora",
+        ("", "Permiso construcción"):       "extra.fisicos.permiso_construccion",
+        ("", "Número permiso"):             "extra.fisicos.numero_permiso",
+        ("", "Acepta cesión"):              "extra.fisicos.acepta_cesion",
+        # Sección "Inmobiliaria"
+        ("Inmobiliaria", "Nombre"):         "extra.inmobiliaria.nombre",
+        ("Inmobiliaria", "Web"):            "extra.inmobiliaria.web",
+        ("Inmobiliaria", "RUT"):            "extra.inmobiliaria.rut",
+        ("Inmobiliaria", "Dirección"):      "extra.inmobiliaria.direccion",
+        # Sección "Condiciones Comerciales"
+        ("Condiciones Comerciales", "Pie"):              "extra.comercial.pie_pct",
+        ("Condiciones Comerciales", "Tipo Pie"):         "extra.comercial.tipo_pie",
+        ("Condiciones Comerciales", "Cuotón Inicial"):   "extra.comercial.cuoton_inicial_pct",
+        ("Condiciones Comerciales", "Cuotón Final"):     "extra.comercial.cuoton_final_pct",
+        ("Condiciones Comerciales", "Tipo Descuento"):   "extra.comercial.tipo_descuento",
+        ("Condiciones Comerciales", "Tipo Bono Pie"):    "extra.comercial.bono_pie_tipo",
+        ("Condiciones Comerciales", "Reserva"):          "extra.comercial.valor_reserva_clp",
+        ("Condiciones Comerciales", "Tipo Reserva"):     "extra.comercial.tipo_reserva",
+        ("Condiciones Comerciales", "Destino Reserva"):  "extra.comercial.destino_reserva",
+        # Sección "Formas de pagar pie" / "Plan de pago"
+        ("Formas de pagar el pie", "Cuotas Pre-entrega"):  "extra.formas_pago_pie.cuotas_pre_entrega",
+        ("Formas de pagar el pie", "Cuotas Post-entrega"): "extra.formas_pago_pie.cuotas_post_entrega",
+        ("Formas de pagar el pie", "Pago Pre-entrega"):    "extra.formas_pago_pie.pago_pre_entrega",
+        ("Formas de pagar el pie", "Pago Post-entrega"):   "extra.formas_pago_pie.pago_post_entrega",
+        ("Formas de pagar el pie", "Pago Cuotón Inicial"): "extra.formas_pago_pie.pago_cuoton_inicial",
+        ("Formas de pagar el pie", "Valor Cuota"):         "extra.formas_pago_pie.valor_cuota_clp",
+        ("Formas de pagar el pie", "Valor en UF"):         "extra.formas_pago_pie.valor_cuota_uf",
+        ("Formas de pagar el pie", "Destino Reserva"):     "extra.formas_pago_pie.destino_reserva",
+        # Sección "Cuenta de Reserva"
+        ("Cuenta de Reserva", "Nombre"):           "extra.cuenta_reserva.titular_nombre",
+        ("Cuenta de Reserva", "RUT"):              "extra.cuenta_reserva.titular_rut",
+        ("Cuenta de Reserva", "Tipo de cuenta"):   "extra.cuenta_reserva.tipo_cuenta",
+        ("Cuenta de Reserva", "Numero de cuenta"): "extra.cuenta_reserva.numero_cuenta",
+        ("Cuenta de Reserva", "Banco"):            "extra.cuenta_reserva.banco",
+        ("Cuenta de Reserva", "Link de Pago Online"): "extra.cuenta_reserva.link_pago",
+        # Sección SPA
+        ("SPA del Proyecto", "Nombre"):    "extra.spa_proyecto.nombre",
+        ("SPA del Proyecto", "RUT"):       "extra.spa_proyecto.rut",
+        ("SPA del Proyecto", "Dirección"): "extra.spa_proyecto.direccion",
     }
 
     async def scrape_editor(self, jb_id: str) -> dict:
@@ -375,9 +381,7 @@ class JBImporter:
 
         out: dict[str, Any] = {}
 
-        # ── Estrategia label-based: extraer pares label/value de inputs visibles ──
-        # JS heurístico: para cada input/select visible, buscar el label más cercano
-        # (label[for=id], label que envuelve, label hermano previo, o div con texto)
+        # ── Estrategia label+section-based ──
         all_pairs = await self._page.evaluate("""() => {
             const out = [];
             const visible = el => {
@@ -406,6 +410,23 @@ class JBImporter:
                 const placeholder = el.placeholder || el.getAttribute?.('aria-label') || '';
                 return placeholder.trim();
             };
+            // Buscar la sección donde está el input: <h2>/<h3>/<h4>/<legend> anterior más cercano
+            const findSection = (el) => {
+                // Walker hacia atrás en el DOM buscando un heading
+                const headingTags = ['H1','H2','H3','H4','H5','LEGEND'];
+                let node = el;
+                const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+                // Coleccionar todos los headings que están ANTES del input en orden de documento
+                const allHeadings = document.querySelectorAll('h1,h2,h3,h4,h5,legend');
+                let lastBefore = null;
+                for (const h of allHeadings) {
+                    if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                        // h aparece antes que el
+                        lastBefore = h;
+                    }
+                }
+                return lastBefore ? lastBefore.innerText.trim() : '';
+            };
             const inputs = document.querySelectorAll('input:not([type="hidden"]), select, textarea');
             inputs.forEach(el => {
                 if (!visible(el)) return;
@@ -416,7 +437,8 @@ class JBImporter:
                 if (v == null || v === '' || v === '0') return;
                 const label = findLabel(el);
                 if (!label) return;
-                out.push({label, value: v, type: el.type || el.tagName, name: el.name || el.id || ''});
+                const section = findSection(el);
+                out.push({label, section, value: v, type: el.type || el.tagName, name: el.name || el.id || ''});
             });
             return out;
         }""")
@@ -424,20 +446,35 @@ class JBImporter:
         log.info(f"   {len(all_pairs)} pares label/value encontrados")
         (debug_dir / "labels_found.json").write_text(json.dumps(all_pairs, indent=2, ensure_ascii=False), encoding="utf-8")
 
-        # Mapear labels conocidos a paths en extra
+        # Mapear (section, label) → path
+        def norm(s):
+            return s.lower().replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ñ","n").strip()
+
+        unmatched = []
         for pair in all_pairs:
             label = pair.get("label", "").strip()
+            section = pair.get("section", "").strip()
             value = pair.get("value", "").strip()
-            # Normalizar label (quitar mayúsculas/acentos para match flexible)
-            norm = label.replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ñ","n")
-            for known_label, path in self.LABEL_MAP.items():
-                norm_known = known_label.replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ñ","n")
-                if norm.lower() == norm_known.lower():
-                    if path.startswith("_"):
-                        # Campos top-level del proyecto — los manejamos en put_proyecto
-                        continue
-                    self._set_path(out, path, value)
-                    break
+            nlabel = norm(label)
+            nsection = norm(section)
+
+            # Buscar match: primero (section, label), después ("", label) si no
+            matched_path = None
+            for (sec_key, lbl_key), path in self.LABEL_MAP.items():
+                if norm(lbl_key) == nlabel:
+                    if sec_key == "" or norm(sec_key) in nsection or nsection in norm(sec_key):
+                        matched_path = path
+                        if sec_key:  # match con sección específica gana sobre genérico
+                            break
+
+            if matched_path and not matched_path.startswith("_"):
+                self._set_path(out, matched_path, value)
+            elif not matched_path:
+                unmatched.append({"section": section, "label": label, "value": value[:60]})
+
+        # Dump no-matcheados para iterar
+        (debug_dir / "unmatched_labels.json").write_text(json.dumps(unmatched, indent=2, ensure_ascii=False), encoding="utf-8")
+        log.info(f"   ⚠ {len(unmatched)} labels sin mapeo (ver unmatched_labels.json)")
 
         # ── Etiquetas (chips): buscar elementos con texto cortos en row de Etiquetas ──
         try:
