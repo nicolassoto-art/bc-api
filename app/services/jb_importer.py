@@ -492,6 +492,56 @@ class JBImporter:
         log.info(f"   {len(all_pairs)} pares label/value encontrados")
         (debug_dir / "labels_found.json").write_text(json.dumps(all_pairs, indent=2, ensure_ascii=False), encoding="utf-8")
 
+        # ── Scrape directo por formcontrolname (más robusto para mat-select Angular) ──
+        # Algunos labels (Tipo Pie/Descuento/Bono Pie) no quedan asociados via <label for=...>
+        # porque están dentro de mat-form-field con <mat-label> en vez de <label>.
+        # Estrategia: leer mat-select por formcontrolname directamente.
+        FCN_TO_PATH = {
+            "preApproval":           "extra.solicita_preaprobacion",
+            "depositType":           "extra.comercial.tipo_pie",
+            "downpaymentBonusType":  "extra.comercial.tipo_bono_pie",
+            "discountType":          "extra.comercial.tipo_descuento",
+            "reservationType":       "extra.comercial.tipo_reserva",
+            "reservationDestination":"extra.comercial.destino_reserva",
+            "reservationBank":       "extra.cuenta_reserva.banco",
+            "reservationAccountType":"extra.cuenta_reserva.tipo_cuenta",
+            "buildingPermit":        "extra.fisicos.permiso_construccion",
+            "stock":                 "extra.stock_type",
+            # plan de pago
+            "prePaymentMethod":      "extra.formas_pago_pie.pago_pre_entrega",
+            "postPaymentMethod":     "extra.formas_pago_pie.pago_post_entrega",
+            "initialPaymentMethod":  "extra.formas_pago_pie.pago_cuoton_inicial",
+        }
+        fcn_values = await self._page.evaluate(r"""(fcns) => {
+            const out = {};
+            for (const fcn of fcns) {
+                // mat-select tiene [formcontrolname=X]
+                const sel = document.querySelector(`mat-select[formcontrolname="${fcn}"]`);
+                if (sel) {
+                    const txt = sel.querySelector('.mat-mdc-select-value-text, [class*="select-value"]')?.innerText
+                             || sel.innerText || '';
+                    const v = txt.trim();
+                    if (v && !/^(seleccion|elegir)/i.test(v)) {
+                        out[fcn] = v;
+                    }
+                    continue;
+                }
+                // input[formcontrolname=X] como fallback
+                const inp = document.querySelector(`input[formcontrolname="${fcn}"], textarea[formcontrolname="${fcn}"]`);
+                if (inp && inp.value) out[fcn] = inp.value.trim();
+            }
+            return out;
+        }""", list(FCN_TO_PATH.keys()))
+
+        fcn_matched = 0
+        for fcn, val in fcn_values.items():
+            if val and fcn in FCN_TO_PATH:
+                self._set_path(out, FCN_TO_PATH[fcn], val)
+                fcn_matched += 1
+        if fcn_matched:
+            log.info(f"   ✓ {fcn_matched} campos extra via formcontrolname (mat-select Angular)")
+        (debug_dir / "formcontrolname_values.json").write_text(json.dumps(fcn_values, indent=2, ensure_ascii=False), encoding="utf-8")
+
         # Mapear (section, label) → path
         def norm(s):
             return s.lower().replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ñ","n").strip()
@@ -721,6 +771,9 @@ class JBImporter:
         try:
             await self._click_tab("Bodegas")
             await self._page.wait_for_timeout(2_500)
+            # Paginar/scroll para cargar TODAS las bodegas (JB pagina de 30 en 30)
+            total = await self._load_all_table_rows()
+            log.info(f"   📦 Bodegas tras paginación: {total} rows totales")
             await self._page.screenshot(path=str(debug_dir / "tab-bodegas.png"), full_page=True)
             bodegas_rows = await self._scrape_table_rows()
             if bodegas_rows:
@@ -754,6 +807,8 @@ class JBImporter:
         try:
             await self._click_tab("Estacionamientos")
             await self._page.wait_for_timeout(2_500)
+            total = await self._load_all_table_rows()
+            log.info(f"   🅿  Estac tras paginación: {total} rows totales")
             await self._page.screenshot(path=str(debug_dir / "tab-estac.png"), full_page=True)
             estac_rows = await self._scrape_table_rows()
             if estac_rows:
@@ -868,6 +923,72 @@ class JBImporter:
         if val is None or val == "":
             return None
         return val.strip()
+
+    async def _load_all_table_rows(self) -> int:
+        """Si la tabla tiene paginación, clickea 'next' hasta que no haya más.
+        Si tiene 'Cargar más' lo clickea hasta que desaparezca. Devuelve count final."""
+        for _ in range(40):  # safety cap
+            try:
+                # Mover scroll al final del scope para forzar lazy load si aplica
+                await self._page.evaluate("""() => {
+                    const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active')
+                                 || document.querySelector('.mat-tab-body-active')
+                                 || document.body;
+                    scope.scrollTo({top: scope.scrollHeight});
+                }""")
+                await self._page.wait_for_timeout(400)
+                # ¿Hay "Cargar más" o "ver más"?
+                more_btn = await self._page.evaluate("""() => {
+                    const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
+                    const btns = scope.querySelectorAll('button, a');
+                    for (const b of btns) {
+                        const t = (b.innerText || '').trim().toLowerCase();
+                        if (/^(cargar m[áa]s|ver m[áa]s|mostrar m[áa]s|load more)$/i.test(t)
+                            && b.offsetParent && !b.disabled) {
+                            b.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                }""")
+                if more_btn:
+                    await self._page.wait_for_timeout(700)
+                    continue
+                # ¿Botón "next" del paginador (mat-paginator)?
+                next_clicked = await self._page.evaluate("""() => {
+                    const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
+                    const btn = scope.querySelector('.mat-mdc-paginator-navigation-next:not([disabled]), button[aria-label*="next" i]:not([disabled]), button[aria-label*="siguiente" i]:not([disabled])');
+                    if (btn && btn.offsetParent) { btn.click(); return true; }
+                    return false;
+                }""")
+                if next_clicked:
+                    await self._page.wait_for_timeout(700)
+                    continue
+                break
+            except Exception:
+                break
+        # Volver al top para que el screenshot quede igual que antes
+        try:
+            await self._page.evaluate("""() => {
+                const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
+                scope.scrollTo({top: 0});
+            }""")
+        except Exception:
+            pass
+        # Contar rows
+        try:
+            n = await self._page.evaluate("""() => {
+                const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document;
+                let best = 0;
+                scope.querySelectorAll('table').forEach(t => {
+                    const n = t.querySelectorAll('tbody tr').length;
+                    if (n > best) best = n;
+                });
+                return best;
+            }""")
+            return n or 0
+        except Exception:
+            return 0
 
     async def _scrape_table_rows(self) -> list[dict]:
         """Scrapea la tabla principal de la página actual. Devuelve lista de rows con cells/links/imgs.
