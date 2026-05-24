@@ -668,7 +668,7 @@ class JBImporter:
                 modelos_data = []
                 for r in modelos_rows:
                     cells = r.get("cells", [])
-                    if len(cells) < 4:
+                    if not cells:
                         continue
                     thumb_src = (r.get("imgs") or [None])[0]
                     # Extraer planta_id del thumb URL: .../download/{id}/35/35 o .../download/{id}
@@ -677,11 +677,14 @@ class JBImporter:
                         m = re.search(r"/download/([A-Za-z0-9_-]{4,})", thumb_src)
                         if m:
                             planta_id = m.group(1)
+                    # JB columnas Modelos: Nombre, Dormitorios, Baños, Cotiza Bodega, Cotiza Estac, Cotiza Pack, [Plano]
                     modelos_data.append({
-                        "nombre": cells[0] if cells else "",
-                        "cotiza_bodega": cells[1] if len(cells) > 1 else "",
-                        "cotiza_estac": cells[2] if len(cells) > 2 else "",
-                        "cotiza_pack": cells[3] if len(cells) > 3 else "",
+                        "nombre": cells[0] if len(cells) > 0 else "",
+                        "dormitorios": cells[1] if len(cells) > 1 else "",
+                        "banos": cells[2] if len(cells) > 2 else "",
+                        "cotiza_bodega": cells[3] if len(cells) > 3 else "",
+                        "cotiza_estac": cells[4] if len(cells) > 4 else "",
+                        "cotiza_pack": cells[5] if len(cells) > 5 else "",
                         "planta_thumb_src": thumb_src,
                         "planta_id": planta_id,
                     })
@@ -1174,6 +1177,9 @@ class JBImporter:
                 continue
             seen.add(numero)
             am = u.get("apartmentModel") or {}
+            # Solo importar como UNIDAD si tiene apartmentModel (es Depto, no parking/bodega)
+            if not am or not isinstance(am, dict) or not am.get("name"):
+                continue
             r, b = am.get("rooms"), am.get("bathrooms")
             tipologia = f"{r}D - {b}B" if r and b else ""
             data = {
