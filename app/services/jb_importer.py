@@ -222,34 +222,28 @@ class JBImporter:
         for i in range(15):
             url = self._page.url
             if "login" not in url.lower() and "jetbrokers.io" in url:
-                # Logueado: extraer token de localStorage
+                # Logueado: leer broker-storage_broker-user-token específicamente
+                # (JB guarda el token JSON-encoded en esa key — string corto ~8 chars)
                 try:
-                    storage_data = await self._page.evaluate("""() => {
-                        const keys = Object.keys(localStorage);
-                        const out = {};
-                        for (const k of keys) {
-                            const v = localStorage.getItem(k);
-                            if (v && v.length > 20) out[k] = v;
-                        }
-                        return out;
-                    }""")
-                    # Buscar el token entre los valores de localStorage
-                    for k, v in storage_data.items():
-                        # JWT format
-                        if isinstance(v, str) and v.startswith("eyJ") and v.count(".") == 2:
-                            token_found = v
-                            log.info(f"   ✓ Token JWT desde localStorage[{k}]")
-                            break
-                        # Plain session token (alfanumérico largo)
-                        if isinstance(v, str) and 20 < len(v) < 200 and v.replace("-", "").replace("_", "").isalnum():
-                            # Verificar si es probable token
-                            if not token_found:
-                                token_found = v
-                                log.info(f"   ⚠ Token candidate desde localStorage[{k}] ({len(v)} chars)")
-                    if token_found:
-                        break
+                    raw = await self._page.evaluate(
+                        "() => localStorage.getItem('broker-storage_broker-user-token')"
+                    )
+                    if raw:
+                        # JSON-encoded → quitar quotes
+                        try:
+                            parsed = json.loads(raw)
+                            if isinstance(parsed, str) and len(parsed) >= 4:
+                                token_found = parsed
+                                log.info(f"   ✓ Token JB desde localStorage ({len(parsed)} chars)")
+                                break
+                        except Exception:
+                            # No es JSON: usar raw
+                            if len(raw) >= 4:
+                                token_found = raw.strip('"')
+                                log.info(f"   ✓ Token JB (raw) desde localStorage ({len(raw)} chars)")
+                                break
                 except Exception as e:
-                    log.warning(f"   read localStorage: {e}")
+                    log.warning(f"   read broker-token: {e}")
             if token_found:
                 break
             await self._page.wait_for_timeout(2_000)
