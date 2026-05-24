@@ -55,9 +55,80 @@ EMPTY_PATTERNS = [
 ]
 
 
+EXTRACT_JS = """(attr) => {
+    const el = attr ? document.querySelector(`[data-content="${attr}"]`) : document.body;
+    if (!el) return null;
+    const text = el.innerText || '';
+    const tbody = el.querySelectorAll('tbody');
+    const rows = [];
+    tbody.forEach(tb => {
+        tb.querySelectorAll('tr').forEach(tr => {
+            const cells = [...tr.querySelectorAll('td, th')].map(td => {
+                // Si la celda tiene un input, leer el value; sino innerText
+                const inp = td.querySelector('input, select');
+                if (inp) {
+                    if (inp.tagName === 'SELECT') return inp.options[inp.selectedIndex]?.text || inp.value;
+                    return inp.value;
+                }
+                return (td.innerText || '').trim();
+            });
+            // Skip rows que son solo headers o vacías
+            if (cells.some(c => c && c.length > 0)) rows.push(cells);
+        });
+    });
+    // Form fields (label → value)
+    const fields = [];
+    el.querySelectorAll('input:not([type="hidden"]):not([type="search"]), select, textarea, mat-select').forEach(inp => {
+        let v = inp.value || (inp.options ? inp.options[inp.selectedIndex]?.text : '') || '';
+        if (inp.tagName === 'MAT-SELECT') {
+            v = (inp.querySelector('.mat-mdc-select-value-text, span')?.innerText || '').trim();
+        }
+        if (!v || /^(seleccionar|seleccione)/i.test(v)) return;
+        // Buscar label
+        let label = '';
+        if (inp.id) {
+            const l = document.querySelector(`label[for="${inp.id}"]`);
+            if (l) label = l.innerText.trim();
+        }
+        if (!label) {
+            let p = inp.parentElement;
+            for (let h = 0; h < 5 && p; h++) {
+                const lbl = p.querySelector('label');
+                if (lbl && !lbl.contains(inp)) { label = lbl.innerText.trim(); break; }
+                p = p.parentElement;
+            }
+        }
+        fields.push({label, value: v.trim()});
+    });
+    return { text_chars: text.length, rows_count: rows.length, rows, fields };
+}"""
+
+
+def normalize_val(s):
+    """Normalize values for comparison."""
+    if s is None:
+        return ""
+    s = str(s).strip().lower()
+    # Quitar separadores de miles y normalizar decimal
+    repl = str.maketrans("áéíóúñ", "aeioun")
+    s = s.translate(repl)
+    s = " ".join(s.split())
+    # "20,00" → "20", "200.000" → "200000"
+    try:
+        if "," in s:
+            n = float(s.replace(".", "").replace(",", "."))
+        elif s.count(".") >= 1 and all(len(p) == 3 for p in s.split(".")[1:]):
+            n = float(s.replace(".", ""))
+        else:
+            n = float(s)
+        s = str(int(n)) if n == int(n) else str(n)
+    except Exception:
+        pass
+    return s
+
+
 async def walk_bc_editor(page, jb_id: str, proyecto_id: str, bc_jwt: str, out_dir: Path) -> dict:
-    """Abre BC editor, clickea cada tab, screenshot + content detection."""
-    # Auth via localStorage
+    """Abre BC editor, clickea cada tab, screenshot + extrae datos."""
     await page.goto("https://herramientas.bigcapital.cl/", wait_until="domcontentloaded", timeout=30_000)
     await page.evaluate("(t) => localStorage.setItem('bc_api_token', t)", bc_jwt)
     await page.goto(
@@ -69,54 +140,29 @@ async def walk_bc_editor(page, jb_id: str, proyecto_id: str, bc_jwt: str, out_di
     results = {}
     for bc_label, bc_tab_attr, _ in TABS_TO_CHECK:
         try:
-            # Click en el tab
-            await page.evaluate(f"""(attr) => {{
-                const btn = document.querySelector(`[data-tab="${{attr}}"]`);
+            await page.evaluate("""(attr) => {
+                const btn = document.querySelector(`[data-tab="${attr}"]`);
                 if (btn) btn.click();
-            }}""", bc_tab_attr)
+            }""", bc_tab_attr)
             await page.wait_for_timeout(1_500)
-
-            # Screenshot
             png_path = out_dir / f"bc-tab-{bc_tab_attr}.png"
             await page.screenshot(path=str(png_path), full_page=True)
-
-            # Detectar content
-            content_info = await page.evaluate(f"""(attr) => {{
-                const el = document.querySelector(`[data-content="${{attr}}"]`);
-                if (!el) return {{ visible: false }};
-                const text = el.innerText.toLowerCase();
-                const empty_msg = /a[uú]n no hay|sin\\s+(unidades|modelos|bodegas|estacion|documentos|fotos|notas|datos)|vac[ií]o|sin datos/i.test(text);
-                const tbody = el.querySelector('tbody');
-                const rows = tbody ? tbody.querySelectorAll('tr').length : 0;
-                // Inputs poblados (value no vacío)
-                const inputs = [...el.querySelectorAll('input:not([type="hidden"])')].filter(i => i.value && i.value.length > 0).length;
-                const total_inputs = el.querySelectorAll('input:not([type="hidden"])').length;
-                return {{
-                    visible: true,
-                    text_chars: text.length,
-                    has_empty_msg: empty_msg,
-                    rows,
-                    inputs_filled: inputs,
-                    inputs_total: total_inputs,
-                    sample_text: text.substring(0, 200),
-                }};
-            }}""", bc_tab_attr)
-
-            results[bc_label] = {
-                "screenshot": str(png_path.name),
-                **content_info,
-                "has_data": not content_info.get("has_empty_msg", True) and (content_info.get("rows", 0) > 0 or content_info.get("inputs_filled", 0) > 0 or content_info.get("text_chars", 0) > 100),
-            }
-            log.info(f"   BC {bc_label}: rows={content_info.get('rows')} inputs_filled={content_info.get('inputs_filled')}/{content_info.get('inputs_total')} empty_msg={content_info.get('has_empty_msg')}")
+            info = await page.evaluate(EXTRACT_JS, bc_tab_attr)
+            if info is None:
+                results[bc_label] = {"error": "no content element"}
+                continue
+            info["screenshot"] = str(png_path.name)
+            info["has_data"] = info.get("rows_count", 0) > 0 or len(info.get("fields", [])) > 0
+            results[bc_label] = info
+            log.info(f"   BC {bc_label}: rows={info['rows_count']} fields={len(info.get('fields',[]))}")
         except Exception as e:
             results[bc_label] = {"error": str(e)}
             log.warning(f"   BC {bc_label} error: {e}")
-
     return results
 
 
 async def walk_jb_editor(imp: JBImporter, jb_id: str, out_dir: Path) -> dict:
-    """Abre JB editor, clickea cada tab, screenshot + content detection."""
+    """Abre JB editor, clickea cada tab, screenshot + extrae datos."""
     edit_url = f"https://app.jetbrokers.io/projects/edit/{jb_id}"
     await imp._page.goto(edit_url, wait_until="networkidle", timeout=60_000)
     await imp._page.wait_for_timeout(4_000)
@@ -131,22 +177,14 @@ async def walk_jb_editor(imp: JBImporter, jb_id: str, out_dir: Path) -> dict:
             await imp._page.wait_for_timeout(2_000)
             png_path = out_dir / f"jb-tab-{jb_label.lower()}.png"
             await imp._page.screenshot(path=str(png_path), full_page=True)
-            # Detectar content
-            content_info = await imp._page.evaluate("""() => {
-                const body = document.body.innerText.toLowerCase();
-                const text = document.body.innerText;
-                const tbody = document.querySelectorAll('tbody');
-                let rows = 0;
-                tbody.forEach(tb => { rows += tb.querySelectorAll('tr').length; });
-                const inputs = [...document.querySelectorAll('input:not([type="hidden"]):not([type="search"])')].filter(i => i.value && i.value.length > 0).length;
-                return { text_chars: text.length, rows, inputs_filled: inputs };
-            }""")
-            results[bc_label] = {
-                "screenshot": str(png_path.name),
-                **content_info,
-                "has_data": content_info.get("rows", 0) > 0 or content_info.get("inputs_filled", 0) > 0,
-            }
-            log.info(f"   JB {bc_label}: rows={content_info.get('rows')} inputs_filled={content_info.get('inputs_filled')}")
+            info = await imp._page.evaluate(EXTRACT_JS, None)
+            if info is None:
+                results[bc_label] = {"error": "no content"}
+                continue
+            info["screenshot"] = str(png_path.name)
+            info["has_data"] = info.get("rows_count", 0) > 0 or len(info.get("fields", [])) > 0
+            results[bc_label] = info
+            log.info(f"   JB {bc_label}: rows={info['rows_count']} fields={len(info.get('fields',[]))}")
         except Exception as e:
             results[bc_label] = {"error": str(e)}
             log.warning(f"   JB {bc_label} error: {e}")
@@ -191,7 +229,7 @@ async def main(jb_id: str):
     finally:
         await imp.close()
 
-    # Comparar tab por tab: si JB tiene data, BC también debería
+    # Comparar tab por tab — DATA POR DATA, no solo has_data
     comparison = []
     fail_count = 0
     for bc_label, _, jb_label in TABS_TO_CHECK:
@@ -199,23 +237,58 @@ async def main(jb_id: str):
         jb = jb_results.get(bc_label, {})
         jb_has = jb.get("has_data", False)
         bc_has = bc.get("has_data", False)
+
+        # Comparar VALUES extraídos: rows (sets de celdas normalizadas) + fields (label/value)
+        def collect_values(d):
+            vals = set()
+            for row in d.get("rows", []) or []:
+                for cell in row:
+                    n = normalize_val(cell)
+                    if n and len(n) > 0:
+                        vals.add(n)
+            for f in d.get("fields", []) or []:
+                n = normalize_val(f.get("value", ""))
+                if n: vals.add(n)
+            return vals
+
+        jb_vals = collect_values(jb)
+        bc_vals = collect_values(bc)
+
+        only_jb = jb_vals - bc_vals  # valores en JB que NO están en BC
+        only_bc = bc_vals - jb_vals
+        common = jb_vals & bc_vals
+
+        # Status
         if jb_label is None:
             status = "BC_ONLY" if bc_has else "BOTH_EMPTY"
         elif jb_has and not bc_has:
             status = "BC_VACIO_PERO_JB_TIENE"
             fail_count += 1
         elif jb_has and bc_has:
-            status = "AMBOS_OK"
+            # Ambos con data — chequear si los VALORES coinciden
+            # Considerar OK si BC contiene al menos 80% de los valores JB
+            coverage = len(common) / max(len(jb_vals), 1)
+            if coverage >= 0.8:
+                status = f"AMBOS_OK ({coverage*100:.0f}% match)"
+            else:
+                status = f"DATA_MISMATCH ({coverage*100:.0f}% match)"
+                fail_count += 1
         elif not jb_has and not bc_has:
             status = "AMBOS_VACIOS"
         else:
             status = "BC_TIENE_PERO_JB_NO"
+
         comparison.append({
             "tab": bc_label,
-            "bc_rows": bc.get("rows"),
-            "bc_inputs_filled": bc.get("inputs_filled"),
-            "jb_rows": jb.get("rows"),
-            "jb_inputs_filled": jb.get("inputs_filled"),
+            "bc_rows_count": bc.get("rows_count"),
+            "jb_rows_count": jb.get("rows_count"),
+            "bc_fields": len(bc.get("fields", []) or []),
+            "jb_fields": len(jb.get("fields", []) or []),
+            "common_values": len(common),
+            "only_jb_count": len(only_jb),
+            "only_bc_count": len(only_bc),
+            "only_jb_sample": sorted(only_jb)[:8],
+            "only_bc_sample": sorted(only_bc)[:8],
             "status": status,
         })
 
@@ -228,18 +301,31 @@ async def main(jb_id: str):
     }
     (out_dir / "test5-walkthrough.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
 
-    # HTML side-by-side
+    # HTML side-by-side con diff data
     rows_html = ""
     for c in comparison:
-        bg = {"AMBOS_OK": "#1a4f1a", "AMBOS_VACIOS": "#333", "BC_VACIO_PERO_JB_TIENE": "#7a1a1a", "BC_ONLY": "#5f4a00", "BC_TIENE_PERO_JB_NO": "#5f4a00"}.get(c["status"], "#333")
+        bg = "#1a4f1a" if c["status"].startswith("AMBOS_OK") else \
+             "#7a1a1a" if "VACIO_PERO_JB" in c["status"] or "MISMATCH" in c["status"] else \
+             "#333"
         bc_png = f"bc-tab-{[t[1] for t in TABS_TO_CHECK if t[0]==c['tab']][0]}.png"
         jb_png_label = [t[2] for t in TABS_TO_CHECK if t[0]==c['tab']][0]
         jb_png = f"jb-tab-{jb_png_label.lower()}.png" if jb_png_label else ""
+        only_jb_html = ""
+        if c.get("only_jb_count", 0) > 0:
+            only_jb_html = f"<div style='font-size:11px;color:#ff9'><b>En JB pero NO en BC ({c['only_jb_count']}):</b> {', '.join(c.get('only_jb_sample', []))}</div>"
+        only_bc_html = ""
+        if c.get("only_bc_count", 0) > 0:
+            only_bc_html = f"<div style='font-size:11px;color:#9ef'><b>En BC pero NO en JB ({c['only_bc_count']}):</b> {', '.join(c.get('only_bc_sample', []))}</div>"
         rows_html += f"""
 <tr style="background:{bg}">
   <td><b>{escape(c['tab'])}</b></td>
   <td>{escape(c['status'])}</td>
-  <td>BC: rows={c['bc_rows']}, inputs={c['bc_inputs_filled']}<br>JB: rows={c['jb_rows']}, inputs={c['jb_inputs_filled']}</td>
+  <td>
+    BC: rows={c['bc_rows_count']}, fields={c['bc_fields']} · JB: rows={c['jb_rows_count']}, fields={c['jb_fields']}<br>
+    <span style='color:#7dc242'>Match: {c['common_values']}</span>
+    {only_jb_html}
+    {only_bc_html}
+  </td>
 </tr>
 <tr>
   <td colspan="3">
