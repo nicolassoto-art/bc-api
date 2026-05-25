@@ -56,6 +56,7 @@ def main():
     rc3, tail3 = run_subprocess("verify_jb_visual.py", jb_id)
     rc4, tail4 = run_subprocess("verify_jb_ui_parity.py", jb_id)
     rc5, tail5 = run_subprocess("verify_jb_editor_walkthrough.py", jb_id)
+    rc6, tail6 = run_subprocess("verify_dom_diff.py", jb_id)
 
     duration = round(time.time() - started, 1)
 
@@ -69,7 +70,8 @@ def main():
         "test3_visual":     {"rc": rc3, "passed": rc3 == 0, "tail": tail3, "critical": False, "note": "review humano"},
         "test4_ui_parity":  {"rc": rc4, "passed": rc4 == 0, "tail": tail4, "critical": True, "note": "BC vista vs JB editor"},
         "test5_walkthrough":{"rc": rc5, "passed": rc5 == 0, "tail": tail5, "critical": True, "note": "simulador humano clickeando tabs"},
-        "overall_passed":   rc1 == 0 and rc5 == 0,  # Test 1 (data) + Test 5 (UI walkthrough) bloqueantes
+        "test6_dom_diff":   {"rc": rc6, "passed": rc6 == 0, "tail": tail6, "critical": True, "note": "DOM-to-DOM directo, determinístico"},
+        "overall_passed":   rc1 == 0 and rc6 == 0,  # Test 1 (data) + Test 6 (DOM diff) bloqueantes
     }
     (out_dir / "SUMMARY.json").write_text(json.dumps(summary, indent=2))
 
@@ -84,6 +86,7 @@ Duración: {duration}s
 | 3. Visual (screenshots side-by-side) | {'✅ generado' if rc3 == 0 else '⚠ error'} | {rc3} | no |
 | **4. UI parity (BC vista vs JB editor)** | {'✅ PASS' if rc4 == 0 else '⚠ warn'} | {rc4} | warn |
 | **5. Walkthrough (clickear cada tab)** | {'✅ PASS' if rc5 == 0 else '❌ FAIL'} | {rc5} | sí |
+| **6. DOM diff (determinístico)** | {'✅ PASS' if rc6 == 0 else '❌ FAIL'} | {rc6} | sí |
 
 **Overall**: {'✅ PASS' if summary['overall_passed'] else '❌ FAIL'}
 
@@ -118,6 +121,11 @@ Duración: {duration}s
 ### Test 5 (Walkthrough humano clickeando tabs)
 ```
 {tail5}
+```
+
+### Test 6 (DOM diff determinístico)
+```
+{tail6}
 ```
 """
     (out_dir / "SUMMARY.md").write_text(md)
