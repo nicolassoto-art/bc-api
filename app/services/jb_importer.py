@@ -614,16 +614,26 @@ class JBImporter:
                         if sec_key:  # match con sección específica gana sobre genérico
                             break
 
-            if matched_path and not matched_path.startswith("_"):
-                # No sobreescribir un valor válido ya capturado con uno vacío posterior
-                # (ng-select expone 4 elementos por label: el real con valor + 3 wrappers vacíos)
-                existing = self._get_path(out, matched_path)
-                new_val = normalize_value(matched_path, value)
-                if new_val in (None, "", 0) and existing not in (None, ""):
-                    pass  # mantener existente
+            if matched_path:
+                # _X paths → guardar en out["_top_level"][X] para usar en put_proyecto
+                # X paths normales → out con su path nested completo
+                if matched_path.startswith("_"):
+                    target_key = matched_path[1:]  # quitar prefijo
+                    out.setdefault("_top_level", {})
+                    existing = out["_top_level"].get(target_key)
+                    new_val = value.strip() if value else ""
+                    if new_val in ("", None) and existing not in ("", None):
+                        pass
+                    else:
+                        out["_top_level"][target_key] = new_val
                 else:
-                    self._set_path(out, matched_path, new_val)
-            elif not matched_path:
+                    existing = self._get_path(out, matched_path)
+                    new_val = normalize_value(matched_path, value)
+                    if new_val in (None, "", 0) and existing not in (None, ""):
+                        pass
+                    else:
+                        self._set_path(out, matched_path, new_val)
+            else:
                 unmatched.append({"section": section, "label": label, "value": value[:60]})
 
         # Dump no-matcheados para iterar
@@ -1616,16 +1626,34 @@ class JBImporter:
         new_extra["modelos"] = modelos
         new_extra["_jb_imported_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
+        # _top_level: fields scrapeados con prefijo "_" en LABEL_MAP (Estado, Modalidad, etc)
+        # tienen prioridad sobre los current. Mapeo: scrape label → bc-api field name.
+        TOP_LEVEL_MAP = {
+            "estado": "fase",       # JB 'Estado' → BC 'fase' (legacy rename)
+            "modalidad": "modalidad",
+            "fase": "fase",
+            "direccion": "direccion",
+            "nombre": "nombre",
+        }
+        top_level = (scraped_extra.get("_top_level") or scraped_extra.get("extra", {}).get("_top_level")) or {}
+        top_overrides = {}
+        for k, v in top_level.items():
+            if not v: continue
+            target = TOP_LEVEL_MAP.get(k.lower(), k.lower())
+            top_overrides[target] = v
+        # Remover _top_level del extra antes del PUT
+        new_extra.pop("_top_level", None)
+
         body = {
-            "nombre": current["nombre"],
+            "nombre": top_overrides.get("nombre") or current["nombre"],
             "inmobiliaria": current.get("inmobiliaria"),
             "comuna": current.get("comuna"),
             "region": current.get("region"),
-            "direccion": current.get("direccion"),
+            "direccion": top_overrides.get("direccion") or current.get("direccion"),
             "gps_lat": current.get("gps_lat"),
             "gps_lon": current.get("gps_lon"),
-            "fase": current.get("fase"),
-            "modalidad": current.get("modalidad"),
+            "fase": top_overrides.get("fase") or current.get("fase"),
+            "modalidad": top_overrides.get("modalidad") or current.get("modalidad"),
             "activo": current.get("activo", True),
             "disponible": current.get("disponible", True),
             "fecha_entrega": current.get("fecha_entrega"),
