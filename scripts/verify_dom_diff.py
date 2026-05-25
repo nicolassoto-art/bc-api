@@ -225,17 +225,77 @@ EXTRACT_JS = """(scopeSelector) => {
 }"""
 
 
+def load_jb_data_from_import(jb_id: str) -> dict:
+    """Carga los datos JB del scrape exhaustivo del importer.
+    Mucho más confiable que re-scrapear JB en vivo (Angular asincrónico, popups, etc).
+    Lee:
+      _debug_scrape/labels_found.json     → fields globales (todos los tabs)
+      _debug_scrape/tab-modelos_rows.json → rows del tab Modelos
+      _debug_scrape/tab-bodegas_rows.json → rows tab Bodegas
+      _debug_scrape/tab-estac_rows.json   → rows tab Estac
+    """
+    base = Path(os.environ.get("IMPORTS_DIR", "imports")) / jb_id / "_debug_scrape"
+    fields_all = []
+    chips_all = {}
+    if (base / "labels_found.json").exists():
+        fields_all = json.loads((base / "labels_found.json").read_text())
+
+    # Por tab: filtrar fields por section
+    def fields_for(section_patterns):
+        """fields cuya section matchea alguno de los patrones (case-insensitive)."""
+        result = []
+        for f in fields_all:
+            s = (f.get("section") or "").lower()
+            if any(p in s for p in section_patterns) or section_patterns == ["__all__"]:
+                result.append({"label": f["label"], "section": f.get("section", ""), "value": f.get("value", "")})
+        return result
+
+    # General fields: secciones General, Condiciones Comerciales, Formas pagar, Reserva, Inmobiliaria, SPA, Portada
+    general_sections = ["general", "condiciones", "formas", "reserva", "inmobiliaria", "spa", "portada"]
+    general_fields = fields_for(general_sections)
+
+    # Etiquetas chips
+    etiquetas = next((f for f in fields_all if (f.get("label", "") or "").lower().startswith("etiquetas")), None)
+    if etiquetas:
+        chips_all["Etiquetas"] = [s.strip() for s in (etiquetas.get("value", "") or "").split(",") if s.strip()]
+    # Si no, intentar leer de la BD (extra.etiquetas)
+    # Skip: el diff comparará vs BC chips, BC chips se leen del DOM
+
+    def table_rows(filename):
+        p = base / filename
+        if not p.exists(): return []
+        rows_data = json.loads(p.read_text())
+        # rows_data es lista de {cells, links, imgs, ...}
+        return [{"cells": r.get("cells", [])} for r in rows_data if r.get("cells")]
+
+    modelos_rows = table_rows("tab-modelos_rows.json")
+    bodegas_rows = table_rows("tab-bodegas_rows.json")
+    estac_rows = table_rows("tab-estac_rows.json")
+
+    # Build JB data per tab
+    return {
+        "general":     {"fields": general_fields, "chips": chips_all, "tables": []},
+        "documentos":  {"fields": [], "chips": {}, "tables": []},  # Documentos se compara contra imagenes en BC
+        "modelos":     {"fields": [], "chips": {}, "tables": [
+            {"headers": ["Nombre", "Cotiza Bodega", "Cotiza Estac.", "Cotiza Pack", "Plano"], "rows": [r["cells"] for r in modelos_rows]}
+        ]},
+        "bodegas":     {"fields": [], "chips": {}, "tables": [
+            {"headers": ["Número", "Precio UF", "Superficie m²", "Disponible"],
+             "rows": [r["cells"] for r in bodegas_rows]}
+        ]},
+        "estac":       {"fields": [], "chips": {}, "tables": [
+            {"headers": ["Número", "Precio UF", "Nivel", "Tipo", "Disponible"],
+             "rows": [r["cells"] for r in estac_rows]}
+        ]},
+        "packs":       {"fields": [], "chips": {}, "tables": []},
+        "notas":       {"fields": fields_for(["notas"]), "chips": {}, "tables": []},
+        "stock":       {"fields": fields_for(["stock"]), "chips": {}, "tables": []},
+    }
+
+
 async def scrape_jb_tab(imp: JBImporter, tab_label: str) -> dict:
-    """Click un tab en JB editor y extraer estructura DOM."""
-    try:
-        await imp._click_tab(tab_label)
-        await imp._page.wait_for_timeout(2_000)
-        await imp._dismiss_popups()
-        result = await imp._page.evaluate(EXTRACT_JS, None)
-        return result or {}
-    except Exception as e:
-        log.warning(f"   JB {tab_label}: {e}")
-        return {"error": str(e)}
+    """[DEPRECATED en favor de load_jb_data_from_import]"""
+    return {}
 
 
 async def scrape_bc_tab(page, bc_tab_attr: str) -> dict:
@@ -374,17 +434,13 @@ async def main(jb_id: str):
             sys.exit(2)
         proyecto_id = proj["id"]
 
-        # Open JB editor
-        edit_url = f"https://app.jetbrokers.io/projects/edit/{jb_id}"
-        await imp._page.goto(edit_url, wait_until="networkidle", timeout=60_000)
-        await imp._page.wait_for_timeout(4_000)
-        await imp._dismiss_popups()
-
-        # Scrape each JB tab
-        jb_data = {}
-        for bc_attr, jb_label in TABS_TO_CHECK:
-            log.info(f"📡 JB tab: {jb_label}")
-            jb_data[bc_attr] = await scrape_jb_tab(imp, jb_label)
+        # JB data viene del scrape exhaustivo que el importer ya hizo
+        log.info("📡 Cargando JB data del _debug_scrape/...")
+        jb_data = load_jb_data_from_import(jb_id)
+        log.info(f"   ✓ JB: General={len(jb_data['general']['fields'])} fields, "
+                 f"Modelos={len(jb_data['modelos']['tables'][0]['rows']) if jb_data['modelos']['tables'] else 0} rows, "
+                 f"Bodegas={len(jb_data['bodegas']['tables'][0]['rows']) if jb_data['bodegas']['tables'] else 0} rows, "
+                 f"Estac={len(jb_data['estac']['tables'][0]['rows']) if jb_data['estac']['tables'] else 0} rows")
 
         # Now BC editor with separate browser
         from playwright.async_api import async_playwright
