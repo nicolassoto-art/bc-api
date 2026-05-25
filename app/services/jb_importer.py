@@ -1861,18 +1861,22 @@ class JBImporter:
                 # PUT proyecto (con extra completo)
                 await self.put_proyecto(rep.proyecto_id, current, scraped, modelos)
                 log.info(f"   ✓ PUT /proyectos/{rep.proyecto_id} OK")
-                # Insertar unidades (gap: el wipe las borra, esto las re-crea)
-                api_units = api_data.get("units") or []
-                if api_units:
-                    units_result = await self.upload_unidades(rep.proyecto_id, api_units)
-                    rep.warnings.append(f"unidades: {units_result['inserted']} inserted")
-                # 7b. SUBIR EXCEL JB → bc-api parsea hojas UNIDAD/BODEGAS/ESTAC completas.
-                # Esto resuelve los casos donde DOM scrape se queda corto por paginación.
+                # 7a. SUBIR EXCEL JB PRIMERO — fuente de verdad para unidades/bodegas/estac.
+                # JB tiene sheets separadas UNIDAD/BODEGAS/ESTAC, no mezcla tipos.
                 jb_excel = (scraped.get("extra") or {}).get("_jb_stock_excel") or {}
+                excel_inserted = 0
                 if jb_excel.get("path"):
                     excel_result = await self.upload_jb_excel(rep.proyecto_id, Path(jb_excel["path"]))
-                    if excel_result.get("inserted") or excel_result.get("updated"):
+                    excel_inserted = excel_result.get("inserted", 0) + excel_result.get("updated", 0)
+                    if excel_inserted:
                         rep.warnings.append(f"excel JB: {excel_result.get('inserted',0)} ins, {excel_result.get('updated',0)} upd")
+                # 7b. Fallback: si Excel no tuvo data, intentar API JSON (con filtro mejor).
+                # Solo unidades con apartmentModel.name (deptos) — bodegas/estac van por Excel.
+                if excel_inserted == 0:
+                    api_units = api_data.get("units") or []
+                    if api_units:
+                        units_result = await self.upload_unidades(rep.proyecto_id, api_units)
+                        rep.warnings.append(f"unidades (API fallback): {units_result['inserted']} inserted")
             else:
                 log.info(f"   (dry-run) skip PUT")
 
