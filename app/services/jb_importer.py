@@ -662,7 +662,7 @@ class JBImporter:
                         if (patterns.some(p => t.includes(p))) {
                             const labels = [...g.querySelectorAll('.ng-value-label')]
                                 .map(s => (s.innerText || '').trim())
-                                .filter(x => x && x !== '×' && x.length < 100);
+                                .filter(x => x && x !== '×' && x.length < 300);
                             if (labels.length) result[key] = labels;
                             break;
                         }
