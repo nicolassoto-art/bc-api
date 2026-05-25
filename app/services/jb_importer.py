@@ -605,7 +605,14 @@ class JBImporter:
                             break
 
             if matched_path and not matched_path.startswith("_"):
-                self._set_path(out, matched_path, normalize_value(matched_path, value))
+                # No sobreescribir un valor válido ya capturado con uno vacío posterior
+                # (ng-select expone 4 elementos por label: el real con valor + 3 wrappers vacíos)
+                existing = self._get_path(out, matched_path)
+                new_val = normalize_value(matched_path, value)
+                if new_val in (None, "", 0) and existing not in (None, ""):
+                    pass  # mantener existente
+                else:
+                    self._set_path(out, matched_path, new_val)
             elif not matched_path:
                 unmatched.append({"section": section, "label": label, "value": value[:60]})
 
@@ -1608,6 +1615,16 @@ class JBImporter:
         for k in keys[:-1]:
             cur = cur.setdefault(k, {})
         cur[keys[-1]] = value
+
+    @staticmethod
+    def _get_path(obj: dict, dot_path: str) -> Any:
+        keys = dot_path.split(".")
+        cur = obj
+        for k in keys:
+            if not isinstance(cur, dict) or k not in cur:
+                return None
+            cur = cur[k]
+        return cur
 
     @staticmethod
     def _deep_merge(dst: dict, src: dict) -> None:
