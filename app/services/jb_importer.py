@@ -327,6 +327,7 @@ class JBImporter:
         ("", "Ascensores"):                 "extra.fisicos.ascensores",
         ("", "Constructora"):               "extra.fisicos.constructora",
         ("", "Permiso construcción"):       "extra.fisicos.permiso_construccion",
+        ("", "Permiso de Construcción"):    "extra.fisicos.permiso_construccion",  # JB usa "de"
         ("", "Número permiso"):             "extra.fisicos.numero_permiso",
         ("", "Acepta cesión"):              "extra.fisicos.acepta_cesion",
         # Sección "Inmobiliaria"
@@ -1637,6 +1638,12 @@ class JBImporter:
             "fase": "fase",
             "direccion": "direccion",
             "nombre": "nombre",
+            "comuna": "comuna",
+            "region": "region",
+            "ano_entrega": "ano_entrega",
+            "fecha_entrega": "fecha_entrega",
+            "solicita_preaprobacion": "solicita_preaprobacion",
+            "stock_type": "stock_type",
         }
         top_level = (scraped_extra.get("_top_level") or scraped_extra.get("extra", {}).get("_top_level")) or {}
         top_overrides = {}
