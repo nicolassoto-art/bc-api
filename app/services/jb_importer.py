@@ -848,18 +848,25 @@ class JBImporter:
             # Buscar botón "Descargar Excel" / "Exportar" / "Excel"
             xlsx_path = self.imports_dir / jb_id / f"stock-jb-{time.strftime('%Y%m%d')}.xlsx"
             xlsx_path.parent.mkdir(parents=True, exist_ok=True)
-            for btn_text in ("Descargar Excel", "Exportar", "Excel", "Descargar"):
+            # PRIORIZAR la plantilla CON DATOS (no la vacía).
+            # JB tiene 2 botones: "Descargar plantilla" (vacía) y "Descargar plantilla prerellena con datos".
+            for btn_text in (
+                "prerellena con datos", "prerellena", "con datos",  # PRIMERO: con data
+                "Descargar Excel", "Exportar",
+                "Descargar plantilla", "Descargar",  # fallback al vacío
+            ):
                 try:
                     async with self._page.expect_download(timeout=15_000) as dl_info:
                         await self._page.locator(f"button:has-text('{btn_text}'), a:has-text('{btn_text}')").first.click(timeout=4_000)
                     download = await dl_info.value
                     await download.save_as(str(xlsx_path))
                     if xlsx_path.exists() and xlsx_path.stat().st_size > 1024:
-                        log.info(f"   📊 Excel stock descargado: {xlsx_path.name} ({xlsx_path.stat().st_size} bytes)")
+                        log.info(f"   📊 Excel stock descargado vía '{btn_text}': {xlsx_path.name} ({xlsx_path.stat().st_size} bytes)")
                         self._set_path(out, "extra._jb_stock_excel", {
                             "path": str(xlsx_path),
                             "size": xlsx_path.stat().st_size,
                             "downloaded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                            "source_btn": btn_text,
                         })
                         break
                 except Exception:
