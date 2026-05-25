@@ -49,13 +49,34 @@ TABS_TO_CHECK = [
 
 
 def _norm_label(s: str) -> str:
-    """Normaliza label: lowercase, sin tildes, sin espacios extras."""
+    """Normaliza label: lowercase, sin tildes, sin parénteses ni asteriscos,
+    sin sufijos de unidad (%, UF, m²) ni hints (Enter para añadir, etc)."""
     if not s:
         return ""
     s = str(s).strip().lower()
     repl = str.maketrans("áéíóúñ", "aeioun")
     s = s.translate(repl)
-    return " ".join(s.split())
+    # Eliminar parenthesis con contenido: "Pie (%)" → "pie", "Etiquetas (Enter...)" → "etiquetas"
+    s = re.sub(r"\([^)]*\)", "", s)
+    # Eliminar asterisco obligatorio
+    s = s.replace("*", "")
+    # Eliminar sufijos comunes
+    for suf in (" uf", " clp", " %", " m²", " m2", " m^2"):
+        if s.endswith(suf): s = s[:-len(suf)]
+    # Aliases comunes (JB ↔ BC)
+    aliases = {
+        "estac. totales": "estacionamientos totales",
+        "estac totales": "estacionamientos totales",
+        "estac.": "estacionamientos",
+        "ano de entrega": "ano entrega",
+        "ano entrega": "ano entrega",
+        "fecha de entrega": "fecha entrega",
+        "solicita preaprobacion": "solicita preaprobacion",
+        "cuoton inicial": "cuoton inicial",
+        "cuoton final": "cuoton final",
+    }
+    s = " ".join(s.split())
+    return aliases.get(s, s)
 
 
 def _norm_value(s) -> str:
@@ -253,13 +274,26 @@ def diff_tab(jb: dict, bc: dict) -> dict:
         if jv != bv:
             value_diffs.append({"label": lbl, "jb": jb_labels[lbl][:60], "bc": bc_labels[lbl][:60]})
 
-    # Tablas: comparar cell-set por columna numero (primer cell normalizado)
+    # Tablas: usar el primer cell NO-VACÍO + NO-CHECKBOX como key.
+    # JB tiene checkbox en col 0 ("on"/""); BC no.
+    NOISE_CELLS = {"", "on", "off", "true", "false", "—", "-", "sí", "no", "si"}
+    def row_key(row):
+        for cell in row or []:
+            v = _norm_value(cell)
+            # Skip checkbox cells y bool noise
+            if v and v not in NOISE_CELLS and not v.startswith("//"):
+                # Skip si parece URL/path
+                if "/" in v and len(v) > 20:
+                    continue
+                return v
+        return None
+
     def collect_table_keys(tables):
         keys = set()
         for t in tables or []:
             for row in t.get("rows") or []:
-                if row and row[0]:
-                    keys.add(_norm_value(row[0]))
+                k = row_key(row)
+                if k: keys.add(k)
         return keys
 
     jb_table_keys = collect_table_keys(jb.get("tables"))
@@ -279,14 +313,21 @@ def diff_tab(jb: dict, bc: dict) -> dict:
     headers_only_jb = sorted(set(jb_headers) - set(bc_headers))
     headers_only_bc = sorted(set(bc_headers) - set(jb_headers))
 
-    # Chips
-    jb_chips = jb.get("chips") or {}
-    bc_chips = bc.get("chips") or {}
+    # Chips: agrupar por label normalizado para mergear "Etiquetas" y "Etiquetas (Enter para añadir)"
+    def merge_chips(chips_dict):
+        out = {}
+        for k, vals in (chips_dict or {}).items():
+            nk = _norm_label(k)
+            out.setdefault(nk, set()).update(_norm_value(x).replace(" ×", "").replace("×", "").strip() for x in vals)
+        return {k: {v for v in s if v} for k, s in out.items()}
+
+    jb_chips = merge_chips(jb.get("chips") or {})
+    bc_chips = merge_chips(bc.get("chips") or {})
     chips_diff = []
     all_chip_keys = set(jb_chips.keys()) | set(bc_chips.keys())
     for k in all_chip_keys:
-        jb_set = set(_norm_value(x) for x in jb_chips.get(k, []))
-        bc_set = set(_norm_value(x) for x in bc_chips.get(k, []))
+        jb_set = jb_chips.get(k, set())
+        bc_set = bc_chips.get(k, set())
         if jb_set != bc_set:
             chips_diff.append({"label": k, "only_jb": sorted(jb_set - bc_set), "only_bc": sorted(bc_set - jb_set)})
 
