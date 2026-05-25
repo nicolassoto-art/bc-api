@@ -371,6 +371,10 @@ class JBImporter:
         ("SPA del Proyecto", "Nombre"):    "extra.spa_proyecto.nombre",
         ("SPA del Proyecto", "RUT"):       "extra.spa_proyecto.rut",
         ("SPA del Proyecto", "Dirección"): "extra.spa_proyecto.direccion",
+        # JB usa sección "Datos SPA Proyectos" y labels "Nombre SPA / RUT SPA / Dirección SPA"
+        ("Datos SPA Proyectos", "Nombre SPA"):    "extra.spa_proyecto.nombre",
+        ("Datos SPA Proyectos", "RUT SPA"):       "extra.spa_proyecto.rut",
+        ("Datos SPA Proyectos", "Dirección SPA"): "extra.spa_proyecto.direccion",
     }
 
     async def _dismiss_popups(self) -> None:
