@@ -1822,11 +1822,26 @@ class JBImporter:
     async def run(self, jb_id: str, skip_assets: bool = False, dry_run: bool = False) -> ImportReport:
         rep = ImportReport(jb_id=jb_id, started_at=time.time())
         try:
-            # 1. Buscar proyecto en bc-api por extra.jb_id
+            # 1. Buscar proyecto en bc-api por extra.jb_id; si no existe, CREARLO.
             current = await self.find_proyecto_by_jb_id(jb_id)
             if not current:
-                rep.errors.append(f"Proyecto con extra.jb_id={jb_id} no encontrado en bc-api")
-                return rep
+                log.info(f"   📝 Proyecto extra.jb_id={jb_id} no existe en bc-api — creando placeholder...")
+                # Crear proyecto mínimo con jb_id en extra. El nombre/comuna se sobreescriben
+                # en put_proyecto con los datos scrapeados de JB.
+                stub_body = {
+                    "nombre": f"JB-{jb_id}",  # placeholder, se actualiza en put_proyecto
+                    "inmobiliaria": "BigCapital",
+                    "modalidad": "Nuevo",
+                    "activo": True,
+                    "disponible": True,
+                    "extra": {"jb_id": jb_id},
+                }
+                r = await self._bc_client.post("/proyectos", json=stub_body)
+                if not r.is_success:
+                    rep.errors.append(f"No se pudo crear proyecto placeholder para jb_id={jb_id}: HTTP {r.status_code} {r.text[:200]}")
+                    return rep
+                current = r.json()
+                log.info(f"   ✓ Proyecto creado: id={current.get('id')}")
             rep.proyecto_id = current["id"]
 
             # 2. WIPE — etapa inherente del pipeline (JB = single source of truth)
