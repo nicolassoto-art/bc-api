@@ -318,9 +318,25 @@ def diff_tab(jb: dict, bc: dict) -> dict:
     if jb.get("error") or bc.get("error"):
         return {"error": f"jb={jb.get('error')} bc={bc.get('error')}"}
 
-    # Labels
-    jb_labels = {_norm_label(f["label"]): f["value"] for f in (jb.get("fields") or []) if f.get("label")}
-    bc_labels = {_norm_label(f["label"]): f["value"] for f in (bc.get("fields") or []) if f.get("label")}
+    # Labels: dedup por label. ng-select expone 4 elementos por label (1 real + 3 wrappers
+    # vacíos). Quedarnos con el PRIMER valor no-vacío.
+    def collect_labels(fields):
+        out = {}
+        for f in fields or []:
+            if not f.get("label"): continue
+            nl = _norm_label(f["label"])
+            if not nl: continue
+            v = f.get("value", "") or ""
+            existing = out.get(nl, "")
+            # Solo sobreescribir si current es vacío y new tiene algo
+            if not existing and v:
+                out[nl] = v
+            elif nl not in out:
+                out[nl] = v
+        return out
+
+    jb_labels = collect_labels(jb.get("fields"))
+    bc_labels = collect_labels(bc.get("fields"))
 
     only_jb_labels = sorted(set(jb_labels.keys()) - set(bc_labels.keys()))
     only_bc_labels = sorted(set(bc_labels.keys()) - set(jb_labels.keys()))
