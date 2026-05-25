@@ -200,6 +200,14 @@ async def walk_bc_editor(page, jb_id: str, proyecto_id: str, bc_jwt: str, out_di
         except Exception:
             break
 
+    # Ocultar barras sticky/fixed que tapan filas en screenshots full-page
+    try:
+        await page.add_style_tag(content="""
+            .sp-save-bar, [class*="save-bar"] { display: none !important; }
+        """)
+    except Exception:
+        pass
+
     results = {}
     for bc_label, bc_tab_attr, _ in TABS_TO_CHECK:
         try:
@@ -208,6 +216,12 @@ async def walk_bc_editor(page, jb_id: str, proyecto_id: str, bc_jwt: str, out_di
                 if (btn) btn.click();
             }""", bc_tab_attr)
             await page.wait_for_timeout(1_500)
+            # Re-aplicar oculto del save-bar por si el tab lo re-crea
+            await page.evaluate("""() => {
+                document.querySelectorAll('.sp-save-bar, [class*="save-bar"]').forEach(el => {
+                    el.style.display = 'none';
+                });
+            }""")
             png_path = out_dir / f"bc-tab-{bc_tab_attr}.png"
             await page.screenshot(path=str(png_path), full_page=True)
             info = await page.evaluate(EXTRACT_JS, bc_tab_attr)
