@@ -308,44 +308,49 @@ def ai_vision_compare(jb_png: Path, bc_png: Path, tab_name: str) -> dict:
         import httpx
         jb_b64 = base64.b64encode(jb_png.read_bytes()).decode()
         bc_b64 = base64.b64encode(bc_png.read_bytes()).decode()
-        prompt = f"""Eres un QA de DATOS (no UX). Te muestro dos screenshots del MISMO proyecto inmobiliario en su editor:
+        prompt = f"""Eres un QA ESTRICTO de paridad estructural y de datos. Te muestro dos screenshots:
 
-IMAGEN 1: JetBrokers (JB) — fuente de verdad, tab "{tab_name}".
-IMAGEN 2: BigCapital (BC) — nuestro sistema, tab "{tab_name}". BC es un editor con botones de edición; JB es más vista.
+IMAGEN 1: JetBrokers (JB) — fuente de verdad absoluta, tab "{tab_name}".
+IMAGEN 2: BigCapital (BC) — nuestro sistema, tab "{tab_name}".
 
-OBJETIVO: detectar diferencias en DATOS / VALORES / CONTENIDO real, NO diferencias de UX/UI.
+OBJETIVO: BC debe tener ESTRUCTURA DE DATOS IDÉNTICA a JB.
+- Mismas columnas en tablas (mismo número, mismos headers, mismo orden)
+- Mismas secciones en formularios (mismo orden, mismo agrupamiento)
+- Mismos labels de campos (texto literal, con misma capitalización aceptable)
+- Mismos valores en cada campo/celda
+- Mismas filas/items con misma data
 
-IGNORÁ (NO son MISMATCH, son diseño intencional):
-- Iconos vs badges/pills mostrando el MISMO valor (ej: ✓/✗ en JB vs 'Sí'/'No' en BC — son lo mismo)
-- Botones de edición que solo BC tiene (Guardar, Descartar, +Agregar, candado, papelera, lápiz)
-- Headers abreviados/expandidos con mismo significado (ej: 'Disp.' vs 'Disponible', 'Fecha' vs 'Fecha de creación')
-- Capitalización ('Foto' vs 'FOTO', 'areas comunes' vs 'AREAS COMUNES')
-- Paginación: JB muestra 30 de 108, BC muestra todas → NO es MISMATCH, BC tiene más visible y eso está OK
-- Diferencias de formato de fecha ('15/04/2025' vs '15-04-2025') con MISMO valor
-- Secciones extras en BC (Inmobiliaria, SPA, Cuenta reserva expandida) que JB no tiene visible
-- Breadcrumbs, indicadores 'Guardado', timestamps de sync
-- Sufijos de unidad (BC ya tiene 'UF' visible o no — chequeá valor numérico)
-- Placeholders 'https://...' o '---' cuando el valor real está vacío en ambos
+SÍ marcá como MISMATCH (cualquiera de estos):
+- BC tiene COLUMNAS EXTRAS que JB no tiene (ej: BC tiene 'D' y 'B' columns, JB no)
+- BC FALTAN COLUMNAS que JB tiene
+- HEADERS distintos (ej: JB='Cotiza Bodega' / BC='COTIZA-BODEGA' es OK; pero JB='Plano' / BC='Plano (URL)' marca MISMATCH)
+- SECCIONES en orden distinto al de JB (en formularios)
+- SECCIONES extras en BC que JB no tiene visible (Inmobiliaria expandida, SPA, etc.)
+- VALORES distintos (precio, m2, modelo, etc.)
+- FILAS/ITEMS que JB muestra y BC no tiene
+- CAMPOS vacíos en BC cuando JB los tiene llenos
+- HTML crudo visible, imágenes rotas, render roto
 
-SÍ son MISMATCH (data real distinta):
-- Valores numéricos diferentes en mismo campo (precio JB=389 / BC=400)
-- Filas/items que JB tiene con datos y BC NO tiene (ej: bodega 348 con precio 70 UF en JB, ausente en BC)
-- Texto/nombres distintos (etiqueta JB='Crédito Interno' / BC='Crédito hipotecario')
-- Documentos/imágenes/notas con contenido distinto entre JB y BC
-- Campos vacíos en BC cuando JB los tiene llenos (ej: 'Tipo Pie' JB='Obligatorio' / BC vacío)
-- HTML crudo visible como texto, imágenes rotas
-- Estado disponibilidad MISMA cosa mostrada diferente NO cuenta, pero VALOR distinto sí (ej: JB dice 'No disp' y BC dice 'Sí')
+Se TOLERA (NO marcar MISMATCH):
+- Iconos ✓/✗ vs badges 'Sí/No' (representan mismo valor)
+- Botones tipo lápiz/papelera/candado en filas de BC (UX de edición)
+- Toolbars con '+ Crear' / 'Descargar' (no son data de la tabla en sí)
+- Mayúsculas vs minúsculas en HEADERS (ej: 'NOMBRE' vs 'Nombre' es OK)
+- Paginación: JB pagina 30, BC muestra más es OK
+- Diferencias de formato de fecha con mismo valor (15/04/2025 vs 15-04-2025)
 
 JSON estricto, sin markdown:
 {{
   "verdict": "OK" | "MISMATCH" | "BC_EMPTY",
-  "missing_in_bc": ["DATOS visibles en JB que faltan en BC (items, filas con contenido, valores)"],
-  "value_diffs": ["campo X: JB='valor1' / BC='valor2' (mismo campo, valor numérico/texto realmente distinto)"],
+  "structural_diffs": ["diferencias de COLUMNAS, SECCIONES, HEADERS (BC tiene col X que JB no, falta sección Y, etc.)"],
+  "missing_in_bc": ["datos visibles en JB que faltan en BC"],
+  "value_diffs": ["campo X: JB='valor1' / BC='valor2'"],
   "render_issues": ["HTML raw, imágenes rotas, caracteres extraños"],
-  "summary": "1-2 frases sobre paridad de DATOS"
+  "summary": "1-2 frases"
 }}
 
-Verdict OK si los datos coinciden aunque la UI se vea diferente. MISMATCH solo si hay valores realmente distintos o data faltante."""
+Verdict OK requiere: structural_diffs=[], missing_in_bc=[], value_diffs=[], render_issues=[].
+CUALQUIER diferencia estructural o de datos → MISMATCH."""
         r = httpx.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -612,12 +617,12 @@ async def main(jb_id: str):
                 vc = ai.get("verdict", "?")
                 color = "#7dc242" if vc == "OK" else "#ff7"
                 bits = []
+                if ai.get("structural_diffs"):
+                    bits.append(f"<b style='color:#ff9'>⚠ ESTRUCTURA ({len(ai['structural_diffs'])}):</b> " + escape('; '.join(ai['structural_diffs'][:8])))
                 if ai.get("missing_in_bc"):
                     bits.append(f"<b>Falta en BC ({len(ai['missing_in_bc'])}):</b> " + escape('; '.join(ai['missing_in_bc'][:8])))
                 if ai.get("value_diffs"):
                     bits.append(f"<b>Valores distintos ({len(ai['value_diffs'])}):</b> " + escape('; '.join(ai['value_diffs'][:8])))
-                if ai.get("extra_in_bc"):
-                    bits.append(f"<b>Extras BC ({len(ai['extra_in_bc'])}):</b> " + escape('; '.join(ai['extra_in_bc'][:6])))
                 if ai.get("render_issues"):
                     bits.append(f"<b>Render:</b> " + escape('; '.join(ai['render_issues'][:4])))
                 if ai.get("summary"):
