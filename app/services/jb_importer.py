@@ -464,20 +464,30 @@ class JBImporter:
                 }
                 return '';
             };
-            const inputs = document.querySelectorAll('input:not([type="hidden"]), select, textarea, mat-select, ng-select, [role="combobox"]');
+            const inputs = document.querySelectorAll('input:not([type="hidden"]), select, textarea, mat-select, ng-select, .ng-select, .ng-select-container, [role="combobox"]');
             inputs.forEach(el => {
                 if (!visible(el)) return;
                 let v = el.value;
                 if (el.tagName === 'SELECT') {
                     v = el.options[el.selectedIndex]?.text || el.value;
                 } else if (el.tagName === 'MAT-SELECT' || el.tagName === 'NG-SELECT' || el.getAttribute('role') === 'combobox') {
-                    // Angular Material: leer el texto visible del valor seleccionado
-                    const txt = el.querySelector('.mat-mdc-select-value-text, .ng-value-label, [class*="select-value"]')?.innerText
-                              || el.querySelector('span:not([class*="placeholder"])')?.innerText
-                              || el.innerText;
-                    v = (txt || '').trim();
+                    // ng-select de JB: <div class="ng-value">...<span class="text-sm">Obligatorio</span></div>
+                    // mat-select: <span class="mat-mdc-select-value-text">...</span>
+                    const ngValue = el.querySelector('.ng-value:not(.ng-placeholder)');
+                    let txt = '';
+                    if (ngValue) {
+                        // Tomar el span más profundo con texto (filtrando placeholder y clear button)
+                        const spans = [...ngValue.querySelectorAll('span')].filter(s =>
+                            s.innerText && !s.classList.contains('ng-clear') && !s.classList.contains('ng-arrow'));
+                        txt = (spans[spans.length-1]?.innerText || ngValue.innerText || '').trim();
+                    } else {
+                        txt = (el.querySelector('.mat-mdc-select-value-text, [class*="select-value"]')?.innerText
+                            || el.querySelector('span:not(.ng-placeholder):not(.ng-arrow):not(.ng-clear)')?.innerText
+                            || '').trim();
+                    }
+                    v = txt;
                     // Filtrar placeholder text típicos
-                    if (/^(seleccion|elegir|placeholder)/i.test(v)) v = '';
+                    if (/^(seleccion|elegir|placeholder|×|\\u00d7)/i.test(v)) v = '';
                 }
                 // Capturamos TODO los inputs que tengan label, incluyendo valores '' y '0'.
                 // Esto permite ver que el campo EXISTE en JB aunque tenga valor 0/vacío.
