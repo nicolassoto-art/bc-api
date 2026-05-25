@@ -1461,11 +1461,23 @@ class JBImporter:
                 continue
             seen.add(numero)
             am = u.get("apartmentModel") if isinstance(u.get("apartmentModel"), dict) else {}
-            # Filtrar parking/bodega: solo importar si tiene rooms (es depto)
-            # u.type también puede indicar: 'apartment' vs 'parking' vs 'storage'
+            # Filtrar parking/bodega:
+            # 1) por type explícito (JB a veces no lo setea)
+            # 2) por ausencia de apartmentModel (bodegas/estac no tienen modelo de depto)
+            # 3) por precio bajo + sin rooms (bodegas suelen ser 60-80 UF, deptos >1000 UF)
             u_type = (u.get("type") or "").lower()
-            if u_type in ("parking", "storage", "store", "bodega", "estacionamiento"):
+            if u_type in ("parking", "storage", "store", "bodega", "estacionamiento", "warehouse"):
                 continue
+            # Sin apartmentModel = no es depto válido
+            if not am or not am.get("name"):
+                continue
+            # Precio bodega típico (<150 UF) sin rooms = bodega/estac mal clasificada
+            try:
+                p = float(u.get("price") or 0)
+                if p > 0 and p < 150 and not am.get("rooms"):
+                    continue
+            except Exception:
+                pass
             r, b = am.get("rooms"), am.get("bathrooms")
             tipologia = f"{r}D - {b}B" if r and b else ""
             data = {
