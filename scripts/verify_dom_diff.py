@@ -461,12 +461,21 @@ def diff_tab(jb: dict, bc: dict, tab_name: str = "") -> dict:
         headers_only_jb = sorted(set(jb_headers) - set(bc_headers))
         headers_only_bc = sorted(set(bc_headers) - set(jb_headers))
 
-    # Chips: agrupar por label normalizado para mergear "Etiquetas" y "Etiquetas (Enter para añadir)"
+    # Chips: agrupar por label canónico (JB usa keys data-chips style, BC usa label text).
+    CHIP_KEY_CANON = {
+        "etiquetas": "etiquetas",
+        "areas comunes": "areas_comunes",
+        "areas_comunes": "areas_comunes",
+        "equipamiento": "equipamiento",
+        "equipamiento y terminaciones": "equipamiento",
+        "entorno": "entorno",
+    }
     def merge_chips(chips_dict):
         out = {}
         for k, vals in (chips_dict or {}).items():
             nk = _norm_label(k)
-            out.setdefault(nk, set()).update(_norm_value(x).replace(" ×", "").replace("×", "").strip() for x in vals)
+            canon = CHIP_KEY_CANON.get(nk, nk)
+            out.setdefault(canon, set()).update(_norm_value(x).replace(" ×", "").replace("×", "").strip() for x in vals)
         return {k: {v for v in s if v} for k, s in out.items()}
 
     jb_chips = merge_chips(jb.get("chips") or {})
