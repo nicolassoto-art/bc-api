@@ -184,6 +184,21 @@ async def walk_bc_editor(page, jb_id: str, proyecto_id: str, bc_jwt: str, out_di
         wait_until="networkidle", timeout=60_000,
     )
     await page.wait_for_timeout(4_000)
+    # Detectar challenge de Cloudflare/CDN ("Please wait while your request is being verified")
+    # y esperar hasta que el editor real cargue.
+    for attempt in range(12):  # hasta 60s extra
+        try:
+            txt = (await page.evaluate("() => document.body.innerText || ''")).lower()
+            if "please wait" in txt or "being verified" in txt or "verificando" in txt:
+                log.warning(f"   ⏳ BC challenge detected, esperando ({attempt+1}/12)...")
+                await page.wait_for_timeout(5_000)
+                continue
+            # Si el body tiene contenido del editor (tabs, breadcrumb), salir del loop
+            if "stock propio" in txt or "ñuñoa" in txt.lower() or "general" in txt.lower():
+                break
+            await page.wait_for_timeout(2_000)
+        except Exception:
+            break
 
     results = {}
     for bc_label, bc_tab_attr, _ in TABS_TO_CHECK:
@@ -403,7 +418,17 @@ async def main(jb_id: str):
                 headless=os.environ.get("HEADLESS", "1") != "0",
                 args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
             )
-            ctx = await browser.new_context(viewport={"width": 1440, "height": 1200})
+            # User-Agent realista (no "HeadlessChrome") + extra headers para evitar challenge Cloudflare/CDN
+            ctx = await browser.new_context(
+                viewport={"width": 1440, "height": 1200},
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                locale="es-CL",
+                extra_http_headers={
+                    "Accept-Language": "es-CL,es;q=0.9,en;q=0.8",
+                    "Sec-Ch-Ua": '"Chromium";v="120", "Not_A Brand";v="24"',
+                    "Sec-Ch-Ua-Platform": '"macOS"',
+                },
+            )
             page = await ctx.new_page()
             bc_results = await walk_bc_editor(page, jb_id, proyecto_id, os.environ["BC_API_JWT"], out_dir)
             await browser.close()
