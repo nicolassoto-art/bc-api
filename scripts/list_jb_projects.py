@@ -121,31 +121,46 @@ async def list_via_dom(imp: JBImporter) -> list[dict]:
 
         page_items = await imp._page.evaluate(r"""() => {
             const out = [];
-            // Estrategia 1: iterar filas de tabla (no solo links) y extraer todas las celdas
-            document.querySelectorAll('tr').forEach(tr => {
-                const link = tr.querySelector('a[href*="/projects/edit/"], a[href*="/projects/view/"], a[href*="/projects/details/"]');
-                if (!link) return;
-                const m = link.href.match(/\/projects\/(?:edit|view|details)\/([A-Za-z0-9_-]{6,12})/);
+            // Para cada link a un proyecto, subir al ancestor "fila" (tr o div con role=row,
+            // o ancestor común que contenga celdas).
+            const links = document.querySelectorAll('a[href*="/projects/edit/"], a[href*="/projects/view/"], a[href*="/projects/details/"]');
+            const seen = new Set();
+            links.forEach(a => {
+                const m = a.href.match(/\/projects\/(?:edit|view|details)\/([A-Za-z0-9_-]{6,12})/);
                 if (!m) return;
-                // Tomar TODAS las celdas (sin filter Boolean) preservando posición
-                const cells = [...tr.querySelectorAll('td')].map(c => (c.innerText||'').trim());
+                const jb_id = m[1];
+                if (seen.has(jb_id)) return;
+                seen.add(jb_id);
+                // Buscar el ancestor "row": tr, [role=row], o div con clase grid/row
+                let row = a.closest('tr, [role="row"], .row, .mat-row, [class*="row"]');
+                let cells = [];
+                if (row) {
+                    cells = [...row.querySelectorAll('td, [role="cell"], [role="gridcell"], .cell, [class*="cell"]')]
+                        .map(c => (c.innerText||'').trim());
+                }
+                // Fallback: buscar el ancestor cuyos siblings (o children) parezcan celdas
+                if (cells.length < 2) {
+                    let p = a.parentElement;
+                    for (let i=0; i<6 && p; i++) {
+                        const siblings = [...p.children].map(c => (c.innerText||'').trim()).filter(Boolean);
+                        if (siblings.length >= 4) {
+                            cells = siblings;
+                            row = p;
+                            break;
+                        }
+                        p = p.parentElement;
+                    }
+                }
                 out.push({
-                    jb_id: m[1],
+                    jb_id: jb_id,
                     inmobiliaria: cells[0] || '',
-                    nombre: cells[1] || (link.innerText||'').trim(),
+                    nombre: cells[1] || (a.innerText||'').trim(),
                     comuna: cells[2] || '',
                     entrega: cells[3] || '',
                     estado: cells[4] || '',
-                    _cells_count: cells.length,
+                    _cells: cells.slice(0, 8),
                 });
             });
-            // Fallback: si no se encontró nada en tablas, links sueltos
-            if (out.length === 0) {
-                document.querySelectorAll('a[href*="/projects/edit/"], a[href*="/projects/view/"], a[href*="/projects/details/"]').forEach(a => {
-                    const m = a.href.match(/\/projects\/(?:edit|view|details)\/([A-Za-z0-9_-]{6,12})/);
-                    if (m) out.push({jb_id: m[1], nombre: (a.innerText||'').trim(), inmobiliaria: '', comuna: ''});
-                });
-            }
             return out;
         }""")
         new_count = 0
