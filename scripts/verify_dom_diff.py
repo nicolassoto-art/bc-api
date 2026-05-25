@@ -179,15 +179,29 @@ EXTRACT_JS = """(scopeSelector) => {
         fields.push({label, section, value: v});
     });
 
-    // Etiquetas/chips: ng-select-multiple
+    // Chips: ng-select-multiple (JB) o .sp-chips data-chips=X (BC)
     const chips = {};
+    // Pattern JB / BC tradicional (.form-group + label)
     scope.querySelectorAll('.form-group, .sp-field').forEach(g => {
         const lbl = g.querySelector('label, .col-form-label, .sp-field-label');
         if (!lbl) return;
         const t = (lbl.innerText || '').trim();
-        if (!/etiqueta/i.test(t)) return;
-        const tags = [...g.querySelectorAll('.ng-value-label, .sp-chip')].map(s => (s.innerText||'').trim()).filter(x => x && x !== '×');
+        const tags = [...g.querySelectorAll('.ng-value-label, .sp-chip')].map(s => (s.innerText||'').trim()).filter(x => x && x !== '×' && x.length < 200);
         if (tags.length) chips[t] = tags;
+    });
+    // BC .sp-chips data-chips=NAME
+    scope.querySelectorAll('.sp-chips[data-chips]').forEach(box => {
+        const name = box.getAttribute('data-chips');
+        // Buscar label asociado en el sp-field padre
+        let lbl = '';
+        let p = box.closest('.sp-field, .form-group');
+        if (p) {
+            const l = p.querySelector('label');
+            if (l) lbl = l.innerText.trim();
+        }
+        const labelKey = lbl || name;
+        const tags = [...box.querySelectorAll('.sp-chip')].map(s => (s.innerText||'').replace(/×/g,'').trim()).filter(x => x);
+        if (tags.length) chips[labelKey] = tags;
     });
 
     // 2) Tablas: extraer headers + rows
@@ -313,7 +327,18 @@ async def scrape_bc_tab(page, bc_tab_attr: str) -> dict:
         return {"error": str(e)}
 
 
-def diff_tab(jb: dict, bc: dict) -> dict:
+SKIP_LABELS = {
+    # Search / filter / utility inputs (no son data, varían por UX)
+    "buscar", "buscar / crear inmobiliaria", "buscar nombre",
+    "archivo", "tipo", "modelos",
+    # GPS / location inputs específicos BC (JB no los muestra como inputs separados)
+    "latitud", "longitud", "logo url", "foto principal",
+    # Otros
+    "nombre",  # Es title del proyecto, ya cubierto por Nombre proyecto en otra parte
+}
+
+
+def diff_tab(jb: dict, bc: dict, tab_name: str = "") -> dict:
     """Compara estructura JB vs BC. Retorna {labels_only_jb, labels_only_bc, value_diffs, ...}"""
     if jb.get("error") or bc.get("error"):
         return {"error": f"jb={jb.get('error')} bc={bc.get('error')}"}
@@ -335,8 +360,8 @@ def diff_tab(jb: dict, bc: dict) -> dict:
                 out[nl] = v
         return out
 
-    jb_labels = collect_labels(jb.get("fields"))
-    bc_labels = collect_labels(bc.get("fields"))
+    jb_labels = {k: v for k, v in collect_labels(jb.get("fields")).items() if k not in SKIP_LABELS}
+    bc_labels = {k: v for k, v in collect_labels(bc.get("fields")).items() if k not in SKIP_LABELS}
 
     only_jb_labels = sorted(set(jb_labels.keys()) - set(bc_labels.keys()))
     only_bc_labels = sorted(set(bc_labels.keys()) - set(jb_labels.keys()))
@@ -372,22 +397,33 @@ def diff_tab(jb: dict, bc: dict) -> dict:
                 if k: keys.add(k)
         return keys
 
-    jb_table_keys = collect_table_keys(jb.get("tables"))
-    bc_table_keys = collect_table_keys(bc.get("tables"))
-    table_rows_only_jb = sorted(jb_table_keys - bc_table_keys)
-    table_rows_only_bc = sorted(bc_table_keys - jb_table_keys)
+    # Si JB no tiene tablas para este tab (notas, packs vacío, stock), no comparar tablas.
+    # Esto evita falsos positivos de tablas rendered desde HTML notes o filas "Sin datos".
+    if not jb.get("tables") or not any((t.get("rows") for t in jb["tables"])):
+        jb_table_keys = set()
+        bc_table_keys = set()
+        table_rows_only_jb = []
+        table_rows_only_bc = []
+    else:
+        jb_table_keys = collect_table_keys(jb.get("tables"))
+        bc_table_keys = collect_table_keys(bc.get("tables"))
+        table_rows_only_jb = sorted(jb_table_keys - bc_table_keys)
+        table_rows_only_bc = sorted(bc_table_keys - jb_table_keys)
 
-    # Headers de tablas
-    def collect_headers(tables):
-        h = []
-        for t in tables or []:
-            h.extend([_norm_label(x) for x in (t.get("headers") or []) if x])
-        return h
-
-    jb_headers = collect_headers(jb.get("tables"))
-    bc_headers = collect_headers(bc.get("tables"))
-    headers_only_jb = sorted(set(jb_headers) - set(bc_headers))
-    headers_only_bc = sorted(set(bc_headers) - set(jb_headers))
+    # Headers de tablas - solo si JB tiene tabla con headers
+    if not jb.get("tables") or not any((t.get("headers") for t in jb["tables"])):
+        headers_only_jb = []
+        headers_only_bc = []
+    else:
+        def collect_headers(tables):
+            h = []
+            for t in tables or []:
+                h.extend([_norm_label(x) for x in (t.get("headers") or []) if x])
+            return h
+        jb_headers = collect_headers(jb.get("tables"))
+        bc_headers = collect_headers(bc.get("tables"))
+        headers_only_jb = sorted(set(jb_headers) - set(bc_headers))
+        headers_only_bc = sorted(set(bc_headers) - set(jb_headers))
 
     # Chips: agrupar por label normalizado para mergear "Etiquetas" y "Etiquetas (Enter para añadir)"
     def merge_chips(chips_dict):
@@ -499,7 +535,7 @@ async def main(jb_id: str):
     fail_count = 0
     total_diffs_all = 0
     for bc_attr, jb_label in TABS_TO_CHECK:
-        d = diff_tab(jb_data.get(bc_attr, {}), bc_data.get(bc_attr, {}))
+        d = diff_tab(jb_data.get(bc_attr, {}), bc_data.get(bc_attr, {}), tab_name=bc_attr)
         d["tab"] = jb_label
         d["bc_attr"] = bc_attr
         comparison.append(d)
