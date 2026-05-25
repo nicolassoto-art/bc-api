@@ -121,27 +121,31 @@ async def list_via_dom(imp: JBImporter) -> list[dict]:
 
         page_items = await imp._page.evaluate(r"""() => {
             const out = [];
-            // Links a /projects/edit/{id}
-            document.querySelectorAll('a[href*="/projects/edit/"], a[href*="/projects/view/"], a[href*="/projects/details/"]').forEach(a => {
-                const m = a.href.match(/\/projects\/(?:edit|view|details)\/([A-Za-z0-9_-]{6,12})/);
-                if (m) {
-                    const tr = a.closest('tr, .card, mat-card');
-                    let nombre = '';
-                    let comuna = '';
-                    let inmo = '';
-                    if (tr) {
-                        const cells = [...tr.querySelectorAll('td, .cell')].map(c => (c.innerText||'').trim()).filter(Boolean);
-                        // Heuristic: Inmobiliaria | Nombre | Comuna | ...
-                        if (cells.length >= 3) {
-                            inmo = cells[0];
-                            nombre = cells[1];
-                            comuna = cells[2];
-                        }
-                    }
-                    if (!nombre) nombre = (a.innerText||'').trim().split('\n')[0];
-                    out.push({jb_id: m[1], nombre, comuna, inmobiliaria: inmo});
-                }
+            // Estrategia 1: iterar filas de tabla (no solo links) y extraer todas las celdas
+            document.querySelectorAll('tr').forEach(tr => {
+                const link = tr.querySelector('a[href*="/projects/edit/"], a[href*="/projects/view/"], a[href*="/projects/details/"]');
+                if (!link) return;
+                const m = link.href.match(/\/projects\/(?:edit|view|details)\/([A-Za-z0-9_-]{6,12})/);
+                if (!m) return;
+                // Tomar TODAS las celdas (sin filter Boolean) preservando posición
+                const cells = [...tr.querySelectorAll('td')].map(c => (c.innerText||'').trim());
+                out.push({
+                    jb_id: m[1],
+                    inmobiliaria: cells[0] || '',
+                    nombre: cells[1] || (link.innerText||'').trim(),
+                    comuna: cells[2] || '',
+                    entrega: cells[3] || '',
+                    estado: cells[4] || '',
+                    _cells_count: cells.length,
+                });
             });
+            // Fallback: si no se encontró nada en tablas, links sueltos
+            if (out.length === 0) {
+                document.querySelectorAll('a[href*="/projects/edit/"], a[href*="/projects/view/"], a[href*="/projects/details/"]').forEach(a => {
+                    const m = a.href.match(/\/projects\/(?:edit|view|details)\/([A-Za-z0-9_-]{6,12})/);
+                    if (m) out.push({jb_id: m[1], nombre: (a.innerText||'').trim(), inmobiliaria: '', comuna: ''});
+                });
+            }
             return out;
         }""")
         new_count = 0
