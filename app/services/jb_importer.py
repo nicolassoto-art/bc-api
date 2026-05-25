@@ -1660,9 +1660,15 @@ class JBImporter:
         # Remover _top_level del extra antes del PUT
         new_extra.pop("_top_level", None)
 
+        # Inmobiliaria: usar la scrapeada de JB (extra.inmobiliaria.nombre) si current
+        # tiene placeholder ("BigCapital") o vacío.
+        scraped_inmo = (new_extra.get("inmobiliaria") or {}).get("nombre") if isinstance(new_extra.get("inmobiliaria"), dict) else None
+        cur_inmo = current.get("inmobiliaria") or ""
+        inmo_final = scraped_inmo if scraped_inmo and cur_inmo.lower() in ("", "bigcapital") else (cur_inmo or scraped_inmo or "")
+
         body = {
             "nombre": top_overrides.get("nombre") or current["nombre"],
-            "inmobiliaria": current.get("inmobiliaria"),
+            "inmobiliaria": inmo_final,
             "comuna": top_overrides.get("comuna") or current.get("comuna"),
             "region": top_overrides.get("region") or current.get("region"),
             "direccion": top_overrides.get("direccion") or current.get("direccion"),
