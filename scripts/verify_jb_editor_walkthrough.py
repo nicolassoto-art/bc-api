@@ -359,7 +359,7 @@ CUALQUIER diferencia estructural o de datos → MISMATCH."""
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-opus-4-5",
+                "model": "claude-sonnet-4-5",
                 "max_tokens": 2500,
                 "messages": [{
                     "role": "user",
