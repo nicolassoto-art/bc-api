@@ -1465,7 +1465,7 @@ class JBImporter:
             with open(xlsx_path, "rb") as f:
                 files = {"file": (xlsx_path.name, f.read(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
             r = await self._bc_client.post(
-                f"/excel/upload?proyecto_id={proyecto_id}",
+                f"/proyectos/{proyecto_id}/unidades/excel/upload",
                 files=files,
                 timeout=120.0,
             )
