@@ -1,0 +1,46 @@
+name: List JetBrokers projects
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+      - name: Run discovery
+        env:
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+          HEADLESS:         '1'
+        run: |
+          python3 scripts/list_jb_projects.py --out jb_projects.json
+          echo "=== Resumen ==="
+          python3 -c "
+          import json
+          d = json.load(open('jb_projects.json'))
+          print(f'Total: {len(d)}')
+          for it in d:
+              print(f'  {it[\"jb_id\"]:12s} {it.get(\"inmobiliaria\",\"\")[:20]:20s} {it.get(\"nombre\",\"\")[:50]}')
+          " | tee jb_projects.txt
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jb-projects-list
+          path: |
+            jb_projects.json
+            jb_projects.txt
+          retention-days: 30
