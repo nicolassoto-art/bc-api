@@ -925,44 +925,85 @@ class JBImporter:
         return val.strip()
 
     async def _load_all_table_rows(self) -> int:
-        """Si la tabla tiene paginación, clickea 'next' hasta que no haya más.
-        Si tiene 'Cargar más' lo clickea hasta que desaparezca. Devuelve count final."""
-        for _ in range(40):  # safety cap
+        """Paginación robusta: detecta JB Angular custom (no Material/Bootstrap estándar).
+        Estrategias en orden:
+          1. Cambiar page-size dropdown a max (100/200/All) si existe
+          2. Click 'Cargar más' / 'Ver más' iterativo
+          3. Click 'next' / '>' / icon-arrow-right del paginador
+          4. Scroll-to-bottom (lazy loading)
+        """
+        # 1) Probar cambiar page-size a un valor grande
+        try:
+            await self._page.evaluate("""() => {
+                document.querySelectorAll('select').forEach(s => {
+                    const opts = [...s.options].map(o => ({v: o.value, t: o.text.trim().toLowerCase()}));
+                    // Buscar opción tipo "100", "200", "todos", "all"
+                    const big = opts.reverse().find(o =>
+                        /^(100|200|500|1000|todos|todas|all)$/i.test(o.t)
+                        || (/^\\d+$/.test(o.t) && parseInt(o.t) >= 100)
+                    );
+                    if (big) {
+                        s.value = big.v;
+                        s.dispatchEvent(new Event('change', {bubbles: true}));
+                    }
+                });
+            }""")
+            await self._page.wait_for_timeout(1500)
+        except Exception:
+            pass
+
+        for _ in range(60):
             try:
-                # Mover scroll al final del scope para forzar lazy load si aplica
+                # Scroll completo dentro del scope visible
                 await self._page.evaluate("""() => {
-                    const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active')
-                                 || document.querySelector('.mat-tab-body-active')
-                                 || document.body;
+                    const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.scrollingElement;
                     scope.scrollTo({top: scope.scrollHeight});
+                    window.scrollTo({top: document.body.scrollHeight});
                 }""")
-                await self._page.wait_for_timeout(400)
-                # ¿Hay "Cargar más" o "ver más"?
+                await self._page.wait_for_timeout(350)
+                # 2) Botones por texto
                 more_btn = await self._page.evaluate("""() => {
-                    const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
-                    const btns = scope.querySelectorAll('button, a');
-                    for (const b of btns) {
+                    const all = document.querySelectorAll('button, a, span[role="button"], .page-link, .pagination li');
+                    for (const b of all) {
+                        if (!b.offsetParent || b.disabled || b.classList.contains('disabled')) continue;
                         const t = (b.innerText || '').trim().toLowerCase();
-                        if (/^(cargar m[áa]s|ver m[áa]s|mostrar m[áa]s|load more)$/i.test(t)
-                            && b.offsetParent && !b.disabled) {
-                            b.click();
-                            return true;
+                        if (/^(cargar m[áa]s|ver m[áa]s|mostrar m[áa]s|load more|siguiente|next|›|»|>)$/i.test(t)) {
+                            b.click(); return 'text:' + t;
                         }
                     }
-                    return false;
+                    return null;
                 }""")
                 if more_btn:
-                    await self._page.wait_for_timeout(700)
+                    await self._page.wait_for_timeout(900)
                     continue
-                # ¿Botón "next" del paginador (mat-paginator)?
-                next_clicked = await self._page.evaluate("""() => {
-                    const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
-                    const btn = scope.querySelector('.mat-mdc-paginator-navigation-next:not([disabled]), button[aria-label*="next" i]:not([disabled]), button[aria-label*="siguiente" i]:not([disabled])');
-                    if (btn && btn.offsetParent) { btn.click(); return true; }
-                    return false;
+                # 3) Iconos arrow / chevron
+                icon_clicked = await self._page.evaluate("""() => {
+                    const sels = [
+                        'button[aria-label*="next" i]:not([disabled])',
+                        'button[aria-label*="siguiente" i]:not([disabled])',
+                        'a[aria-label*="next" i]',
+                        '.pagination-next:not(.disabled)',
+                        'li.next:not(.disabled)',
+                        '[class*="paginat"] [class*="next"]:not([disabled])',
+                        'fa-icon[icon*="chevron-right"]', 'fa-icon[data-icon="chevron-right"]',
+                        '.fa-chevron-right', '.fa-angle-right', '.fa-arrow-right',
+                        'button:has(fa-icon[data-icon*="right"]):not([disabled])'
+                    ];
+                    for (const sel of sels) {
+                        try {
+                            const el = document.querySelector(sel);
+                            if (el && el.offsetParent) {
+                                const clickable = el.closest('button, a, li') || el;
+                                if (!clickable.classList.contains('disabled')) {
+                                    clickable.click(); return sel;
+                                }
+                            }
+                        } catch(e){}
+                    }
+                    return null;
                 }""")
-                if next_clicked:
-                    await self._page.wait_for_timeout(700)
+                if icon_clicked:
+                    await self._page.wait_for_timeout(900)
                     continue
                 break
             except Exception:
