@@ -27,6 +27,9 @@ ALLOWED_MIMES = {
     "image/png": ".png",
     "image/webp": ".webp",
     "image/gif": ".gif",
+    # PDFs aceptados — el frontend los muestra en tab Documentos cuando categoria
+    # empieza con "jb-doc" o cualquier categoría no-imagen.
+    "application/pdf": ".pdf",
 }
 
 
