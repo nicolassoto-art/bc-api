@@ -165,6 +165,10 @@ EXTRACT_JS = """(scopeSelector) => {
     const inputs = scope.querySelectorAll('input:not([type="hidden"]):not([type="search"]):not([type="checkbox"]), select, textarea, mat-select, ng-select, .ng-select, [role="combobox"]');
     inputs.forEach(el => {
         if (!visible(el)) return;
+        // Skip inputs que son children de .sp-chips (son placeholder inputs, no datos reales)
+        if (el.closest('.sp-chips')) return;
+        // Skip search inputs
+        if (el.id && /search|filter|buscar/i.test(el.id)) return;
         let v = '';
         if (el.tagName === 'SELECT') {
             v = el.options[el.selectedIndex]?.text || el.value || '';
@@ -345,6 +349,10 @@ SKIP_LABELS = {
     "archivo", "tipo", "modelos",
     # GPS / location inputs específicos BC (JB no los muestra como inputs separados)
     "latitud", "longitud", "logo url", "foto principal",
+    # Cambio General de Precios (oculto en BC, sección "tool" no datos)
+    "valor", "valor porcentaje",
+    # Region: BC tiene Region select, JB tiene Comuna nomás
+    "region",
     # Otros
     "nombre",  # Es title del proyecto, ya cubierto por Nombre proyecto en otra parte
 }
