@@ -74,17 +74,29 @@ def _norm_label(s: str) -> str:
         "solicita preaprobacion": "solicita preaprobacion",
         "cuoton inicial": "cuoton inicial",
         "cuoton final": "cuoton final",
+        # JB typo "Incial" ↔ BC correcto "Inicial"
+        "pago cuoton incial": "pago cuoton inicial",
+        # JB "Unidades por piso" ↔ BC "Unidades/piso"
+        "unidades por piso": "unidades por piso",
+        "unidades/piso": "unidades por piso",
+        # Cambio general de precios: JB "Valor en" ↔ BC "Valor"
+        "valor en": "valor",
+        "valor en porcentaje": "valor porcentaje",
     }
     s = " ".join(s.split())
     return aliases.get(s, s)
 
 
 def _norm_value(s) -> str:
-    """Normaliza un valor para comparación: trim, lowercase, sin signos."""
+    """Normaliza un valor para comparación: trim, lowercase, sin signos.
+    Trata placeholders como '—', '---', '-', '$ 0' como vacío."""
     if s is None:
         return ""
     s = str(s).strip()
     if not s:
+        return ""
+    # Placeholders empty
+    if s in ("—", "---", "-", "$ 0", "$0", "0,00", "0.00", "0"):
         return ""
     # Quitar sufijos comunes (UF, %, $) y comas/puntos para números
     sl = s.lower()
