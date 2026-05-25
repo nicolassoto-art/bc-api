@@ -151,12 +151,12 @@ async def list_via_dom(imp: JBImporter) -> list[dict]:
                         p = p.parentElement;
                     }
                 }
-                // Skip primer cell vacío (avatar/icon) si existe
+                // Estructura observada JB Catálogo: cell[0]=Nombre, cell[1]=Inmobiliaria, cell[2]=Comuna+Año, cell[3]=Precio, ...
                 const nonEmpty = cells.filter(c => c && c.length > 0);
                 out.push({
                     jb_id: jb_id,
-                    inmobiliaria: nonEmpty[0] || '',
-                    nombre: nonEmpty[1] || (a.innerText||'').trim(),
+                    nombre: nonEmpty[0] || (a.innerText||'').trim(),
+                    inmobiliaria: nonEmpty[1] || '',
                     comuna: nonEmpty[2] || '',
                     entrega: nonEmpty[3] || '',
                     estado: nonEmpty[4] || '',
