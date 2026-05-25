@@ -151,14 +151,16 @@ async def list_via_dom(imp: JBImporter) -> list[dict]:
                         p = p.parentElement;
                     }
                 }
+                // Skip primer cell vacío (avatar/icon) si existe
+                const nonEmpty = cells.filter(c => c && c.length > 0);
                 out.push({
                     jb_id: jb_id,
-                    inmobiliaria: cells[0] || '',
-                    nombre: cells[1] || (a.innerText||'').trim(),
-                    comuna: cells[2] || '',
-                    entrega: cells[3] || '',
-                    estado: cells[4] || '',
-                    _cells: cells.slice(0, 8),
+                    inmobiliaria: nonEmpty[0] || '',
+                    nombre: nonEmpty[1] || (a.innerText||'').trim(),
+                    comuna: nonEmpty[2] || '',
+                    entrega: nonEmpty[3] || '',
+                    estado: nonEmpty[4] || '',
+                    _cells: cells.slice(0, 12),
                 });
             });
             return out;
@@ -238,8 +240,12 @@ async def main():
                 continue
             normalized.append({
                 "jb_id": str(jb_id),
+                "inmobiliaria": it.get("inmobiliaria") or "",
                 "nombre": it.get("nombre") or it.get("name") or it.get("title") or "",
                 "comuna": (it.get("location") or {}).get("commune") or it.get("comuna") or "",
+                "entrega": it.get("entrega") or "",
+                "estado": it.get("estado") or "",
+                "_cells": it.get("_cells") or [],
             })
 
         # Dedup
