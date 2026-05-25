@@ -771,6 +771,9 @@ class JBImporter:
         try:
             await self._click_tab("Bodegas")
             await self._page.wait_for_timeout(2_500)
+            # Dump HTML para inspeccionar paginación
+            html_bod = await self._page.content()
+            (debug_dir / "tab-bodegas.html").write_text(html_bod, encoding="utf-8")
             # Paginar/scroll para cargar TODAS las bodegas (JB pagina de 30 en 30)
             total = await self._load_all_table_rows()
             log.info(f"   📦 Bodegas tras paginación: {total} rows totales")
@@ -1451,6 +1454,31 @@ class JBImporter:
         log.info(f"   📦 Unidades insertadas: {inserted}/{len(units)} (errors: {len(errors)})")
         return {"inserted": inserted, "errors": errors}
 
+    async def upload_jb_excel(self, proyecto_id: str, xlsx_path: Path) -> dict:
+        """Sube el Excel JB descargado a /excel/upload de bc-api.
+        bc-api parsea las hojas UNIDAD / ESTACIONAMIENTOS / BODEGAS y los inserta
+        completos (incluyendo los que JB pagina y el DOM scrape no captura)."""
+        if not xlsx_path.exists() or xlsx_path.stat().st_size < 1024:
+            log.warning(f"   excel upload: archivo no existe o vacío ({xlsx_path})")
+            return {"status": "skipped"}
+        try:
+            with open(xlsx_path, "rb") as f:
+                files = {"file": (xlsx_path.name, f.read(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+            r = await self._bc_client.post(
+                f"/excel/upload?proyecto_id={proyecto_id}",
+                files=files,
+                timeout=120.0,
+            )
+            if r.is_success:
+                data = r.json()
+                log.info(f"   📊 Excel JB → bc-api: {data.get('inserted',0)} ins, {data.get('updated',0)} upd, {len(data.get('errors',[]))} err")
+                return data
+            log.warning(f"   excel upload HTTP {r.status_code}: {r.text[:200]}")
+            return {"status": "error", "code": r.status_code, "body": r.text[:200]}
+        except Exception as e:
+            log.warning(f"   excel upload exception: {e}")
+            return {"status": "error", "error": str(e)}
+
     # ── Verificación final en vivo contra bc-api ─────────────────────────
     async def verify_live(self, proyecto_id: str, expected: dict) -> dict:
         """GET /proyectos/{id} y compara contra expected counts. Devuelve dict con diff."""
@@ -1771,6 +1799,13 @@ class JBImporter:
                 if api_units:
                     units_result = await self.upload_unidades(rep.proyecto_id, api_units)
                     rep.warnings.append(f"unidades: {units_result['inserted']} inserted")
+                # 7b. SUBIR EXCEL JB → bc-api parsea hojas UNIDAD/BODEGAS/ESTAC completas.
+                # Esto resuelve los casos donde DOM scrape se queda corto por paginación.
+                jb_excel = (scraped.get("extra") or {}).get("_jb_stock_excel") or {}
+                if jb_excel.get("path"):
+                    excel_result = await self.upload_jb_excel(rep.proyecto_id, Path(jb_excel["path"]))
+                    if excel_result.get("inserted") or excel_result.get("updated"):
+                        rep.warnings.append(f"excel JB: {excel_result.get('inserted',0)} ins, {excel_result.get('updated',0)} upd")
             else:
                 log.info(f"   (dry-run) skip PUT")
 
