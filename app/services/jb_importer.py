@@ -642,34 +642,37 @@ class JBImporter:
 
         # ── Etiquetas (chips): JB usa ng-select-multiple con .ng-value-label per chip ──
         try:
-            chip_texts = await self._page.evaluate(r"""() => {
-                // Prioridad 1: ng-select multi cerca del label "Etiquetas"
-                const groups = document.querySelectorAll('.form-group');
-                for (const g of groups) {
+            # Scrapear TODOS los chip groups de JB (Etiquetas, Areas comunes,
+            # Equipamiento y terminaciones, Entorno) — cada uno por su label.
+            CHIP_GROUPS = {
+                "etiquetas": ["etiqueta"],
+                "areas_comunes": ["area", "areas comune"],
+                "equipamiento": ["equipamiento", "terminaciones"],
+                "entorno": ["entorno"],
+            }
+            all_chips = await self._page.evaluate(r"""(groupsMap) => {
+                const result = {};
+                const formGroups = document.querySelectorAll('.form-group');
+                for (const g of formGroups) {
                     const lbl = g.querySelector('label');
                     if (!lbl) continue;
                     const t = (lbl.innerText || '').trim().toLowerCase();
-                    if (/^etiqueta/.test(t)) {
-                        const labels = [...g.querySelectorAll('.ng-value-label')]
-                            .map(s => (s.innerText || '').trim())
-                            .filter(x => x && x !== '×' && x.length < 80);
-                        if (labels.length) return labels;
+                    for (const [key, patterns] of Object.entries(groupsMap)) {
+                        if (patterns.some(p => t.includes(p))) {
+                            const labels = [...g.querySelectorAll('.ng-value-label')]
+                                .map(s => (s.innerText || '').trim())
+                                .filter(x => x && x !== '×' && x.length < 100);
+                            if (labels.length) result[key] = labels;
+                            break;
+                        }
                     }
                 }
-                // Prioridad 2: chips clásicos
-                const candidates = ['mat-chip-row', 'mat-chip', '.chip', '.tag'];
-                for (const sel of candidates) {
-                    const els = document.querySelectorAll(sel);
-                    if (els.length) {
-                        return [...els].map(e => e.innerText.replace(/cancel|×|x/gi,'').trim())
-                                       .filter(t => t && t.length < 50);
-                    }
-                }
-                return [];
-            }""")
-            if chip_texts:
-                self._set_path(out, "extra.etiquetas", chip_texts)
-                log.info(f"   🏷  Etiquetas: {chip_texts}")
+                return result;
+            }""", CHIP_GROUPS)
+            for key, vals in all_chips.items():
+                if vals:
+                    self._set_path(out, f"extra.{key}", vals)
+                    log.info(f"   🏷  {key}: {len(vals)} chips → {vals[:3]}...")
         except Exception as e:
             log.warning(f"   etiquetas → {e}")
 
