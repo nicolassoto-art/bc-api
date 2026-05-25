@@ -284,12 +284,25 @@ def load_jb_data_from_import(jb_id: str) -> dict:
     general_sections = ["general", "condiciones", "formas", "reserva", "inmobiliaria", "spa", "portada"]
     general_fields = fields_for(general_sections)
 
-    # Etiquetas chips
-    etiquetas = next((f for f in fields_all if (f.get("label", "") or "").lower().startswith("etiquetas")), None)
-    if etiquetas:
-        chips_all["Etiquetas"] = [s.strip() for s in (etiquetas.get("value", "") or "").split(",") if s.strip()]
-    # Si no, intentar leer de la BD (extra.etiquetas)
-    # Skip: el diff comparará vs BC chips, BC chips se leen del DOM
+    # JB representa chips (Etiquetas, Areas comunes, Equipamiento, Entorno) como fields
+    # con valor comma-separated. Convertirlos a chips para que matcheen con BC sp-chips.
+    chip_labels_in_jb = ("etiquetas", "areas comunes", "equipamiento y terminaciones", "entorno")
+    for f in fields_all:
+        lbl = (f.get("label", "") or "").lower().strip()
+        if any(lbl.startswith(c) for c in chip_labels_in_jb):
+            val = f.get("value", "") or ""
+            if val:
+                parts = [s.strip() for s in val.split(",") if s.strip()]
+                if parts:
+                    # Normalizar nombre del chip group para matchear BC data-chips
+                    key = lbl.split(" (")[0].strip()
+                    if "areas comunes" in lbl: key = "areas_comunes"
+                    elif "equipamiento" in lbl: key = "equipamiento"
+                    elif "entorno" in lbl: key = "entorno"
+                    else: key = "etiquetas"
+                    chips_all.setdefault(key, [])
+                    for p in parts:
+                        if p not in chips_all[key]: chips_all[key].append(p)
 
     def table_rows(filename):
         p = base / filename
@@ -353,6 +366,9 @@ SKIP_LABELS = {
     "valor", "valor porcentaje",
     # Region: BC tiene Region select, JB tiene Comuna nomás
     "region",
+    # Chips: JB las muestra como fields con valor comma-separated; BC las muestra
+    # como .sp-chips. Se comparan en chips_diff (jb_chips_from_fields)
+    "etiquetas", "areas comunes", "equipamiento y terminaciones", "entorno",
     # Otros
     "nombre",  # Es title del proyecto, ya cubierto por Nombre proyecto en otra parte
 }
