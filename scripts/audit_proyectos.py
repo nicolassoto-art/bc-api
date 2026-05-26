@@ -29,7 +29,11 @@ def main():
         if not pid:
             continue
         try:
-            full = cli.get(f"/proyectos/{pid}").json()
+            r2 = cli.get(f"/proyectos/{pid}")
+            if r2.status_code != 200:
+                print(f"  ✗ {pid}: HTTP {r2.status_code} {r2.text[:120]}")
+                continue
+            full = r2.json()
         except Exception as e:
             print(f"  ✗ {pid}: {e}")
             continue
