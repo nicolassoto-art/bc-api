@@ -1174,6 +1174,34 @@ class JBImporter:
             for _ in range(3):
                 await self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 await self._page.wait_for_timeout(800)
+            # Intentar clickear tab "Stock" o "Unidades" si existe
+            try:
+                clicked = await self._page.evaluate("""() => {
+                    const els = [...document.querySelectorAll('a, button, [role="tab"], mat-tab, .mat-tab-label, .mdc-tab')];
+                    for (const lbl of ['Stock', 'Unidades', 'Departamentos', 'Stock disponible']) {
+                        const el = els.find(e => (e.innerText||'').trim().toLowerCase() === lbl.toLowerCase());
+                        if (el) { el.click(); return lbl; }
+                    }
+                    return null;
+                }""")
+                if clicked:
+                    log.info(f"   ↳ click tab '{clicked}'")
+                    await self._page.wait_for_timeout(3_000)
+                    for _ in range(3):
+                        await self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        await self._page.wait_for_timeout(600)
+            except Exception as e:
+                log.debug(f"   no tab Stock clickeable: {e}")
+            # Screenshot para debug visual
+            try:
+                debug_dir = self.imports_dir / jb_id / "_debug_scrape"
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                await self._page.screenshot(path=str(debug_dir / "detail-page.png"), full_page=True)
+                # Dump del HTML del detail
+                html = await self._page.content()
+                (debug_dir / "detail-page.html").write_text(html[:500_000], encoding="utf-8")
+            except Exception:
+                pass
         finally:
             self._page.remove_listener("response", on_response)
 
