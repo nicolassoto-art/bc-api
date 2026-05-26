@@ -1200,33 +1200,53 @@ class JBImporter:
                         }""")
                     except Exception:
                         pass
-                    # Click botón Search/Filtrar
+                    # Click botón Search/Filtrar (icono lupa al lado del input Número)
                     try:
                         search_clicked = await self._page.evaluate("""() => {
-                            // Buscar botón con icono search o texto Buscar/Filtrar
-                            const btns = [...document.querySelectorAll('button')];
-                            for (const b of btns) {
-                                if (b.disabled) continue;
-                                const txt = (b.innerText || '').trim().toLowerCase();
-                                const html = (b.innerHTML || '').toLowerCase();
-                                if (txt === 'buscar' || txt === 'filtrar' || txt === 'aplicar') {
-                                    b.click(); return 'text';
-                                }
-                                if (html.includes('search') || html.includes('mat-search') || html.includes('fa-search')) {
-                                    // Verificar que esté visible
-                                    const r = b.getBoundingClientRect();
-                                    if (r.width > 0 && r.height > 0) {
-                                        b.click(); return 'icon';
+                            // Estrategia: buscar todos los iconos lupa visibles y click su padre clickeable
+                            const candidates = [
+                                ...document.querySelectorAll('mat-icon'),
+                                ...document.querySelectorAll('.material-icons'),
+                                ...document.querySelectorAll('[fonticon]'),
+                                ...document.querySelectorAll('svg'),
+                            ];
+                            for (const el of candidates) {
+                                const txt = (el.innerText || '').trim().toLowerCase();
+                                const fontIcon = (el.getAttribute('fonticon') || '').toLowerCase();
+                                const cls = (el.className.baseVal || el.className || '').toString().toLowerCase();
+                                const isSearch = txt === 'search' || fontIcon === 'search' || cls.includes('search') || cls.includes('magnify');
+                                if (!isSearch) continue;
+                                // Click el padre clickeable (button/a)
+                                let p = el;
+                                for (let i = 0; i < 5 && p; i++) {
+                                    if (p.tagName === 'BUTTON' || p.tagName === 'A' || p.getAttribute('role') === 'button') {
+                                        const r = p.getBoundingClientRect();
+                                        if (r.width > 0 && r.height > 0 && !p.disabled) {
+                                            p.click();
+                                            return `parent=${p.tagName.toLowerCase()} icon=${txt||fontIcon}`;
+                                        }
                                     }
+                                    p = p.parentElement;
+                                }
+                                // Fallback: click el icono directo
+                                el.click();
+                                return `direct icon=${txt||fontIcon}`;
+                            }
+                            // Fallback texto
+                            const btns = [...document.querySelectorAll('button, a')];
+                            for (const b of btns) {
+                                const t = (b.innerText || '').trim().toLowerCase();
+                                if (['buscar','filtrar','aplicar'].includes(t) && !b.disabled) {
+                                    b.click(); return `text=${t}`;
                                 }
                             }
                             return null;
                         }""")
                         if search_clicked:
                             log.info(f"   ↳ click search button ({search_clicked})")
-                            await self._page.wait_for_timeout(4_000)
-                    except Exception:
-                        pass
+                            await self._page.wait_for_timeout(5_000)
+                    except Exception as e:
+                        log.debug(f"   search click err: {e}")
                     for _ in range(3):
                         await self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                         await self._page.wait_for_timeout(600)
