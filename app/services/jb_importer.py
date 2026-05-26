@@ -1478,34 +1478,37 @@ class JBImporter:
         inserted = 0
         errors: list[str] = []
         seen = set()
+        skipped_reasons: dict[str, int] = {}
+        sample_unit = None
         for u in units:
+            if sample_unit is None:
+                sample_unit = {k: v for k, v in u.items() if k in ("number","type","price","apartmentModel","facing","available","surfaceTotal")}
             numero = str(u.get("number") or u.get("numero") or "").strip()
             if not numero or numero in seen:
+                skipped_reasons["no_numero_or_dup"] = skipped_reasons.get("no_numero_or_dup", 0) + 1
                 continue
             seen.add(numero)
             am = u.get("apartmentModel") if isinstance(u.get("apartmentModel"), dict) else {}
             # Filtrar parking/bodega:
             # 1) por type explícito (JB a veces no lo setea)
-            # 2) por ausencia de apartmentModel (bodegas/estac no tienen modelo de depto)
-            # 3) por precio bajo + sin rooms (bodegas suelen ser 60-80 UF, deptos >1000 UF)
+            # 2) por precio bajo + sin rooms (bodegas suelen ser 60-80 UF, deptos >1000 UF)
             u_type = (u.get("type") or "").lower()
             if u_type in ("parking", "storage", "store", "bodega", "estacionamiento", "warehouse"):
-                continue
-            # Sin apartmentModel = no es depto válido
-            if not am or not am.get("name"):
+                skipped_reasons["bodega/estac type"] = skipped_reasons.get("bodega/estac type", 0) + 1
                 continue
             # Precio bodega típico (<150 UF) sin rooms = bodega/estac mal clasificada
             try:
                 p = float(u.get("price") or 0)
-                if p > 0 and p < 150 and not am.get("rooms"):
+                if p > 0 and p < 150 and not (am.get("rooms") if am else None):
+                    skipped_reasons["low_price_no_rooms"] = skipped_reasons.get("low_price_no_rooms", 0) + 1
                     continue
             except Exception:
                 pass
-            r, b = am.get("rooms"), am.get("bathrooms")
+            r, b = (am.get("rooms") if am else None), (am.get("bathrooms") if am else None)
             tipologia = f"{r}D - {b}B" if r and b else ""
             data = {
                 "numero": numero,
-                "modelo": am.get("name") if isinstance(am, dict) else (u.get("model") or ""),
+                "modelo": (am.get("name") if isinstance(am, dict) else None) or u.get("model") or "S/M",
                 "tipologia": tipologia,
                 "tipo": "Depto",
                 "orientacion": u.get("facing") or "",
@@ -1531,7 +1534,9 @@ class JBImporter:
                     errors.append(f"{numero}: HTTP {resp.status_code} {resp.text[:80]}")
             except Exception as e:
                 errors.append(f"{numero}: {e}")
-        log.info(f"   📦 Unidades insertadas: {inserted}/{len(units)} (errors: {len(errors)})")
+        log.info(f"   📦 Unidades insertadas: {inserted}/{len(units)} (errors: {len(errors)}, skipped: {skipped_reasons})")
+        if sample_unit and inserted == 0 and len(units) > 0:
+            log.warning(f"   🔍 SAMPLE unidad sin insertar: {sample_unit}")
         return {"inserted": inserted, "errors": errors}
 
     async def upload_jb_excel(self, proyecto_id: str, xlsx_path: Path) -> dict:
