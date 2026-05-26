@@ -1187,6 +1187,46 @@ class JBImporter:
                 if clicked:
                     log.info(f"   ↳ click tab '{clicked}'")
                     await self._page.wait_for_timeout(3_000)
+                    # Limpiar filtro "Disponible=Sí" si está aplicado (queremos TODAS las units)
+                    try:
+                        await self._page.evaluate("""() => {
+                            // Limpiar selecciones de mat-select para mostrar todo
+                            document.querySelectorAll('mat-select').forEach(s => {
+                                const txt = (s.innerText || '').toLowerCase();
+                                if (txt.includes('disponible') || txt.includes('sí') || txt.includes('si')) {
+                                    // No tocamos — dejamos default
+                                }
+                            });
+                        }""")
+                    except Exception:
+                        pass
+                    # Click botón Search/Filtrar
+                    try:
+                        search_clicked = await self._page.evaluate("""() => {
+                            // Buscar botón con icono search o texto Buscar/Filtrar
+                            const btns = [...document.querySelectorAll('button')];
+                            for (const b of btns) {
+                                if (b.disabled) continue;
+                                const txt = (b.innerText || '').trim().toLowerCase();
+                                const html = (b.innerHTML || '').toLowerCase();
+                                if (txt === 'buscar' || txt === 'filtrar' || txt === 'aplicar') {
+                                    b.click(); return 'text';
+                                }
+                                if (html.includes('search') || html.includes('mat-search') || html.includes('fa-search')) {
+                                    // Verificar que esté visible
+                                    const r = b.getBoundingClientRect();
+                                    if (r.width > 0 && r.height > 0) {
+                                        b.click(); return 'icon';
+                                    }
+                                }
+                            }
+                            return null;
+                        }""")
+                        if search_clicked:
+                            log.info(f"   ↳ click search button ({search_clicked})")
+                            await self._page.wait_for_timeout(4_000)
+                    except Exception:
+                        pass
                     for _ in range(3):
                         await self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                         await self._page.wait_for_timeout(600)
