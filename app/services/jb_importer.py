@@ -1128,6 +1128,120 @@ class JBImporter:
         except Exception:
             return 0
 
+    async def _scrape_units_from_detail(self, jb_id: str) -> list[dict]:
+        """Visita /projects/detail/{jb_id} y scrapea la tabla de unidades.
+
+        El detail page renderiza la tabla "Stock" con todas las unidades del proyecto
+        (deptos reales con dormitorios/baños/sup/precio). Esto cubre proyectos donde
+        /store/.../available y el Excel "prerellena con datos" devuelven vacío.
+
+        Además captura XHRs durante la visita para descubrir el endpoint API real.
+        """
+        log.info(f"🔍 Scrape detail page para {jb_id}...")
+        captured: list[dict] = []
+
+        async def on_response(resp):
+            try:
+                url = resp.url
+                if "/api/" not in url:
+                    return
+                if resp.status != 200:
+                    return
+                ct = resp.headers.get("content-type", "")
+                if "json" not in ct.lower():
+                    return
+                # Heurística: respuestas que contienen "unit" o "apartment" o son arrays grandes
+                if not any(k in url.lower() for k in ("unit", "apartment", "store", "stock", "depto")):
+                    return
+                try:
+                    j = await resp.json()
+                except Exception:
+                    return
+                items = j if isinstance(j, list) else (j.get("data") or j.get("elements") or j.get("units") or j.get("apartments") or [])
+                if isinstance(items, list) and len(items) > 0:
+                    captured.append({"url": url, "count": len(items), "sample": items[0] if items else None, "items": items})
+            except Exception:
+                pass
+
+        self._page.on("response", on_response)
+        try:
+            detail_url = f"https://app.jetbrokers.io/projects/detail/{jb_id}"
+            await self._page.goto(detail_url, wait_until="networkidle", timeout=60_000)
+            await self._page.wait_for_timeout(4_000)
+            await self._dismiss_popups()
+            # Scroll para forzar carga lazy
+            for _ in range(3):
+                await self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                await self._page.wait_for_timeout(800)
+        finally:
+            self._page.remove_listener("response", on_response)
+
+        # Loggear endpoints descubiertos
+        for c in captured:
+            log.info(f"   • XHR {c['url']} → {c['count']} items")
+
+        # Preferir endpoint API descubierto (mayor count con apartmentModel)
+        best_api: list = []
+        best_depto = -1
+        for c in captured:
+            items = c["items"]
+            depto = sum(1 for u in items if isinstance(u, dict) and (
+                (isinstance(u.get("apartmentModel"), dict) and u["apartmentModel"].get("name")) or
+                u.get("rooms") or u.get("dormitorios") or u.get("bedrooms")
+            ))
+            if depto > best_depto:
+                best_depto = depto
+                best_api = items
+                log.info(f"   ↳ candidato API con {depto} deptos de {len(items)}")
+
+        if best_api and best_depto > 0:
+            log.info(f"   ✓ Detail XHR: {len(best_api)} units ({best_depto} deptos)")
+            return best_api
+
+        # Fallback: scrape DOM table del detail page
+        try:
+            rows = await self._scrape_table_rows()
+            if not rows:
+                log.warning(f"   detail DOM table vacío")
+                return []
+            log.info(f"   ✓ Detail DOM table: {len(rows)} rows")
+            # Convertir rows DOM a formato compatible con upload_unidades.
+            # Headers típicos en detail Stock: Unidad/N°, Modelo, Dorm, Baños, Sup, Precio, etc.
+            out = []
+            for r in rows:
+                cells = r.get("cells") or []
+                if len(cells) < 3:
+                    continue
+                # Heurística: primera celda numérica = número
+                numero = ""
+                for c in cells:
+                    c_s = str(c).strip()
+                    if c_s and any(ch.isdigit() for ch in c_s) and len(c_s) <= 10:
+                        numero = c_s
+                        break
+                if not numero:
+                    continue
+                # Precio: última celda con números grandes
+                precio = None
+                for c in reversed(cells):
+                    try:
+                        v = float(str(c).replace(".", "").replace(",", ".").replace("UF", "").strip())
+                        if v > 100:
+                            precio = v
+                            break
+                    except Exception:
+                        continue
+                out.append({
+                    "number": numero,
+                    "price": precio,
+                    "_cells": cells,
+                    "_source": "detail_dom",
+                })
+            return out
+        except Exception as e:
+            log.warning(f"   detail DOM scrape error: {e}")
+            return []
+
     async def _scrape_table_rows(self) -> list[dict]:
         """Scrapea la tabla principal de la página actual. Devuelve lista de rows con cells/links/imgs.
         Cada row además trae cells_icons (lista por celda con mat-icon name + flags de check/close)
@@ -2001,6 +2115,14 @@ class JBImporter:
                 # Solo unidades con apartmentModel.name (deptos) — bodegas/estac van por Excel.
                 if excel_inserted == 0:
                     api_units = api_data.get("units") or []
+                    # Detectar si api_units tiene deptos reales (con apartmentModel.name)
+                    api_deptos = sum(1 for u in api_units if isinstance(u.get("apartmentModel"), dict) and u["apartmentModel"].get("name"))
+                    if api_deptos == 0:
+                        # api_units está vacío o solo trae bodegas → fallback al detail page scrape
+                        log.info(f"   🔁 API y Excel sin deptos → fallback detail page scrape")
+                        detail_units = await self._scrape_units_from_detail(jb_id)
+                        if detail_units:
+                            api_units = detail_units
                     if api_units:
                         units_result = await self.upload_unidades(rep.proyecto_id, api_units)
                         rep.warnings.append(f"unidades (API fallback): {units_result['inserted']} inserted")
