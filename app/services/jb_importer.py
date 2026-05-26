@@ -1553,8 +1553,17 @@ class JBImporter:
                 data = r.json()
                 log.info(f"   📊 Excel JB → bc-api: {data.get('inserted',0)} ins, {data.get('updated',0)} upd, {len(data.get('errors',[]))} err")
                 return data
-            log.warning(f"   excel upload HTTP {r.status_code}: {r.text[:200]}")
-            return {"status": "error", "code": r.status_code, "body": r.text[:200]}
+            log.warning(f"   excel upload HTTP {r.status_code}: {r.text[:800]}")
+            # Copiar xlsx al artifact dir para inspección offline si falló
+            try:
+                debug_dir = xlsx_path.parent / "_debug_excel"
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                dest = debug_dir / f"{xlsx_path.name}"
+                dest.write_bytes(xlsx_path.read_bytes())
+                log.info(f"   📋 Excel guardado para debug: {dest}")
+            except Exception as _e:
+                log.debug(f"   no se pudo copiar excel a debug: {_e}")
+            return {"status": "error", "code": r.status_code, "body": r.text[:800]}
         except Exception as e:
             log.warning(f"   excel upload exception: {e}")
             return {"status": "error", "error": str(e)}

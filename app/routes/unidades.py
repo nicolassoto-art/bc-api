@@ -295,7 +295,22 @@ async def subir_excel(
         unidad_rows, parse_errors = _parse_jb_excel(wb)
         errors.extend(parse_errors)
         if not unidad_rows:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Sheet UNIDAD vacío o sin filas válidas")
+            # Diagnóstico: capturar sheet names + labels detectadas + sample row para debug
+            try:
+                ws_dbg = wb["UNIDAD"]
+                rows_dbg = list(ws_dbg.iter_rows(values_only=True))
+                sheets = list(wb.sheetnames)
+                nrows = len(rows_dbg)
+                row0 = [str(c)[:30] if c is not None else "" for c in (rows_dbg[0] if rows_dbg else [])][:20]
+                row1 = [str(c)[:30] if c is not None else "" for c in (rows_dbg[1] if len(rows_dbg) > 1 else [])][:20]
+                row2 = [str(c)[:30] if c is not None else "" for c in (rows_dbg[2] if len(rows_dbg) > 2 else [])][:20]
+                row3 = [str(c)[:30] if c is not None else "" for c in (rows_dbg[3] if len(rows_dbg) > 3 else [])][:20]
+                detail = (f"Sheet UNIDAD vacío o sin filas válidas. "
+                          f"sheets={sheets} nrows={nrows} row0={row0} row1={row1} row2={row2} row3={row3} "
+                          f"parse_errors={parse_errors[:3]}")
+            except Exception as _e:
+                detail = f"Sheet UNIDAD vacío o sin filas válidas (err diag: {_e})"
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=detail)
         # Estacionamientos + Bodegas → extra (todavía no entidades separadas)
         jb_estac = _parse_jb_estacionamientos(wb)
         jb_bodegas = _parse_jb_bodegas(wb)
