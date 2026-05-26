@@ -286,19 +286,45 @@ class JBImporter:
         )
 
     async def fetch_api(self, jb_id: str) -> dict:
-        """Llama endpoints API JB para extraer la metadata base + unidades + modelos."""
+        """Llama endpoints API JB para extraer la metadata base + unidades + modelos.
+
+        Para unidades, intenta múltiples endpoints porque /store/.../available
+        a veces devuelve solo secundarios. Se prefiere el que tenga más unidades
+        con apartmentModel (=deptos reales).
+        """
         log.info(f"📡 API JB para {jb_id}...")
         async with self._jb_httpx() as cli:
             proj = (await cli.get(f"/projects/{jb_id}")).json()
-            # Unidades
-            try:
-                units_r = await cli.get(f"/store/project/{jb_id}/available")
-                units = units_r.json()
-                if isinstance(units, dict):
-                    units = units.get("data") or units.get("elements") or []
-            except Exception:
-                units = []
-        log.info(f"   ✓ project + {len(units)} units")
+            # Unidades — probar varios endpoints, conservar el mejor
+            unit_endpoints = [
+                f"/store/project/{jb_id}/available",
+                f"/projects/{jb_id}/units",
+                f"/projects/{jb_id}/apartments",
+                f"/units?projectId={jb_id}",
+                f"/apartments?projectId={jb_id}",
+            ]
+            best_units: list = []
+            best_endpoint = ""
+            best_depto_count = -1
+            for ep in unit_endpoints:
+                try:
+                    r = await cli.get(ep)
+                    if r.status_code != 200:
+                        continue
+                    data = r.json()
+                    items = data if isinstance(data, list) else (data.get("data") or data.get("elements") or data.get("units") or data.get("apartments") or [])
+                    if not isinstance(items, list):
+                        continue
+                    depto_count = sum(1 for u in items if isinstance(u, dict) and isinstance(u.get("apartmentModel"), dict) and u["apartmentModel"].get("name"))
+                    log.info(f"   • {ep}: {len(items)} items ({depto_count} con apartmentModel)")
+                    if depto_count > best_depto_count or (depto_count == best_depto_count and len(items) > len(best_units)):
+                        best_units = items
+                        best_endpoint = ep
+                        best_depto_count = depto_count
+                except Exception as _e:
+                    log.debug(f"   {ep} → {_e}")
+            units = best_units
+        log.info(f"   ✓ project + {len(units)} units (via {best_endpoint!r}, {best_depto_count} deptos)")
         return {"project": proj, "units": units}
 
     # ── DOM scraping ──────────────────────────────────────────────────────
