@@ -1151,7 +1151,10 @@ class JBImporter:
                 if "json" not in ct.lower():
                     return
                 # Heurística: respuestas que contienen "unit" o "apartment" o son arrays grandes
-                if not any(k in url.lower() for k in ("unit", "apartment", "store", "stock", "depto")):
+                # Excluir endpoints conocidos de modelos
+                if any(k in url.lower() for k in ("apartment-models", "blueprint", "model/")):
+                    return
+                if not any(k in url.lower() for k in ("unit", "apartment", "store", "stock", "depto", "available", "/project/")):
                     return
                 try:
                     j = await resp.json()
@@ -1180,19 +1183,28 @@ class JBImporter:
         for c in captured:
             log.info(f"   • XHR {c['url']} → {c['count']} items")
 
-        # Preferir endpoint API descubierto (mayor count con apartmentModel)
+        # Preferir endpoint API descubierto. Solo consideramos respuestas que
+        # se ven como UNIDADES (no modelos): items con 'number' (depto número).
+        # Modelos vienen con 'name' (L7_2al12) pero sin 'number'.
         best_api: list = []
         best_depto = -1
         for c in captured:
             items = c["items"]
+            # Sample: si el primer item no tiene 'number'/'numero'/'apartmentNumber', es un modelo, no unidad
+            if not items or not isinstance(items[0], dict):
+                continue
+            sample = items[0]
+            has_unit_id = any(k in sample for k in ("number", "numero", "apartmentNumber", "unitNumber", "code"))
+            if not has_unit_id:
+                log.info(f"   ↳ skip {c['url']} (sin field 'number' — probable modelo)")
+                continue
             depto = sum(1 for u in items if isinstance(u, dict) and (
-                (isinstance(u.get("apartmentModel"), dict) and u["apartmentModel"].get("name")) or
-                u.get("rooms") or u.get("dormitorios") or u.get("bedrooms")
+                u.get("number") or u.get("numero") or u.get("apartmentNumber") or u.get("unitNumber")
             ))
             if depto > best_depto:
                 best_depto = depto
                 best_api = items
-                log.info(f"   ↳ candidato API con {depto} deptos de {len(items)}")
+                log.info(f"   ↳ candidato unidades {c['url']} con {depto}/{len(items)}")
 
         if best_api and best_depto > 0:
             log.info(f"   ✓ Detail XHR: {len(best_api)} units ({best_depto} deptos)")
