@@ -1196,6 +1196,11 @@ class JBImporter:
 
         if best_api and best_depto > 0:
             log.info(f"   ✓ Detail XHR: {len(best_api)} units ({best_depto} deptos)")
+            if best_api:
+                # Loggear sample para debugging campo names
+                sample = best_api[0] if isinstance(best_api[0], dict) else {}
+                log.info(f"   🔍 XHR sample keys: {list(sample.keys())[:20]}")
+                log.info(f"   🔍 XHR sample item: {dict(list(sample.items())[:10])}")
             return best_api
 
         # Fallback: scrape DOM table del detail page
