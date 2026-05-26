@@ -403,13 +403,20 @@ def diff_tab(jb: dict, bc: dict, tab_name: str = "") -> dict:
     only_bc_labels = sorted(set(bc_labels.keys()) - set(jb_labels.keys()))
 
     # Para labels en ambos: comparar valores
+    # REGLA: si JB está vacío y BC tiene valor, NO es diff (BC enriquecido vía
+    # JB API — JB editor a veces no muestra el campo aunque su API lo tenga).
+    # Solo es diff real cuando ambos tienen valor distinto, o BC está vacío vs JB con valor.
     value_diffs = []
     common = set(jb_labels.keys()) & set(bc_labels.keys())
     for lbl in sorted(common):
         jv = _norm_value(jb_labels[lbl])
         bv = _norm_value(bc_labels[lbl])
-        if jv != bv:
-            value_diffs.append({"label": lbl, "jb": jb_labels[lbl][:60], "bc": bc_labels[lbl][:60]})
+        if jv == bv:
+            continue
+        if not jv and bv:
+            # BC enriched from JB API: no es diff de paridad
+            continue
+        value_diffs.append({"label": lbl, "jb": jb_labels[lbl][:60], "bc": bc_labels[lbl][:60]})
 
     # Tablas: usar el primer cell NO-VACÍO + NO-CHECKBOX como key.
     # JB tiene checkbox en col 0 ("on"/""); BC no.
