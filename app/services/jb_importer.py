@@ -1150,12 +1150,10 @@ class JBImporter:
                 ct = resp.headers.get("content-type", "")
                 if "json" not in ct.lower():
                     return
-                # Heurística: respuestas que contienen "unit" o "apartment" o son arrays grandes
                 # Excluir endpoints conocidos de modelos
-                if any(k in url.lower() for k in ("apartment-models", "blueprint", "model/")):
+                if any(k in url.lower() for k in ("apartment-models", "blueprint")):
                     return
-                if not any(k in url.lower() for k in ("unit", "apartment", "store", "stock", "depto", "available", "/project/")):
-                    return
+                # No filtrar por keywords — capturar todo JSON API y filtrar después por shape
                 try:
                     j = await resp.json()
                 except Exception:
@@ -1179,9 +1177,11 @@ class JBImporter:
         finally:
             self._page.remove_listener("response", on_response)
 
-        # Loggear endpoints descubiertos
+        # Loggear endpoints descubiertos con sample keys
         for c in captured:
-            log.info(f"   • XHR {c['url']} → {c['count']} items")
+            sample = c.get("sample") or {}
+            keys = list(sample.keys())[:10] if isinstance(sample, dict) else []
+            log.info(f"   • XHR {c['url']} → {c['count']} items, keys={keys}")
 
         # Preferir endpoint API descubierto. Solo consideramos respuestas que
         # se ven como UNIDADES (no modelos): items con 'number' (depto número).
