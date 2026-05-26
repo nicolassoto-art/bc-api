@@ -353,6 +353,9 @@ class JBImporter:
         ("Formas de pagar el pie", "Pago Pre-entrega"):    "extra.formas_pago_pie.pago_pre_entrega",
         ("Formas de pagar el pie", "Pago Post-entrega"):   "extra.formas_pago_pie.pago_post_entrega",
         ("Formas de pagar el pie", "Pago Cuotón Inicial"): "extra.formas_pago_pie.pago_cuoton_inicial",
+        ("Formas de pagar el pie", "Pago Cuotón Incial"):  "extra.formas_pago_pie.pago_cuoton_inicial",  # JB typo
+        ("General", "Condiciones especiales"):             "extra.condiciones_especiales",
+        ("General", "Condiciones Especiales"):             "extra.condiciones_especiales",
         ("Formas de pagar el pie", "Valor Cuota"):         "extra.formas_pago_pie.valor_cuota_clp",
         ("Formas de pagar el pie", "Valor en UF"):         "extra.formas_pago_pie.valor_cuota_uf",
         ("Formas de pagar el pie", "Destino Reserva"):     "extra.formas_pago_pie.destino_reserva",
