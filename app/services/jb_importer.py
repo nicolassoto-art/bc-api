@@ -1606,15 +1606,17 @@ class JBImporter:
             pid = p.get("id")
             if not pid:
                 continue
-            if jb_id in (pid or ""):  # heurística: slug típico es nombre-jbid
+            if jb_id.lower() in (pid or "").lower():  # heurística: slug típico es nombre-jbid
                 full = await self.get_proyecto(pid)
-                if (full.get("extra") or {}).get("jb_id") == jb_id:
+                stored = (full.get("extra") or {}).get("jb_id") or ""
+                if stored.lower() == jb_id.lower():
                     return full
         # fallback: linear GET de todos
         for p in r.json():
             try:
                 full = await self.get_proyecto(p["id"])
-                if (full.get("extra") or {}).get("jb_id") == jb_id:
+                stored = (full.get("extra") or {}).get("jb_id") or ""
+                if stored.lower() == jb_id.lower():
                     return full
             except Exception:
                 continue
@@ -1859,10 +1861,27 @@ class JBImporter:
                     "extra": {"jb_id": jb_id},
                 }
                 r = await self._bc_client.post("/proyectos", json=stub_body)
-                if not r.is_success:
+                if r.status_code == 409:
+                    # Existe con slug colisionando — recuperar y patchear extra.jb_id si difiere
+                    fallback_id = f"jb-{jb_id.lower()}"
+                    log.info(f"   ↳ 409 conflict, intentando recuperar {fallback_id}")
+                    try:
+                        current = await self.get_proyecto(fallback_id)
+                        # Asegurar que extra.jb_id quede normalizado al input
+                        existing_extra = current.get("extra") or {}
+                        if existing_extra.get("jb_id") != jb_id:
+                            existing_extra["jb_id"] = jb_id
+                            await self._bc_client.put(f"/proyectos/{fallback_id}", json={**current, "extra": existing_extra})
+                            current = await self.get_proyecto(fallback_id)
+                        log.info(f"   ✓ Recuperado proyecto existente: {fallback_id}")
+                    except Exception as e:
+                        rep.errors.append(f"409 al crear + no se pudo recuperar {fallback_id}: {e}")
+                        return rep
+                elif not r.is_success:
                     rep.errors.append(f"No se pudo crear proyecto placeholder para jb_id={jb_id}: HTTP {r.status_code} {r.text[:200]}")
                     return rep
-                current = r.json()
+                else:
+                    current = r.json()
                 log.info(f"   ✓ Proyecto creado: id={current.get('id')}")
             rep.proyecto_id = current["id"]
 
