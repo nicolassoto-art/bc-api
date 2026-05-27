@@ -139,6 +139,32 @@ def main():
         m_detail = f" [{', '.join(m_issues)}]" if m_issues else ""
         print(f"{jb_id:12s} {nombre[:40]:40s} U:{status_u} {len(unidades):>4d}{u_detail}  M:{status_m} {len(modelos) if isinstance(modelos, list) else 0:>3d}{m_detail}")
 
+    # Sample dumps: 1 unidad + 1 modelo del primer proyecto OK
+    print("\n=== Sample modelo ===")
+    for p in listing:
+        pid = p.get("id")
+        if not pid: continue
+        try:
+            full = cli.get(f"/proyectos/{pid}").json()
+        except Exception:
+            continue
+        extra = full.get("extra") or {}
+        modelos = (extra.get("modelos") or extra.get("modelos_dom") or [])
+        unidades = full.get("unidades") or []
+        if isinstance(modelos, list) and modelos and unidades:
+            jb_id = extra.get("jb_id") or ""
+            print(f"Proyecto: {jb_id} {full.get('nombre','')}")
+            m0 = modelos[0]
+            print(f"Modelo[0] keys: {list(m0.keys()) if isinstance(m0, dict) else type(m0)}")
+            print(f"Modelo[0] data: {json.dumps(m0, indent=2, ensure_ascii=False)[:500] if isinstance(m0, dict) else str(m0)[:500]}")
+            u0 = unidades[0]
+            print(f"\nUnidad[0] keys: {list(u0.keys()) if isinstance(u0, dict) else type(u0)}")
+            print(f"Unidad[0] sample: numero={u0.get('numero')} modelo={u0.get('modelo')} dorm={u0.get('tipologia')} precio={u0.get('precio_lista_uf')} sup={u0.get('sup_total')}")
+            break
+
+# Need json import at module top
+import json  # noqa: E402
+
 
 if __name__ == "__main__":
     main()
