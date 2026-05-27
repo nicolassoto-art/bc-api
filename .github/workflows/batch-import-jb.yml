@@ -26,6 +26,7 @@ jobs:
     permissions:
       contents: read
       actions: write   # para poder triggear import-jb.yml desde aquí
+      issues: write    # para crear issues de alerta
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -103,62 +104,80 @@ jobs:
           if [ "$EXIT" -eq 3 ]; then exit 1; fi
           exit 0
 
-      # ── ALERTA POR EMAIL si algo falló ──────────────────────────────────
-      - name: 📧 Email alerta (si falla la tanda)
+      # ── ALERTA vía GitHub Issue (notifica via email nativo de GitHub) ───
+      # Sin SMTP, sin password. Usa el GITHUB_TOKEN default.
+      # GitHub notifica al owner del repo automáticamente cuando se crea
+      # un issue (email + push si tienes GitHub Mobile app).
+      - name: 🚨 Crear Issue (si falla la tanda)
         if: failure()
-        uses: dawidd6/action-send-mail@v3
+        uses: actions/github-script@v7
         with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          secure: false
-          username: ${{ secrets.ALERT_SMTP_USER }}
-          password: ${{ secrets.ALERT_SMTP_PASS }}
-          from: 'BC Import Bot <${{ secrets.ALERT_SMTP_USER }}>'
-          to: ${{ secrets.ALERT_EMAIL_TO }}
-          subject: '🚨 BC Import Failure — run ${{ github.run_id }}'
-          body: |
-            La tanda batch-import-jb falló.
+          script: |
+            const fs = require('fs');
+            let tail = '';
+            try { tail = fs.readFileSync('batch_tail.log', 'utf8'); }
+            catch(_) { tail = '(sin log capturado)'; }
 
-            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            Trigger: ${{ github.event_name }}
-            Job: ${{ github.job }}
-            Exit code: ${{ steps.batch.outputs.exit_code }}
+            const body = `## 🚨 Tanda batch-import-jb falló
 
-            Últimas 40 líneas del output:
-          attachments: batch_tail.log
-          ignore_cert: true
+            **Run:** [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            **Trigger:** ${{ github.event_name }}
+            **Exit code:** ${{ steps.batch.outputs.exit_code || 'n/a' }}
+            **Fecha:** ${new Date().toISOString()}
 
-      # ── ALERTA si una IMPORTACIÓN individual de proyecto falló ─────────
-      # (incluso si la tanda exit 0, puede haber proyectos individuales que fallaron)
-      - name: 📧 Email alerta (si algún proyecto individual falló)
-        if: success() && steps.batch.outputs.exit_code != '1'
+            ### Últimas líneas del output
+
+            \`\`\`
+            ${tail.slice(-3000)}
+            \`\`\`
+
+            ---
+            *Issue creado automáticamente. Cierra el issue una vez resuelto.*
+            *Para evitar spam, monitor-health.yml deduplica issues abiertos similares.*`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 batch-import-jb falló — run ${{ github.run_id }}`,
+              body: body,
+              labels: ['import-failure', 'auto-alert'],
+            });
+
+      # ── Detectar y alertar proyectos individuales fallidos ─────────────
+      - name: Detect partial failures
+        if: success()
         run: |
-          # Detectar líneas con ❌ en el output del batch
           if grep -q '❌' batch_output.log; then
-            echo "FAILED_PROJECTS=$(grep '❌' batch_output.log | head -10)" >> "$GITHUB_ENV"
+            FAILED_LINES=$(grep '❌' batch_output.log | head -10)
             echo "HAS_FAILED=1" >> "$GITHUB_ENV"
+            # Guardar para el siguiente step (escape para body issue)
+            echo "FAILED_PROJECTS<<EOF" >> "$GITHUB_ENV"
+            echo "$FAILED_LINES" >> "$GITHUB_ENV"
+            echo "EOF" >> "$GITHUB_ENV"
           fi
 
-      - name: 📧 Send partial-failure email
+      - name: ⚠ Issue partial-failure
         if: env.HAS_FAILED == '1'
-        uses: dawidd6/action-send-mail@v3
+        uses: actions/github-script@v7
         with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          secure: false
-          username: ${{ secrets.ALERT_SMTP_USER }}
-          password: ${{ secrets.ALERT_SMTP_PASS }}
-          from: 'BC Import Bot <${{ secrets.ALERT_SMTP_USER }}>'
-          to: ${{ secrets.ALERT_EMAIL_TO }}
-          subject: '⚠ BC Import: algún proyecto falló en tanda ${{ github.run_id }}'
-          body: |
-            Tanda terminó pero al menos 1 proyecto falló.
+          script: |
+            const failed = process.env.FAILED_PROJECTS || '(detalle no disponible)';
+            const body = `## ⚠ Tanda terminó pero algunos proyectos fallaron
 
-            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            **Run:** [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
-            Proyectos que fallaron:
-            ${{ env.FAILED_PROJECTS }}
+            ### Proyectos con error
 
-            La tanda continuó con los restantes y la cadena sigue.
-          attachments: batch_tail.log
-          ignore_cert: true
+            \`\`\`
+            ${failed}
+            \`\`\`
+
+            La tanda continuó con los demás y la cadena sigue. Revisa los runs individuales para más detalle.`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `⚠ batch-import-jb: proyectos parciales fallidos — run ${{ github.run_id }}`,
+              body: body,
+              labels: ['import-partial-failure', 'auto-alert'],
+            });
