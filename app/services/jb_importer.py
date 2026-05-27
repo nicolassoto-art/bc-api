@@ -1727,8 +1727,13 @@ class JBImporter:
         sample_unit = None
         for u in units:
             if sample_unit is None:
-                sample_unit = {k: v for k, v in u.items() if k in ("number","type","price","apartmentModel","facing","available","surfaceTotal")}
-            numero = str(u.get("number") or u.get("numero") or "").strip()
+                # Dump TODAS las keys top-level del primer unit para debugging
+                sample_unit = {k: (str(v)[:80] if not isinstance(v, (dict, list)) else type(v).__name__) for k, v in u.items()}
+            numero = str(
+                u.get("number") or u.get("numero") or u.get("unitNumber")
+                or u.get("unit_number") or u.get("code") or u.get("name")
+                or u.get("numeroDepto") or u.get("numero_depto") or ""
+            ).strip()
             if not numero or numero in seen:
                 skipped_reasons["no_numero_or_dup"] = skipped_reasons.get("no_numero_or_dup", 0) + 1
                 continue
@@ -1780,8 +1785,15 @@ class JBImporter:
             except Exception as e:
                 errors.append(f"{numero}: {e}")
         log.info(f"   📦 Unidades insertadas: {inserted}/{len(units)} (errors: {len(errors)}, skipped: {skipped_reasons})")
-        if sample_unit and inserted == 0 and len(units) > 0:
-            log.warning(f"   🔍 SAMPLE unidad sin insertar: {sample_unit}")
+        if inserted == 0 and len(units) > 0:
+            # Loggear SAMPLE completo + lista de keys disponibles
+            try:
+                sample_full = units[0]
+                if isinstance(sample_full, dict):
+                    log.warning(f"   🔍 SAMPLE unidad full keys: {list(sample_full.keys())}")
+                    log.warning(f"   🔍 SAMPLE unidad full data: {sample_full}")
+            except Exception:
+                pass
         return {"inserted": inserted, "errors": errors}
 
     async def upload_jb_excel(self, proyecto_id: str, xlsx_path: Path) -> dict:
