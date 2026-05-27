@@ -1,0 +1,92 @@
+name: Batch import JB (3 proyectos cada 50 min)
+
+on:
+  # Inicio programado: mañana 27/05/2026 a las 10:00 AM Chile (14:00 UTC).
+  # Luego se re-ejecuta cada 50 min entre 14:00 UTC y 04:50 UTC del día siguiente
+  # (cubre 10:00 AM a 00:50 AM Chile = 15 horas).
+  # GitHub Actions schedule puede tener delay de hasta 15 min en free tier.
+  schedule:
+    - cron: '0,50 14-23 27 5 *'    # 10:00 → 19:50 Chile, May 27
+    - cron: '40 0-4 28 5 *'        # 20:40 → 00:40 Chile (madrugada 28 UTC)
+    - cron: '30 5-9 28 5 *'        # backup hasta 05:30 Chile
+  # Para disparar manualmente desde la UI o con: gh workflow run batch-import-jb.yml
+  workflow_dispatch: {}
+
+# Solo permitir UNA ejecución a la vez (regla inviolable: secuencial).
+concurrency:
+  group: batch-import-jb
+  cancel-in-progress: false
+
+jobs:
+  batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60   # cada tanda = 3 imports (~18 min) + buffer
+    permissions:
+      contents: read
+      actions: write   # para poder triggear import-jb.yml desde aquí
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install deps
+        run: pip install httpx
+      - name: Login bc-api → JWT
+        env:
+          BC_API_EMAIL: nicolas.soto@bigcapital.cl
+          BC_API_PASSWORD: ${{ secrets.BC_API_PASSWORD }}
+        run: |
+          set -euo pipefail
+          JWT=$(python3 -c "
+          import os, httpx, sys
+          r = httpx.post('https://bc-api.178-105-91-29.nip.io/auth/login',
+              json={'email': os.environ['BC_API_EMAIL'], 'password': os.environ['BC_API_PASSWORD']},
+              timeout=15.0)
+          if r.status_code != 200: sys.exit(1)
+          print(r.json()['access_token'])
+          ")
+          echo "::add-mask::$JWT"
+          echo "BC_API_JWT=$JWT" >> "$GITHUB_ENV"
+      - name: Descargar lista JB pendiente (catálogo)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+        run: |
+          set -e
+          # Reutilizar el último artifact de list-jb-projects.yml si es reciente (<6h)
+          # Si no existe o está stale, lanzarlo
+          LATEST=$(gh run list --workflow=list-jb-projects.yml --limit 1 --json databaseId,createdAt,conclusion | python3 -c "
+          import json, sys, datetime
+          runs = json.load(sys.stdin)
+          if not runs: print(''); exit()
+          r = runs[0]
+          if r['conclusion'] != 'success': print(''); exit()
+          age_h = (datetime.datetime.now(datetime.timezone.utc) - datetime.datetime.fromisoformat(r['createdAt'].replace('Z','+00:00'))).total_seconds() / 3600
+          print(r['databaseId'] if age_h < 24 else '')
+          ")
+          if [ -z "$LATEST" ]; then
+            echo "Lanzando list-jb-projects.yml..."
+            gh workflow run list-jb-projects.yml
+            sleep 10
+            LATEST=$(gh run list --workflow=list-jb-projects.yml --limit 1 --json databaseId -q '.[0].databaseId')
+            echo "Esperando que termine..."
+            until [ "$(gh run view "$LATEST" --json status -q .status)" = "completed" ]; do sleep 30; done
+          fi
+          mkdir -p _list_artifact
+          gh run download "$LATEST" --dir _list_artifact
+          # Buscar el JSON (puede estar dentro de un subdir)
+          find _list_artifact -name 'jb_projects.json' -exec cp {} jb_projects.json \;
+          ls -la jb_projects.json
+      - name: Ejecutar tanda
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          python3 scripts/batch_import_jb.py --batch-size 3 --catalog jb_projects.json || EXIT=$?
+          EXIT=${EXIT:-0}
+          echo "Batch exit code: $EXIT"
+          # Exit 0 = quedan pendientes (next cron tick los tomará)
+          # Exit 1 = todo importado (puedes desactivar el cron manualmente)
+          exit $EXIT
