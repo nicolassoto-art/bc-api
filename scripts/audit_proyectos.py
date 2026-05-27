@@ -91,13 +91,21 @@ def main():
     print("\n\n========================")
     print("DETALLE UNIDADES + MODELOS")
     print("========================\n")
+    # Re-fetch listing once for second pass (in case state changed)
+    print(f"DEBUG: iterating {len(listing)} projects for detail")
     for p in listing:
         pid = p.get("id")
         if not pid:
+            print(f"  DEBUG: skip — no id")
             continue
         try:
-            full = cli.get(f"/proyectos/{pid}").json()
-        except Exception:
+            r2 = cli.get(f"/proyectos/{pid}")
+            if r2.status_code != 200:
+                print(f"  ✗ detail {pid}: HTTP {r2.status_code}")
+                continue
+            full = r2.json()
+        except Exception as e:
+            print(f"  ✗ detail {pid}: {e}")
             continue
         extra = full.get("extra") or {}
         unidades = full.get("unidades") or []
