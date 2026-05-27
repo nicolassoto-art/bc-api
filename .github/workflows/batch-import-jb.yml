@@ -1,14 +1,16 @@
-name: Batch import JB (3 proyectos por hora, L-V 10-18 Chile)
+name: Batch import JB (encadenamiento dinámico, L-V 10-18 Chile)
 
 on:
-  # Ventana: lunes a viernes, 10:00 a 18:00 Chile = 14:00 a 22:00 UTC.
-  # 9 ticks/día (horas 14,15,16,17,18,19,20,21,22) × 5 días = 45 ticks/semana.
-  # Cada tanda toma ~25 min, cron cada hora → ~35 min pausa real entre tandas.
-  # 19 batches necesarios (55 pendientes / 3) → se completa en ~3 días hábiles.
-  # NOTA: GH free tier puede atrasar el cron 5-15 min, no es problema.
-  # El workflow termina solo (exit 1) cuando no quedan pendientes.
+  # Cron solo PARA ARRANCAR la cadena cada día hábil: lunes-viernes 10:00 Chile.
+  # Después, cada tanda:
+  #   1. Importa 3 proyectos secuenciales (~18 min)
+  #   2. Descansa 30 min DENTRO del workflow (sleep)
+  #   3. Se auto-dispara la siguiente tanda vía gh workflow run
+  # Si la siguiente tanda caería fuera de la ventana (>18:00 Chile o fin de
+  # semana), la cadena se detiene y el cron del siguiente día hábil retoma.
+  # Backup ticks cada hora en la ventana por si la cadena se rompe.
   schedule:
-    - cron: '0 14-22 * * 1-5'   # L-V, 14:00-22:00 UTC = 10:00-18:00 Chile
+    - cron: '0 14-22 * * 1-5'   # L-V, 14:00-22:00 UTC = 10:00-18:00 Chile (cada hora, backup)
   # Para disparar manualmente desde la UI o con: gh workflow run batch-import-jb.yml
   workflow_dispatch: {}
 
@@ -20,7 +22,7 @@ concurrency:
 jobs:
   batch:
     runs-on: ubuntu-latest
-    timeout-minutes: 60   # cada tanda = 3 imports (~18 min) + buffer
+    timeout-minutes: 90   # 3 imports (~18 min) + 30 min sleep + buffer
     permissions:
       contents: read
       actions: write   # para poder triggear import-jb.yml desde aquí

@@ -124,9 +124,39 @@ def main():
     # Total después de la tanda
     remaining = len(pending) - len(batch)
     print(f"\n📈 Quedan {remaining} pendientes para próximas tandas")
-    if remaining > 0:
-        sys.exit(0)  # 0 = re-trigger next batch
-    sys.exit(1)  # 1 = done
+    if remaining <= 0:
+        print("✅ Importación completa.")
+        sys.exit(1)  # 1 = done
+
+    # ── Decisión de encadenamiento ─────────────────────────────────
+    # Política: descansar 30 min y luego re-disparar SI seguimos dentro de
+    # la ventana L-V 10:00-18:00 Chile (UTC-4). Si caemos fuera, salir y
+    # dejar que el próximo cron de las 10:00 AM siguiente día hábil retome.
+    from datetime import datetime, timezone, timedelta
+    chile_tz = timezone(timedelta(hours=-4))
+    now_chile = datetime.now(chile_tz)
+    # Tiempo proyectado al despertar (30 min después)
+    wake_chile = now_chile + timedelta(minutes=30)
+    is_weekday = wake_chile.weekday() < 5  # 0=Mon ... 6=Sun
+    in_window = 10 <= wake_chile.hour < 18 and is_weekday
+    print(f"\n⏰ Now Chile: {now_chile.strftime('%a %H:%M')}  wake @ {wake_chile.strftime('%a %H:%M')}  in_window={in_window}")
+
+    if not in_window:
+        print("🛏  Fuera de ventana L-V 10-18. Salgo, próximo cron de las 10AM L-V retoma.")
+        sys.exit(2)  # 2 = pause hasta próximo cron
+
+    print("⏳ Durmiendo 30 minutos antes de encadenar...")
+    time.sleep(30 * 60)
+    print("🔁 Re-disparando batch-import-jb.yml para la siguiente tanda...")
+    r = subprocess.run(
+        ["gh", "workflow", "run", "batch-import-jb.yml"],
+        capture_output=True, text=True
+    )
+    if r.returncode != 0:
+        print(f"  ✗ no se pudo re-disparar: {r.stderr}")
+        sys.exit(3)
+    print("  ✓ Disparada. Esta tanda termina; la próxima toma el relevo.")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
