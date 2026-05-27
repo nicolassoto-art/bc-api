@@ -82,13 +82,83 @@ jobs:
           find _list_artifact -name 'jb_projects.json' -exec cp {} jb_projects.json \;
           ls -la jb_projects.json
       - name: Ejecutar tanda
+        id: batch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          python3 scripts/batch_import_jb.py --batch-size 3 --catalog jb_projects.json || EXIT=$?
-          EXIT=${EXIT:-0}
+          # Capturar stdout para incluirlo en el email de alerta si falla
+          python3 scripts/batch_import_jb.py --batch-size 3 --catalog jb_projects.json 2>&1 | tee batch_output.log
+          EXIT=${PIPESTATUS[0]}
           echo "Batch exit code: $EXIT"
-          # Exit 0 = quedan pendientes (next cron tick los tomará)
-          # Exit 1 = todo importado (puedes desactivar el cron manualmente)
-          exit $EXIT
+          # Capturar resumen para reporting
+          tail -40 batch_output.log > batch_tail.log
+          echo "exit_code=$EXIT" >> "$GITHUB_OUTPUT"
+          # Exit codes:
+          #   0 = quedan pendientes, ya encadené siguiente tanda
+          #   1 = todo importado, fin
+          #   2 = fuera de ventana, paro la cadena
+          #   3 = error encadenando
+          # Solo exit-fail (1+) si fue 3 o error real (no 1 o 2)
+          if [ "$EXIT" -eq 3 ]; then exit 1; fi
+          exit 0
+
+      # ── ALERTA POR EMAIL si algo falló ──────────────────────────────────
+      - name: 📧 Email alerta (si falla la tanda)
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          secure: false
+          username: ${{ secrets.ALERT_SMTP_USER }}
+          password: ${{ secrets.ALERT_SMTP_PASS }}
+          from: 'BC Import Bot <${{ secrets.ALERT_SMTP_USER }}>'
+          to: ${{ secrets.ALERT_EMAIL_TO }}
+          subject: '🚨 BC Import Failure — run ${{ github.run_id }}'
+          body: |
+            La tanda batch-import-jb falló.
+
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Trigger: ${{ github.event_name }}
+            Job: ${{ github.job }}
+            Exit code: ${{ steps.batch.outputs.exit_code }}
+
+            Últimas 40 líneas del output:
+          attachments: batch_tail.log
+          ignore_cert: true
+
+      # ── ALERTA si una IMPORTACIÓN individual de proyecto falló ─────────
+      # (incluso si la tanda exit 0, puede haber proyectos individuales que fallaron)
+      - name: 📧 Email alerta (si algún proyecto individual falló)
+        if: success() && steps.batch.outputs.exit_code != '1'
+        run: |
+          # Detectar líneas con ❌ en el output del batch
+          if grep -q '❌' batch_output.log; then
+            echo "FAILED_PROJECTS=$(grep '❌' batch_output.log | head -10)" >> "$GITHUB_ENV"
+            echo "HAS_FAILED=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: 📧 Send partial-failure email
+        if: env.HAS_FAILED == '1'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          secure: false
+          username: ${{ secrets.ALERT_SMTP_USER }}
+          password: ${{ secrets.ALERT_SMTP_PASS }}
+          from: 'BC Import Bot <${{ secrets.ALERT_SMTP_USER }}>'
+          to: ${{ secrets.ALERT_EMAIL_TO }}
+          subject: '⚠ BC Import: algún proyecto falló en tanda ${{ github.run_id }}'
+          body: |
+            Tanda terminó pero al menos 1 proyecto falló.
+
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Proyectos que fallaron:
+            ${{ env.FAILED_PROJECTS }}
+
+            La tanda continuó con los restantes y la cadena sigue.
+          attachments: batch_tail.log
+          ignore_cert: true

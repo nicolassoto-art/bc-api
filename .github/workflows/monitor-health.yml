@@ -1,0 +1,148 @@
+name: Monitor health bc-api + cadena import
+
+on:
+  schedule:
+    # Cada 30 min, todos los días
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: monitor-health
+  cancel-in-progress: true
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install deps
+        run: pip install httpx
+      - name: Run health checks
+        id: check
+        env:
+          BC_API_EMAIL: nicolas.soto@bigcapital.cl
+          BC_API_PASSWORD: ${{ secrets.BC_API_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 <<'PY' | tee monitor_output.log
+          import datetime, json, os, subprocess, sys
+          import httpx
+          from datetime import timezone, timedelta
+
+          issues = []
+          warnings = []
+
+          # 1. bc-api alive
+          try:
+              r = httpx.get('https://bc-api.178-105-91-29.nip.io/', timeout=10)
+              if r.status_code >= 500:
+                  issues.append(f"bc-api root HTTP {r.status_code}")
+          except Exception as e:
+              issues.append(f"bc-api root unreachable: {e}")
+
+          # 2. bc-api auth
+          jwt = None
+          try:
+              r = httpx.post('https://bc-api.178-105-91-29.nip.io/auth/login',
+                  json={'email': os.environ['BC_API_EMAIL'], 'password': os.environ['BC_API_PASSWORD']},
+                  timeout=15)
+              if r.status_code != 200:
+                  issues.append(f"bc-api login HTTP {r.status_code}")
+              else:
+                  jwt = r.json().get('access_token')
+          except Exception as e:
+              issues.append(f"bc-api login error: {e}")
+
+          # 3. Listar proyectos
+          total_proyectos = None
+          if jwt:
+              try:
+                  r = httpx.get('https://bc-api.178-105-91-29.nip.io/proyectos',
+                      headers={'Authorization': f'Bearer {jwt}'}, timeout=20)
+                  total_proyectos = len(r.json()) if r.status_code == 200 else None
+                  if total_proyectos is None:
+                      issues.append(f"GET /proyectos HTTP {r.status_code}")
+              except Exception as e:
+                  issues.append(f"GET /proyectos error: {e}")
+
+          # 4. Verificar última corrida de import-jb.yml (no demasiado vieja en ventana hábil)
+          chile_tz = timezone(timedelta(hours=-4))
+          now_chile = datetime.datetime.now(chile_tz)
+          in_window = 10 <= now_chile.hour < 18 and now_chile.weekday() < 5
+          try:
+              out = subprocess.check_output(['gh', '-R', 'nicolassoto-art/bc-api', 'run', 'list',
+                  '--workflow=import-jb.yml', '--limit', '5',
+                  '--json', 'createdAt,conclusion,status']).decode()
+              runs = json.loads(out)
+              recent_failures = sum(1 for r in runs[:5] if r['conclusion'] == 'failure')
+              if recent_failures >= 3:
+                  issues.append(f"import-jb.yml: {recent_failures}/5 últimas corridas fallaron")
+              if runs and in_window:
+                  last = runs[0]
+                  last_dt = datetime.datetime.fromisoformat(last['createdAt'].replace('Z', '+00:00'))
+                  age_min = (datetime.datetime.now(timezone.utc) - last_dt).total_seconds() / 60
+                  if age_min > 90 and last['status'] == 'completed':
+                      warnings.append(f"Última import-jb hace {int(age_min)} min — la cadena puede haberse roto")
+          except Exception as e:
+              warnings.append(f"check runs error: {e}")
+
+          # 5. Verificar batch-import-jb mismas reglas
+          try:
+              out = subprocess.check_output(['gh', '-R', 'nicolassoto-art/bc-api', 'run', 'list',
+                  '--workflow=batch-import-jb.yml', '--limit', '5',
+                  '--json', 'createdAt,conclusion,status']).decode()
+              runs = json.loads(out)
+              recent_failures = sum(1 for r in runs[:5] if r['conclusion'] == 'failure')
+              if recent_failures >= 2:
+                  issues.append(f"batch-import-jb: {recent_failures}/5 últimas corridas fallaron")
+          except Exception as e:
+              warnings.append(f"check batch runs error: {e}")
+
+          print(f"=== Monitor @ {now_chile.strftime('%a %d/%m %H:%M')} Chile ===")
+          print(f"In window: {in_window}")
+          print(f"bc-api proyectos: {total_proyectos}")
+          print(f"Issues críticos: {len(issues)}")
+          for i in issues: print(f"  ❌ {i}")
+          print(f"Warnings: {len(warnings)}")
+          for w in warnings: print(f"  ⚠  {w}")
+
+          # Outputs para steps siguientes
+          gh_output = os.environ.get('GITHUB_OUTPUT')
+          if gh_output:
+              with open(gh_output, 'a') as f:
+                  f.write(f"has_issues={'1' if issues else '0'}\n")
+                  f.write(f"in_window={'1' if in_window else '0'}\n")
+                  f.write(f"issues_count={len(issues)}\n")
+                  f.write(f"warnings_count={len(warnings)}\n")
+                  # Resumen para email
+                  summary = ' | '.join(issues) if issues else 'sin issues'
+                  f.write(f"summary={summary[:200]}\n")
+          PY
+
+      - name: 📧 Email alerta si hay issues críticos
+        if: steps.check.outputs.has_issues == '1'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          secure: false
+          username: ${{ secrets.ALERT_SMTP_USER }}
+          password: ${{ secrets.ALERT_SMTP_PASS }}
+          from: 'BC Monitor <${{ secrets.ALERT_SMTP_USER }}>'
+          to: ${{ secrets.ALERT_EMAIL_TO }}
+          subject: '🚨 BC Monitor: ${{ steps.check.outputs.issues_count }} issue(s) críticos'
+          body: |
+            Monitor de salud detectó problemas.
+
+            Issues: ${{ steps.check.outputs.summary }}
+
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            (Esta alerta solo se manda cuando hay issues. Si bc-api o la cadena vuelven a funcionar, el próximo monitor lo confirmará sin email.)
+          attachments: monitor_output.log
+          ignore_cert: true
