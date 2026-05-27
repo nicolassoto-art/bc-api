@@ -87,6 +87,50 @@ def main():
     print(f"\nProyectos con issues: {len(issues)}/{len(rows)}")
     print("  U! = unidades vacías · M! = modelos vacíos · I! = inmobiliaria placeholder/vacía")
 
+    # ── Auditoría detallada UNIDADES + MODELOS ─────────────────────────
+    print("\n\n========================")
+    print("DETALLE UNIDADES + MODELOS")
+    print("========================\n")
+    for p in listing:
+        pid = p.get("id")
+        if not pid:
+            continue
+        try:
+            full = cli.get(f"/proyectos/{pid}").json()
+        except Exception:
+            continue
+        extra = full.get("extra") or {}
+        unidades = full.get("unidades") or []
+        modelos = (extra.get("modelos") or extra.get("modelos_dom") or [])
+        jb_id = extra.get("jb_id") or ""
+        nombre = full.get("nombre") or ""
+
+        # Issues por unidad
+        u_issues = []
+        if unidades:
+            sin_modelo = sum(1 for u in unidades if not (u.get("modelo") or "").strip())
+            sin_precio = sum(1 for u in unidades if not u.get("precio_lista_uf"))
+            sin_sup = sum(1 for u in unidades if not u.get("sup_total"))
+            sin_tipologia = sum(1 for u in unidades if not (u.get("tipologia") or "").strip())
+            if sin_modelo: u_issues.append(f"sin_modelo={sin_modelo}")
+            if sin_precio: u_issues.append(f"sin_precio={sin_precio}")
+            if sin_sup: u_issues.append(f"sin_sup={sin_sup}")
+            if sin_tipologia: u_issues.append(f"sin_tip={sin_tipologia}")
+
+        # Issues por modelo
+        m_issues = []
+        if modelos:
+            sin_nombre = sum(1 for m in (modelos if isinstance(modelos, list) else []) if isinstance(m, dict) and not (m.get("nombre") or m.get("name") or "").strip())
+            sin_plano = sum(1 for m in (modelos if isinstance(modelos, list) else []) if isinstance(m, dict) and not (m.get("plano_url") or m.get("blueprint") or ""))
+            if sin_nombre: m_issues.append(f"sin_nombre={sin_nombre}")
+            if sin_plano: m_issues.append(f"sin_plano={sin_plano}")
+
+        status_u = "✅" if unidades and not u_issues else ("⚠" if u_issues else "❌")
+        status_m = "✅" if modelos and not m_issues else ("⚠" if m_issues else "❌")
+        u_detail = f" [{', '.join(u_issues)}]" if u_issues else ""
+        m_detail = f" [{', '.join(m_issues)}]" if m_issues else ""
+        print(f"{jb_id:12s} {nombre[:40]:40s} U:{status_u} {len(unidades):>4d}{u_detail}  M:{status_m} {len(modelos) if isinstance(modelos, list) else 0:>3d}{m_detail}")
+
 
 if __name__ == "__main__":
     main()
