@@ -22,14 +22,32 @@ def main():
     fixed = 0
     skipped = 0
     errors = 0
+    import time
     for p in listing:
         pid = p.get("id")
         if not pid:
             continue
-        try:
-            full = cli.get(f"/proyectos/{pid}").json()
-        except Exception as e:
-            print(f"  ✗ {pid}: {e}")
+        # Filtrar por listing summary antes de fetchar full (evita carga inútil al VPS)
+        # listing trae inmobiliaria en el summary
+        summary_inmo = (p.get("inmobiliaria") or "").strip()
+        if summary_inmo.lower() != "bigcapital":
+            skipped += 1
+            continue
+        # Retry 3 veces con backoff
+        full = None
+        for attempt in range(3):
+            try:
+                r2 = cli.get(f"/proyectos/{pid}")
+                if r2.status_code == 200:
+                    full = r2.json()
+                    break
+                print(f"  ↺ {pid}: HTTP {r2.status_code} (attempt {attempt+1})")
+                time.sleep(2 * (attempt + 1))
+            except Exception as e:
+                print(f"  ↺ {pid}: {e} (attempt {attempt+1})")
+                time.sleep(2 * (attempt + 1))
+        if full is None:
+            print(f"  ✗ {pid}: no se pudo recuperar tras 3 intentos")
             errors += 1
             continue
 
