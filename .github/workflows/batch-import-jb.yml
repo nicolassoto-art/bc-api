@@ -1,14 +1,15 @@
 name: Batch import JB (3 proyectos cada 50 min)
 
 on:
-  # Inicio programado: mañana 27/05/2026 a las 10:00 AM Chile (14:00 UTC).
-  # Luego se re-ejecuta cada 50 min entre 14:00 UTC y 04:50 UTC del día siguiente
-  # (cubre 10:00 AM a 00:50 AM Chile = 15 horas).
-  # GitHub Actions schedule puede tener delay de hasta 15 min en free tier.
+  # Inicio: mañana 27/05/2026 a las 10:00 AM Chile (14:00 UTC).
+  # Cada tanda toma ~25 min (3 imports × ~6 min + overhead).
+  # Tick cada hora exacta = ~35 min de pausa real entre tandas.
+  # 20 ticks cubren los 19 batches necesarios (55 pendientes / 3).
+  # NOTA: GH free tier puede atrasar el cron 5-15 min, no es problema.
   schedule:
-    - cron: '0,50 14-23 27 5 *'    # 10:00 → 19:50 Chile, May 27
-    - cron: '40 0-4 28 5 *'        # 20:40 → 00:40 Chile (madrugada 28 UTC)
-    - cron: '30 5-9 28 5 *'        # backup hasta 05:30 Chile
+    - cron: '0 14-23 27 5 *'   # mayo 27, 14:00 → 23:00 UTC = 10:00 → 19:00 Chile
+    - cron: '0 0-4 28 5 *'     # mayo 28, 00:00 → 04:00 UTC = 20:00 → 00:00 Chile
+    - cron: '0 5-9 28 5 *'     # backup mayo 28, 05:00 → 09:00 UTC
   # Para disparar manualmente desde la UI o con: gh workflow run batch-import-jb.yml
   workflow_dispatch: {}
 
