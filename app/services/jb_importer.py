@@ -1937,10 +1937,13 @@ class JBImporter:
         new_extra.pop("_top_level", None)
 
         # Inmobiliaria: usar la scrapeada de JB (extra.inmobiliaria.nombre) si current
-        # tiene placeholder ("BigCapital") o vacío.
+        # tiene un placeholder genérico o vacío.
+        # IMPORTANTE: "BigCapital" no es una inmobiliaria sino el broker (nosotros);
+        # se trata como placeholder legacy a sobreescribir cuando JB tenga el real.
         scraped_inmo = (new_extra.get("inmobiliaria") or {}).get("nombre") if isinstance(new_extra.get("inmobiliaria"), dict) else None
         cur_inmo = current.get("inmobiliaria") or ""
-        inmo_final = scraped_inmo if scraped_inmo and cur_inmo.lower() in ("", "bigcapital") else (cur_inmo or scraped_inmo or "")
+        PLACEHOLDERS = ("", "bigcapital", "sin asignar", "sin asignar.")
+        inmo_final = scraped_inmo if scraped_inmo and cur_inmo.lower().strip() in PLACEHOLDERS else (cur_inmo or scraped_inmo or "Sin asignar")
 
         body = {
             "nombre": top_overrides.get("nombre") or current["nombre"],
@@ -2123,9 +2126,12 @@ class JBImporter:
                 log.info(f"   📝 Proyecto extra.jb_id={jb_id} no existe en bc-api — creando placeholder...")
                 # Crear proyecto mínimo con jb_id en extra. El nombre/comuna se sobreescriben
                 # en put_proyecto con los datos scrapeados de JB.
+                # BigCapital es el broker (nosotros), NO una inmobiliaria.
+                # Usamos "Sin asignar" como placeholder hasta que el scrape JB
+                # devuelva la inmobiliaria real (Ingevec, Ecasa, etc.).
                 stub_body = {
                     "nombre": f"JB-{jb_id}",  # placeholder, se actualiza en put_proyecto
-                    "inmobiliaria": "BigCapital",
+                    "inmobiliaria": "Sin asignar",
                     "modalidad": "Nuevo",
                     "activo": True,
                     "disponible": True,
