@@ -1,17 +1,8 @@
 name: Batch import JB (encadenamiento dinámico, L-V 10-18 Chile)
 
 on:
-  # Cron solo PARA ARRANCAR la cadena cada día hábil: lunes-viernes 10:00 Chile.
-  # Después, cada tanda:
-  #   1. Importa 3 proyectos secuenciales (~18 min)
-  #   2. Descansa 30 min DENTRO del workflow (sleep)
-  #   3. Se auto-dispara la siguiente tanda vía gh workflow run
-  # Si la siguiente tanda caería fuera de la ventana (>18:00 Chile o fin de
-  # semana), la cadena se detiene y el cron del siguiente día hábil retoma.
-  # Backup ticks cada hora en la ventana por si la cadena se rompe.
-  schedule:
-    - cron: '0 14-22 * * 1-5'   # L-V, 14:00-22:00 UTC = 10:00-18:00 Chile (cada hora, backup)
-  # Para disparar manualmente desde la UI o con: gh workflow run batch-import-jb.yml
+  # Cron desactivado — GH Actions free tier saltea ticks frecuentemente.
+  # Disparar manualmente: gh workflow run batch-import-jb.yml
   workflow_dispatch: {}
 
 # Solo permitir UNA ejecución a la vez (regla inviolable: secuencial).
