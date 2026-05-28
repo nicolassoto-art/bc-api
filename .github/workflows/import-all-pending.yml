@@ -1,0 +1,158 @@
+name: Import ALL pending JB (uno a la vez, hasta terminar)
+
+on:
+  workflow_dispatch: {}
+
+# Un solo run a la vez
+concurrency:
+  group: import-all-pending
+  cancel-in-progress: false
+
+jobs:
+  import-all:
+    runs-on: ubuntu-latest
+    # GH Actions max = 360 min (6h). 35 proyectos × ~8 min = ~280 min, holgado.
+    timeout-minutes: 350
+    permissions:
+      contents: read
+      actions: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install deps
+        run: pip install httpx
+      - name: Login bc-api → JWT
+        env:
+          BC_API_EMAIL: nicolas.soto@bigcapital.cl
+          BC_API_PASSWORD: ${{ secrets.BC_API_PASSWORD }}
+        run: |
+          set -euo pipefail
+          JWT=$(python3 -c "
+          import os, httpx, sys
+          r = httpx.post('https://bc-api.178-105-91-29.nip.io/auth/login',
+              json={'email': os.environ['BC_API_EMAIL'], 'password': os.environ['BC_API_PASSWORD']},
+              timeout=15.0)
+          if r.status_code != 200: sys.exit(1)
+          print(r.json()['access_token'])
+          ")
+          echo "::add-mask::$JWT"
+          echo "BC_API_JWT=$JWT" >> "$GITHUB_ENV"
+      - name: Descargar catálogo JB
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          LATEST=$(gh run list --workflow=list-jb-projects.yml --limit 1 --json databaseId,conclusion -q '.[0] | select(.conclusion=="success") | .databaseId')
+          if [ -z "$LATEST" ]; then
+            echo "Lanzando list-jb-projects.yml..."
+            gh workflow run list-jb-projects.yml
+            sleep 15
+            LATEST=$(gh run list --workflow=list-jb-projects.yml --limit 1 --json databaseId -q '.[0].databaseId')
+            until [ "$(gh run view "$LATEST" --json status -q .status)" = "completed" ]; do sleep 30; done
+          fi
+          gh run download "$LATEST" --dir _list
+          find _list -name 'jb_projects.json' -exec cp {} jb_projects.json \;
+      - name: Loop secuencial — importar todos los pendientes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e   # NO abortar si un import falla; continuar con el siguiente
+          python3 <<'PY'
+          import json, subprocess, time, sys, os
+          import httpx
+
+          BC_BASE = 'https://bc-api.178-105-91-29.nip.io'
+          JWT = os.environ['BC_API_JWT']
+          cli = httpx.Client(base_url=BC_BASE, headers={'Authorization': f'Bearer {JWT}'}, timeout=30.0)
+
+          def pending():
+              catalog = json.load(open('jb_projects.json'))
+              r = cli.get('/proyectos')
+              if r.status_code != 200:
+                  print(f'⚠ GET /proyectos HTTP {r.status_code}')
+                  return []
+              already = set()
+              for p in r.json():
+                  pid = (p.get('id') or '').lower()
+                  if pid.startswith('jb-'): already.add(pid[3:])
+                  for seg in pid.split('-'):
+                      if len(seg) >= 6 and seg.isalnum(): already.add(seg.lower())
+              return [p for p in catalog if p['jb_id'].lower() not in already]
+
+          successes = []
+          failures = []
+          attempted = set()
+
+          while True:
+              p_list = pending()
+              if not p_list:
+                  print(f'\n✅ TODO IMPORTADO. {len(successes)} éxitos, {len(failures)} fallos en esta corrida.')
+                  break
+
+              # Filtrar los ya intentados (en esta corrida) para no entrar en loop infinito
+              candidates = [p for p in p_list if p['jb_id'] not in attempted]
+              if not candidates:
+                  print(f'\n⚠ {len(p_list)} aún pendientes pero todos ya intentados → salgo')
+                  break
+
+              p = candidates[0]
+              jb_id = p['jb_id']
+              attempted.add(jb_id)
+              total_remaining = len(p_list)
+              print(f"\n[restan {total_remaining}] {time.strftime('%H:%M')} — {jb_id} — {p['nombre'][:50]}")
+
+              # Trigger
+              r = subprocess.run(['gh', 'workflow', 'run', 'import-jb.yml', '-f', f'jb_id={jb_id}'],
+                                 capture_output=True, text=True)
+              if r.returncode != 0:
+                  print(f"  ✗ trigger error: {r.stderr[:200]}")
+                  failures.append({'jb_id': jb_id, 'reason': 'trigger'})
+                  time.sleep(10)
+                  continue
+
+              time.sleep(10)
+              rid = subprocess.check_output(['gh', 'run', 'list', '--workflow=import-jb.yml',
+                                             '--limit', '1', '--json', 'databaseId',
+                                             '-q', '.[0].databaseId']).decode().strip()
+              print(f"  RUN: {rid}")
+
+              # Wait
+              for _ in range(60):  # max 30 min
+                  time.sleep(30)
+                  st = subprocess.check_output(['gh', 'run', 'view', rid,
+                                                '--json', 'status', '-q', '.status']).decode().strip()
+                  if st == 'completed': break
+
+              concl = subprocess.check_output(['gh', 'run', 'view', rid,
+                                               '--json', 'conclusion', '-q', '.conclusion']).decode().strip()
+              if concl == 'success':
+                  successes.append({'jb_id': jb_id, 'run': rid})
+                  print(f"  ✅ {time.strftime('%H:%M')}")
+              else:
+                  failures.append({'jb_id': jb_id, 'run': rid, 'concl': concl})
+                  print(f"  ❌ {concl}")
+
+              # Pausa breve anti-rate-limit
+              time.sleep(15)
+
+          # Resumen
+          print(f"\n========== RESUMEN ==========")
+          print(f"Éxitos: {len(successes)}")
+          print(f"Fallos: {len(failures)}")
+          for f_ in failures: print(f"  ❌ {f_}")
+          PY
+      - name: 🚨 Crear Issue si falló alguno
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              title: `🚨 import-all-pending falló — run ${{ github.run_id }}`,
+              body: `El workflow import-all-pending terminó con error.\n\n[Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`,
+              labels: ['import-failure', 'auto-alert'],
+            });
