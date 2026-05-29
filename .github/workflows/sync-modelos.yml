@@ -1,0 +1,31 @@
+name: Sync extra.modelos desde modelos_dom
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install httpx
+      - name: Login
+        env:
+          BC_API_PASSWORD: ${{ secrets.BC_API_PASSWORD }}
+        run: |
+          set -euo pipefail
+          JWT=$(python3 -c "
+          import os, httpx
+          r = httpx.post('https://bc-api.178-105-91-29.nip.io/auth/login',
+              json={'email':'nicolas.soto@bigcapital.cl','password':os.environ['BC_API_PASSWORD']},
+              timeout=15)
+          print(r.json()['access_token'])
+          ")
+          echo "::add-mask::$JWT"
+          echo "BC_API_JWT=$JWT" >> "$GITHUB_ENV"
+      - run: python3 scripts/sync_modelos_from_dom.py

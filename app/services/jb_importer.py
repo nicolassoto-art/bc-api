@@ -1909,7 +1909,26 @@ class JBImporter:
             for k, v in scraped_extra.items():
                 self._deep_merge(new_extra, {k: v})
 
-        new_extra["modelos"] = modelos
+        # extra.modelos: preferir API (modelos arg). Si API vacía pero DOM scrape
+        # llenó modelos_dom, copiar como fallback para que el editor renderice.
+        # El editor (api-client.js _shapeModelos) acepta planta_url, dormitorios,
+        # banos, cotiza_*. Los mismos campos que modelos_dom tiene.
+        if modelos:
+            new_extra["modelos"] = modelos
+        else:
+            modelos_dom = new_extra.get("modelos_dom") or []
+            if isinstance(modelos_dom, list) and modelos_dom:
+                # Shape compatible con editor: agregar id si falta
+                shaped = []
+                for i, m in enumerate(modelos_dom):
+                    if not isinstance(m, dict):
+                        continue
+                    mid = m.get("id") or m.get("planta_id") or f"jb-dom-{i}"
+                    shaped.append({**m, "id": mid})
+                new_extra["modelos"] = shaped
+                log.info(f"   📦 modelos vacíos desde API → copio {len(shaped)} de modelos_dom")
+            else:
+                new_extra["modelos"] = []
         new_extra["_jb_imported_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         # _top_level: fields scrapeados con prefijo "_" en LABEL_MAP (Estado, Modalidad, etc)
