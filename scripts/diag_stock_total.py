@@ -60,6 +60,33 @@ async def main():
     try:
         await imp.login()
         async with imp._jb_httpx() as cli:
+            # ── PRIMERO: lista de tarjetas store (tiene 'available' agregado por proyecto) ──
+            ids_buscados = {jb for jb, _ in VACIOS}
+            card_endpoints = [
+                "/projectstore-card/projects",
+                "/marketplace/projects",
+                "/projects",
+            ]
+            for ep in card_endpoints:
+                try:
+                    r = await cli.get(ep)
+                    if r.status_code != 200:
+                        print(f"[card list] {ep} → HTTP {r.status_code}")
+                        continue
+                    data = r.json()
+                    items = data if isinstance(data, list) else (data.get("data") or data.get("elements") or [])
+                    print(f"\n[card list] {ep} → {len(items)} proyectos. Keys del [0]: {sorted(items[0].keys()) if items and isinstance(items[0],dict) else '?'}")
+                    # Buscar los 5 vacíos en la lista
+                    for it in items:
+                        if not isinstance(it, dict):
+                            continue
+                        iid = it.get("id") or it.get("_id") or it.get("projectId")
+                        if iid in ids_buscados:
+                            stock_fields = find_stock_fields(it)
+                            print(f"   ★ {iid} ({it.get('name','?')[:30]}): {stock_fields}")
+                except Exception as e:
+                    print(f"[card list] {ep} error: {e}")
+
             # Endpoints candidatos por proyecto
             for jb_id, nombre in VACIOS:
                 print(f"\n{'='*70}")
