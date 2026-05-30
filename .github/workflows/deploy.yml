@@ -51,10 +51,15 @@ jobs:
           # Restart service (sudo solo si no somos root)
           if [ "\$(id -u)" = "0" ]; then SUDO=""; else SUDO="sudo"; fi
           \$SUDO systemctl restart bc-api.service
-          sleep 2
+          sleep 5
           \$SUDO systemctl is-active --quiet bc-api.service || { echo "Service no arrancó"; exit 1; }
 
-          # Health check
-          curl -fsS http://127.0.0.1:8011/health || { echo "Health check falló"; exit 1; }
+          # Health check con reintentos (el servicio puede tardar en levantar)
+          OK=0
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS http://127.0.0.1:8011/health >/dev/null 2>&1; then OK=1; break; fi
+            sleep 3
+          done
+          [ "\$OK" = "1" ] || { echo "Health check falló tras 10 intentos"; exit 1; }
           echo "✓ Deploy OK"
           EOF

@@ -13,6 +13,15 @@ VACIOS = [
     ("jb-1kvflc3m", "Vicuna Mackenna 1796"),
 ]
 
+# VERIFICAR EL LISTADO (cruce aplicado): unidades_total debe = agregado
+print("=== VERIFICACIÓN LISTADO (cruce) ===")
+listado = cli.get("/proyectos").json()
+by_id = {p["id"]: p for p in listado}
+for pid, nombre in VACIOS:
+    s = by_id.get(pid, {})
+    print(f"  {nombre[:35]:35s} listado.unidades_total = {s.get('unidades_total')} · disp = {s.get('unidades_disponibles')}")
+
+print("\n=== DETALLE extra.fisicos ===")
 for pid, nombre in VACIOS:
     try:
         p = cli.get(f"/proyectos/{pid}").json()
