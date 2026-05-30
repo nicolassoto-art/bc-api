@@ -1,6 +1,6 @@
 # Eventos anómalos — registro automático
 
-Última actualización: Fri 29/05/2026 15:56 Chile · 34 eventos totales
+Última actualización: Fri 29/05/2026 20:17 Chile · 37 eventos totales
 
 Este archivo se regenera automáticamente desde `eventos_anomalos.jsonl`.
 Los eventos están deduplicados en ventanas de 24h.
@@ -11,10 +11,11 @@ Los eventos están deduplicados en ventanas de 24h.
 |---|---|---|
 | 2026-05-28 21:34:11 | `import-jb.yml#26596794924` | created=Thu 28/05 15:19 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26596794924) |
 
-## ⚠ Proyectos con modelos pero sin unidades (12 en total, mostrando últimos 12)
+## ⚠ Proyectos con modelos pero sin unidades (13 en total, mostrando últimos 13)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-05-30 00:17:10 | `jb-sffaxziq · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
 | 2026-05-29 19:56:19 | `jb-48t1iinf · _EDIFICIO CONEXIÓN INDEPENDENCI_` | 17 modelos pero 0 unidades — Excel JB vacío |
 | 2026-05-29 19:56:15 | `jb-t8uuef2r · _Santa Rosa 250_` | 10 modelos pero 0 unidades — Excel JB vacío |
 | 2026-05-29 19:56:14 | `jb-wwmcny3e · _Los Alerces_` | 25 modelos pero 0 unidades — Excel JB vacío |
@@ -28,10 +29,11 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-05-28 13:49:56 | `jb-wwmcny3e · _Los Alerces_` | 25 modelos pero 0 unidades — Excel JB vacío |
 | 2026-05-28 13:49:52 | `jb-48t1iinf · _EDIFICIO CONEXIÓN INDEPENDENCI_` | 17 modelos pero 0 unidades — Excel JB vacío |
 
-## ⚠ Proyectos huérfanos (JB sin data) (8 en total, mostrando últimos 8)
+## ⚠ Proyectos huérfanos (JB sin data) (9 en total, mostrando últimos 9)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-05-30 00:17:12 | `jb-4kny8vbw · _Novus Torre G_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
 | 2026-05-29 19:56:24 | `jb-osnl3m1c · _Vista San Martin_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
 | 2026-05-28 21:34:00 | `jb-4kny8vbw · _Novus Torre G_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
 | 2026-05-28 13:49:55 | `jb-zohnfoqj · _Edificio Borja Plaza_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
@@ -54,10 +56,11 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-05-28 13:49:55 | `jb-osnl3m1c · _Vista San Martin_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
 | 2026-05-28 13:49:55 | `jb-dx4rddfn · _Fuentes de Lomas II_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
 
-## ℹ Workflows cancelados (3 en total, mostrando últimos 3)
+## ℹ Workflows cancelados (4 en total, mostrando últimos 4)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-05-30 00:17:14 | `batch-import-jb.yml#26588554656` | created=Thu 28/05 12:42 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26588554656) |
 | 2026-05-29 19:56:25 | `batch-import-jb.yml#26539837724` | created=Wed 27/05 17:29 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26539837724) |
 | 2026-05-28 21:34:10 | `batch-import-jb.yml#26588554656` | created=Thu 28/05 12:42 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26588554656) |
 | 2026-05-28 13:50:01 | `batch-import-jb.yml#26539837724` | created=Wed 27/05 17:29 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26539837724) |
