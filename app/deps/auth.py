@@ -1,4 +1,5 @@
 """FastAPI dependencies for auth: extract user from Authorization header."""
+import secrets
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
@@ -10,6 +11,26 @@ from ..services.auth import decode_token
 from ..settings import settings
 
 bearer = HTTPBearer(auto_error=True)
+# Bearer opcional: el endpoint público valida un token de servicio (no JWT de
+# usuario). auto_error=False para devolver 401/503 propios en vez de 403 genérico.
+bearer_optional = HTTPBearer(auto_error=False)
+
+
+def service_token(
+    creds: HTTPAuthorizationCredentials = Depends(bearer_optional),
+) -> bool:
+    """Valida el token de servicio del Cloudflare Worker (catálogo público).
+
+    Comparación de tiempo constante (anti timing-attack). Si el token no está
+    configurado en el servidor, el endpoint queda deshabilitado (503).
+    """
+    expected = (settings.bc_api_service_token or "").strip()
+    if not expected:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="Catálogo público no configurado")
+    got = (creds.credentials if creds else "") or ""
+    if not secrets.compare_digest(got, expected):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token de servicio inválido")
+    return True
 
 
 def current_user(

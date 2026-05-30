@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:8765"
     super_admins: str = "nicolas.soto@bigcapital.cl"
     legacy_api_url: str = "http://127.0.0.1/backend/api.php"
+    # Token de servicio para el Cloudflare Worker (catálogo público).
+    # Vacío = endpoint /proyectos/public deshabilitado (devuelve 503).
+    bc_api_service_token: str = ""
     env: str = "development"
     log_level: str = "INFO"
 
