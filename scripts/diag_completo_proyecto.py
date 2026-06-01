@@ -1,0 +1,105 @@
+"""
+diag_completo_proyecto.py — Compara TODO lo que bc-api tiene vs lo que JB expone
+para proyectos específicos. Busca qué NO importamos.
+
+Revisa: unidades, bodegas, estac, packs, documentos, modelos, notas, comisión,
+arriendos, y todas las keys de extra. Scrapea JB editor tab por tab.
+"""
+from __future__ import annotations
+import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from app.services.jb_importer import JBImporter
+import httpx
+
+# Proyectos a investigar (jb_id exacto, id bc-api)
+TARGETS = [
+    ("1kvflc3m", "jb-1kvflc3m", "Vicuña Mackenna 1796"),
+    ("T8UuEf2r", "jb-t8uuef2r", "Santa Rosa 250"),
+]
+
+
+async def main():
+    bc_base = os.environ.get("BC_API_BASE", "https://bc-api.178-105-91-29.nip.io")
+    jwt = os.environ["BC_API_JWT"]
+    cli = httpx.Client(base_url=bc_base, headers={"Authorization": f"Bearer {jwt}"}, timeout=30)
+
+    # ── Lo que bc-api tiene ──
+    for jb_id, pid, nombre in TARGETS:
+        print(f"\n{'='*70}\n=== bc-api: {nombre} ({pid}) ===")
+        try:
+            p = cli.get(f"/proyectos/{pid}").json()
+        except Exception as e:
+            print(f"  error: {e}"); continue
+        extra = p.get("extra") or {}
+        print(f"  unidades (filas):     {len(p.get('unidades') or [])}")
+        print(f"  documentos:           {len(p.get('documentos') or [])}")
+        print(f"  imagenes:             {len(p.get('imagenes') or [])}")
+        print(f"  extra.bodegas_dom:    {len(extra.get('bodegas_dom') or [])}")
+        print(f"  extra.estacionamientos_dom: {len(extra.get('estacionamientos_dom') or [])}")
+        print(f"  extra.modelos:        {len(extra.get('modelos') or [])}")
+        fis = extra.get('fisicos') or {}
+        print(f"  fisicos.unidades_totales: {fis.get('unidades_totales')}")
+        print(f"  fisicos.estac_totales:    {fis.get('estacionamientos_totales')}")
+        print(f"  fisicos.bodegas_totales:  {fis.get('bodegas_totales')}")
+        print(f"  TODAS las keys de extra: {sorted(extra.keys())}")
+
+    # ── Lo que JB expone (scrape editor) ──
+    imp = JBImporter(
+        jb_email=os.environ["JETBROKERS_EMAIL"],
+        jb_password=os.environ["JETBROKERS_PASS"],
+        bc_api_base=bc_base, bc_jwt=jwt, headless=True,
+    )
+    try:
+        await imp.login()
+        for jb_id, pid, nombre in TARGETS:
+            print(f"\n{'='*70}\n=== JB editor: {nombre} ({jb_id}) ===")
+            # API units
+            try:
+                async with imp._jb_httpx() as c:
+                    units = []
+                    for ep in (f"/store/project/{jb_id}/available", f"/apartment-model/project/{jb_id}/all"):
+                        try:
+                            r = await c.get(ep)
+                            if r.status_code == 200:
+                                d = r.json()
+                                items = d if isinstance(d, list) else (d.get('data') or [])
+                                print(f"  API {ep}: {len(items)} items")
+                                if items and isinstance(items[0], dict):
+                                    print(f"      keys: {sorted(items[0].keys())}")
+                                    print(f"      sample: { {k:items[0].get(k) for k in list(items[0].keys())[:8]} }")
+                        except Exception as e:
+                            print(f"  API {ep}: {e}")
+            except Exception as e:
+                print(f"  API err: {e}")
+
+            # Navegar editor y contar filas por tab
+            try:
+                await imp._page.goto(f"https://app.jetbrokers.io/projects/edit/{jb_id}", wait_until="networkidle", timeout=60_000)
+                await imp._page.wait_for_timeout(3_500)
+                await imp._dismiss_popups()
+                for tab in ["Unidades", "Bodegas", "Estacionamientos", "Packs"]:
+                    try:
+                        await imp._click_tab(tab)
+                        await imp._page.wait_for_timeout(2_500)
+                        n = await imp._page.evaluate("""() => {
+                            const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active, .mat-tab-body-active') || document;
+                            const tables = [...scope.querySelectorAll('table')];
+                            let best=0; tables.forEach(t=>{const r=t.querySelectorAll('tbody tr').length; if(r>best)best=r;});
+                            return best;
+                        }""")
+                        print(f"  TAB {tab}: {n} filas en tabla")
+                    except Exception as e:
+                        print(f"  TAB {tab}: {e}")
+            except Exception as e:
+                print(f"  editor nav err: {e}")
+    finally:
+        await imp.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
