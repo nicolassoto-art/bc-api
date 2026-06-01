@@ -855,6 +855,80 @@ class JBImporter:
         except Exception as e:
             log.warning(f"   modelos tab → {e}")
 
+        # ── Tab Unidades: tabla con todas las unidades (deptos) del proyecto ──
+        # JB pagina de 30 en 30. Columnas: Número, Modelo, Tipología, Tipo, O, ST, Descuento, Bono Pie, Precio Final, ...
+        # IMPORTANTE: este scrape complementa al Excel y a /store/available.
+        # Para proyectos donde el Excel viene vacío (Santa Rosa, Los Alerces, etc.),
+        # la tabla Unidades del editor SÍ tiene todos los deptos con sus superficies.
+        try:
+            await self._click_tab("Unidades")
+            await self._page.wait_for_timeout(2_500)
+            total_u = await self._load_all_table_rows()
+            log.info(f"   🏠 Unidades tab tras paginación: {total_u} rows totales")
+            await self._page.screenshot(path=str(debug_dir / "tab-unidades.png"), full_page=True)
+            unidades_rows = await self._scrape_table_rows()
+            if unidades_rows:
+                (debug_dir / "tab-unidades_rows.json").write_text(
+                    json.dumps(unidades_rows, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
+                # Mapear columnas JB → bc-api keys
+                # Headers: ['', 'Número', 'Modelo', 'Tipología', 'Tipo', 'O', 'ST', 'Descuento', 'Bono Pie', 'Precio Final', 'Bodega', 'Est.', 'Pack', 'Disponible', '']
+                # Índices: 0=check, 1=Número, 2=Modelo, 3=Tipología, 4=Tipo, 5=Orient, 6=Sup Total, 7=Dcto, 8=Bono, 9=Precio, 10+=secundarios
+                unidades_dom = []
+                for r in unidades_rows:
+                    c = r.get("cells") or []
+                    if len(c) < 7:
+                        continue
+                    numero = str(c[1]).strip() if len(c) > 1 else ""
+                    if not numero or not any(ch.isdigit() for ch in numero):
+                        continue
+                    modelo = str(c[2]).strip() if len(c) > 2 else ""
+                    tipologia = str(c[3]).strip() if len(c) > 3 else ""
+                    tipo = str(c[4]).strip() if len(c) > 4 else "Depto"
+                    orientacion = str(c[5]).strip() if len(c) > 5 else ""
+                    # Superficie total: ej "22,60 m²" → 22.6
+                    sup_raw = str(c[6]).strip() if len(c) > 6 else ""
+                    sup_total = None
+                    try:
+                        sup_total = float(sup_raw.replace("m²","").replace(",",".").strip()) if sup_raw else None
+                    except Exception:
+                        pass
+                    # Descuento/Bono/Precio
+                    def pct(s):
+                        try: return float(str(s).replace("%","").replace(",",".").strip())
+                        except: return 0.0
+                    def uf(s):
+                        try: return float(str(s).replace(".","").replace(",",".").strip()) or None
+                        except: return None
+                    dcto = pct(c[7]) if len(c) > 7 else 0.0
+                    bono = pct(c[8]) if len(c) > 8 else 0.0
+                    precio = uf(c[9]) if len(c) > 9 else None
+                    # Disponible: icon check/close
+                    icons = r.get("cells_icons") or []
+                    disponible = True  # default
+                    # Columna 13 (Disponible) o la que tenga check/close
+                    for ic in (icons[13:14] if len(icons) > 13 else []) + (icons[-2:-1] if icons else []):
+                        if ic.get("hasCheck"): disponible = True; break
+                        if ic.get("hasClose"): disponible = False; break
+                    unidades_dom.append({
+                        "numero": numero,
+                        "modelo": modelo,
+                        "tipologia": tipologia,
+                        "tipo": tipo,
+                        "orientacion": orientacion,
+                        "sup_total": sup_total,
+                        "descuento_pct": dcto,
+                        "bono_pie_pct": bono,
+                        "precio_lista_uf": precio,
+                        "disponible": disponible,
+                    })
+                if unidades_dom:
+                    self._set_path(out, "extra.unidades_dom", unidades_dom)
+                    n_disp = sum(1 for u in unidades_dom if u.get("disponible"))
+                    log.info(f"   🏠 Unidades tab: {len(unidades_dom)} deptos ({n_disp} disp) — guardados en extra.unidades_dom")
+        except Exception as e:
+            log.warning(f"   unidades tab → {e}")
+
         # ── Tab Bodegas: tabla con bodegas individuales ──
         try:
             await self._click_tab("Bodegas")
