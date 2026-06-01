@@ -103,13 +103,18 @@ async def main():
                     try:
                         await imp._click_tab(tab)
                         await imp._page.wait_for_timeout(2_500)
-                        n = await imp._page.evaluate("""() => {
+                        info = await imp._page.evaluate("""() => {
                             const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active, .mat-tab-body-active') || document;
                             const tables = [...scope.querySelectorAll('table')];
-                            let best=0; tables.forEach(t=>{const r=t.querySelectorAll('tbody tr').length; if(r>best)best=r;});
-                            return best;
+                            let best=null,bn=0; tables.forEach(t=>{const r=t.querySelectorAll('tbody tr').length; if(r>bn){bn=r;best=t;}});
+                            if(!best) return {n:0};
+                            const headers=[...best.querySelectorAll('thead th')].map(h=>(h.innerText||'').trim());
+                            const r0=[...(best.querySelector('tbody tr')?.querySelectorAll('td')||[])].map(c=>(c.innerText||'').trim());
+                            return {n:bn, headers, r0};
                         }""")
-                        print(f"  TAB {tab}: {n} filas en tabla")
+                        print(f"  TAB {tab}: {info.get('n')} filas · headers={info.get('headers')}")
+                        if tab == "Unidades":
+                            print(f"       row0={info.get('r0')}")
                     except Exception as e:
                         print(f"  TAB {tab}: {e}")
                 imp._page.remove_listener("response", on_resp)
