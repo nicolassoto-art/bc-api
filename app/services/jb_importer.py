@@ -1386,32 +1386,43 @@ class JBImporter:
                 if key.strip("|") and key not in all_rows:
                     all_rows[key] = r
             # INFINITE SCROLL: el trigger es traer la ÚLTIMA fila a la vista
-            # (intersection observer). Scrolleamos la última tr al viewport +
-            # todos los contenedores scrolleables al fondo + window al fondo.
+            # (intersection observer). JIGGLE: subir un poco y bajar fuerte
+            # re-dispara el observer cuando se "atasca" tras cargar un lote.
             await self._page.evaluate(r"""() => {
                 const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
-                // 1) Última fila visible → scrollIntoView (dispara lazy-load)
-                const trs = scope.querySelectorAll('table tbody tr');
-                if (trs.length) {
-                    trs[trs.length - 1].scrollIntoView({block: 'end', behavior: 'instant'});
-                }
-                // 2) Todos los contenedores scrolleables → al fondo
+                const scrollAllToBottom = () => {
+                    const all = scope.querySelectorAll('*');
+                    for (const el of all) {
+                        if (el.scrollHeight > el.clientHeight + 40) el.scrollTop = el.scrollHeight;
+                    }
+                    const vp = document.querySelector('.cdk-virtual-scroll-viewport');
+                    if (vp) vp.scrollTop = vp.scrollHeight;
+                    window.scrollTo(0, document.body.scrollHeight);
+                };
+                // jiggle: arriba un toque
                 const all = scope.querySelectorAll('*');
                 for (const el of all) {
-                    if (el.scrollHeight > el.clientHeight + 40) {
-                        el.scrollTop = el.scrollHeight;
-                    }
+                    if (el.scrollHeight > el.clientHeight + 40) el.scrollTop = Math.max(0, el.scrollTop - 300);
                 }
-                // 3) Viewport virtual conocido + window
-                const vp = document.querySelector('.cdk-virtual-scroll-viewport');
-                if (vp) vp.scrollTop = vp.scrollHeight;
-                window.scrollTo(0, document.body.scrollHeight);
+                window.scrollBy(0, -200);
+                scrollAllToBottom();
+                // última fila a la vista
+                const trs = scope.querySelectorAll('table tbody tr');
+                if (trs.length) trs[trs.length - 1].scrollIntoView({block: 'end', behavior: 'instant'});
             }""")
             # Esperar más: el lazy-load hace una llamada API que tarda
-            await self._page.wait_for_timeout(900)
+            await self._page.wait_for_timeout(1200)
+            # Segundo empujón dentro del mismo paso (a veces 1 scroll no basta)
+            await self._page.evaluate(r"""() => {
+                const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
+                const trs = scope.querySelectorAll('table tbody tr');
+                if (trs.length) trs[trs.length - 1].scrollIntoView({block: 'end', behavior: 'instant'});
+                window.scrollTo(0, document.body.scrollHeight);
+            }""")
+            await self._page.wait_for_timeout(500)
             if len(all_rows) == last_count:
                 stable += 1
-                if stable >= 8:  # más paciencia antes de rendirse
+                if stable >= 12:  # mucha paciencia: lotes lentos
                     break
             else:
                 stable = 0
