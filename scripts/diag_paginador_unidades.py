@@ -22,7 +22,7 @@ async def main():
         await imp._click_tab("Unidades")
         await imp._page.wait_for_timeout(3000)
         info = await imp._page.evaluate(r"""() => {
-            const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document;
+            const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
             const out = {};
             // selects (page-size?)
             out.selects = [...scope.querySelectorAll('select')].map(s => ({
