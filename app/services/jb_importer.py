@@ -1378,19 +1378,35 @@ class JBImporter:
         all_rows: dict = {}
         last_count = -1
         stable = 0
-        # Posicionar el mouse SOBRE la tabla para que mouse.wheel scrollee ahí
+        # Encontrar el contenedor scrolleable REAL (el que tiene overflow auto/scroll
+        # y scrollHeight > clientHeight). La tabla en sí no scrollea: lo hace su
+        # contenedor padre. Lo guardamos para scrollearlo directamente.
+        await self._page.evaluate(r"""() => {
+            window.__jbScroller = null;
+            const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
+            const candidates = [scope, ...scope.querySelectorAll('*')];
+            for (const el of candidates) {
+                const cs = getComputedStyle(el);
+                if (!/auto|scroll/.test(cs.overflowY)) continue;
+                if (el.scrollHeight - el.clientHeight < 50) continue;
+                window.__jbScroller = el;
+                break;
+            }
+            // Si no se encontró, usar window
+            return window.__jbScroller ? window.__jbScroller.tagName + '.' + (window.__jbScroller.className||'').slice(0,40) : 'WINDOW';
+        }""")
+        # Posicionar el mouse SOBRE el contenedor scrolleable
         try:
             box = await self._page.evaluate("""() => {
-                const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
-                const t = scope.querySelector('table');
-                if (!t) return null;
-                const r = t.getBoundingClientRect();
+                const el = window.__jbScroller || document.documentElement;
+                const r = el.getBoundingClientRect();
                 return {x: r.x + r.width/2, y: r.y + Math.min(r.height/2, 300)};
             }""")
             if box:
                 await self._page.mouse.move(box["x"], box["y"])
         except Exception:
             pass
+
         for step in range(max_steps):
             rows = await self._scrape_table_rows()
             for r in rows:
@@ -1398,53 +1414,59 @@ class JBImporter:
                 key = "|".join(str(c) for c in cells)
                 if key.strip("|") and key not in all_rows:
                     all_rows[key] = r
-            # SCROLL FÍSICO con rueda real (muchos lazy-loads solo escuchan wheel)
-            try:
-                await self._page.mouse.wheel(0, 2500)
-            except Exception:
-                pass
-            # INFINITE SCROLL: el trigger es traer la ÚLTIMA fila a la vista
-            # (intersection observer). JIGGLE: subir un poco y bajar fuerte
-            # re-dispara el observer cuando se "atasca" tras cargar un lote.
+
+            # ESTRATEGIA REAL: simular scroll humano = MUCHOS eventos wheel pequeños
+            # con pausas cortas entre ellos. El backend lazy-load espera ver una
+            # secuencia continua de wheel events para disparar el siguiente lote.
+            # 6 wheels chicos (200px c/u) con 100ms entre cada uno = 1.2s real.
+            for _ in range(6):
+                try:
+                    await self._page.mouse.wheel(0, 350)
+                except Exception:
+                    pass
+                await self._page.wait_for_timeout(110)
+
+            # Forzar también scrollTop del contenedor identificado + última fila
+            # a la vista (segundo trigger del observer)
             await self._page.evaluate(r"""() => {
-                const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
-                const scrollAllToBottom = () => {
-                    const all = scope.querySelectorAll('*');
-                    for (const el of all) {
-                        if (el.scrollHeight > el.clientHeight + 40) el.scrollTop = el.scrollHeight;
-                    }
-                    const vp = document.querySelector('.cdk-virtual-scroll-viewport');
-                    if (vp) vp.scrollTop = vp.scrollHeight;
-                    window.scrollTo(0, document.body.scrollHeight);
-                };
-                // jiggle: arriba un toque
-                const all = scope.querySelectorAll('*');
-                for (const el of all) {
-                    if (el.scrollHeight > el.clientHeight + 40) el.scrollTop = Math.max(0, el.scrollTop - 300);
+                if (window.__jbScroller) {
+                    window.__jbScroller.scrollTop = window.__jbScroller.scrollHeight;
                 }
-                window.scrollBy(0, -200);
-                scrollAllToBottom();
-                // última fila a la vista
-                const trs = scope.querySelectorAll('table tbody tr');
-                if (trs.length) trs[trs.length - 1].scrollIntoView({block: 'end', behavior: 'instant'});
-            }""")
-            # Esperar más: el lazy-load hace una llamada API que tarda
-            await self._page.wait_for_timeout(1200)
-            # Segundo empujón dentro del mismo paso (a veces 1 scroll no basta)
-            await self._page.evaluate(r"""() => {
                 const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
                 const trs = scope.querySelectorAll('table tbody tr');
                 if (trs.length) trs[trs.length - 1].scrollIntoView({block: 'end', behavior: 'instant'});
-                window.scrollTo(0, document.body.scrollHeight);
+                // PageDown/End keypress simulado (algunos handlers escuchan keydown)
+                document.dispatchEvent(new KeyboardEvent('keydown', {key:'End', code:'End', keyCode:35, bubbles:true}));
             }""")
-            await self._page.wait_for_timeout(500)
+            # Esperar más: backend puede tardar 1-2s en responder
+            await self._page.wait_for_timeout(1500)
+
             if len(all_rows) == last_count:
                 stable += 1
-                if stable >= 12:  # mucha paciencia: lotes lentos
+                # Cada 4 ciclos estables, hacer JIGGLE fuerte (volver arriba y bajar)
+                # que a veces destraba el observer
+                if stable == 4 or stable == 8:
+                    log.info(f"   🔄 jiggle scroll en step {step} (estable={stable})")
+                    await self._page.evaluate(r"""() => {
+                        if (window.__jbScroller) window.__jbScroller.scrollTop = 0;
+                        window.scrollTo(0, 0);
+                    }""")
+                    await self._page.wait_for_timeout(600)
+                    # Rueda fuerte hacia abajo
+                    for _ in range(10):
+                        try:
+                            await self._page.mouse.wheel(0, 500)
+                        except Exception:
+                            pass
+                        await self._page.wait_for_timeout(80)
+                    await self._page.wait_for_timeout(1500)
+                if stable >= 15:  # MUCHA paciencia ahora
                     break
             else:
                 stable = 0
                 last_count = len(all_rows)
+                if len(all_rows) % 30 == 0 or step % 5 == 0:
+                    log.info(f"   ⬇ step {step}: {len(all_rows)} filas acumuladas")
         log.info(f"   🏠 Unidades infinite-scroll: {len(all_rows)} filas en {step+1} pasos")
         return list(all_rows.values())
 
