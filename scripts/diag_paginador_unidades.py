@@ -14,13 +14,36 @@ async def main():
         bc_api_base=os.environ.get("BC_API_BASE", "https://bc-api.178-105-91-29.nip.io"),
         bc_jwt=os.environ.get("BC_API_JWT", ""), headless=True,
     )
+    xhrs = []
+    async def on_resp(resp):
+        try:
+            u = resp.url
+            if "/api/" not in u or resp.status != 200: return
+            if "json" not in resp.headers.get("content-type","").lower(): return
+            j = await resp.json()
+            items = j if isinstance(j, list) else (j.get("data") or j.get("elements") or j.get("content") or [])
+            n = len(items) if isinstance(items, list) else 0
+            ks = sorted(items[0].keys()) if (isinstance(items, list) and items and isinstance(items[0], dict)) else []
+            xhrs.append((u.replace("https://app.jetbrokers.io/api",""), n, ks))
+        except Exception: pass
     try:
         await imp.login()
+        imp._page.on("response", on_resp)
         await imp._page.goto(f"https://app.jetbrokers.io/projects/edit/{jb_id}", wait_until="networkidle", timeout=60_000)
         await imp._page.wait_for_timeout(3500)
         await imp._dismiss_popups()
         await imp._click_tab("Unidades")
         await imp._page.wait_for_timeout(3000)
+        # Probar click en "Buscar" (puede cargar todas las unidades)
+        await imp._page.evaluate("""() => {
+            const b=[...document.querySelectorAll('button,a')].find(x=>/^(buscar|filtrar|aplicar)$/i.test((x.innerText||'').trim()));
+            if(b) b.click();
+        }""")
+        await imp._page.wait_for_timeout(3000)
+        print("=== XHRs /api durante tab Unidades ===")
+        for u, n, ks in xhrs:
+            print(f"  [{n:>4}] {u[:70]}  keys={ks[:8]}")
+        imp._page.remove_listener("response", on_resp)
         info = await imp._page.evaluate(r"""() => {
             const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
             const out = {};
