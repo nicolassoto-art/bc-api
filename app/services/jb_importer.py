@@ -1416,18 +1416,23 @@ class JBImporter:
                     all_rows[key] = r
 
             # ESTRATEGIA REAL: simular scroll humano = MUCHOS eventos wheel pequeños
-            # con pausas cortas entre ellos. El backend lazy-load espera ver una
-            # secuencia continua de wheel events para disparar el siguiente lote.
-            # 6 wheels chicos (200px c/u) con 100ms entre cada uno = 1.2s real.
-            for _ in range(6):
+            # 30 wheels de 200px con pausas cortas = 6000px en ~6s, garantiza pasar
+            # cualquier trigger zone aunque el viewport sea alto.
+            scroll_before = await self._page.evaluate("() => window.__jbScroller ? window.__jbScroller.scrollTop : window.scrollY") or 0
+            for _ in range(30):
                 try:
-                    await self._page.mouse.wheel(0, 350)
+                    await self._page.mouse.wheel(0, 200)
                 except Exception:
                     pass
-                await self._page.wait_for_timeout(110)
+                await self._page.wait_for_timeout(80)
+
+            # Verificar que el scroll efectivamente avanzó
+            scroll_after = await self._page.evaluate("() => window.__jbScroller ? window.__jbScroller.scrollTop : window.scrollY") or 0
+            scroll_delta = scroll_after - scroll_before
+            if step % 3 == 0:
+                log.info(f"   📏 step {step}: scrollTop {scroll_before:.0f}→{scroll_after:.0f} (Δ{scroll_delta:.0f}px) · filas={len(all_rows)}")
 
             # Forzar también scrollTop del contenedor identificado + última fila
-            # a la vista (segundo trigger del observer)
             await self._page.evaluate(r"""() => {
                 if (window.__jbScroller) {
                     window.__jbScroller.scrollTop = window.__jbScroller.scrollHeight;
@@ -1435,11 +1440,11 @@ class JBImporter:
                 const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
                 const trs = scope.querySelectorAll('table tbody tr');
                 if (trs.length) trs[trs.length - 1].scrollIntoView({block: 'end', behavior: 'instant'});
-                // PageDown/End keypress simulado (algunos handlers escuchan keydown)
+                // PageDown/End keypress simulado
                 document.dispatchEvent(new KeyboardEvent('keydown', {key:'End', code:'End', keyCode:35, bubbles:true}));
             }""")
-            # Esperar más: backend puede tardar 1-2s en responder
-            await self._page.wait_for_timeout(1500)
+            # Esperar más: backend puede tardar 2-3s en responder
+            await self._page.wait_for_timeout(2500)
 
             if len(all_rows) == last_count:
                 stable += 1
