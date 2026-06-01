@@ -168,6 +168,7 @@ class JBImporter:
         self._page: Optional[Page] = None
         self._jb_token: Optional[str] = None
         self._pending_plantas: list[dict] = []  # de modelos_dom para descargar luego
+        self._pending_unidades: list[dict] = []  # de tab Unidades DOM (fallback c/superficie)
 
         # Cliente bc-api
         self._bc_client = httpx.AsyncClient(
@@ -927,6 +928,23 @@ class JBImporter:
         except Exception as e:
             log.warning(f"   estac tab → {e}")
 
+        # ── Tab Unidades: tabla de deptos con superficies (fallback si Excel/API vacíos) ──
+        # JB pagina esta tabla. Columnas: ['', Número, Modelo, Tipología, Tipo, O,
+        # ST, Descuento, Bono Pie, Precio Final, Bodega, Est., Pack, Disponible, '']
+        try:
+            await self._click_tab("Unidades")
+            await self._page.wait_for_timeout(2_500)
+            total = await self._load_all_table_rows()
+            log.info(f"   🏠 Unidades tras paginación: {total} rows")
+            uni_rows = await self._scrape_table_rows()
+            parsed = self._parse_unidades_dom(uni_rows)
+            if parsed:
+                self._pending_unidades = parsed
+                self._set_path(out, "extra._unidades_dom_count", len(parsed))
+                log.info(f"   🏠 Unidades DOM: {len(parsed)} deptos parseados (con superficie)")
+        except Exception as e:
+            log.warning(f"   unidades tab → {e}")
+
         # ── Tab Stock: descargar Excel del stock (formato canónico para futuras updates) ──
         try:
             await self._click_tab("Stock")
@@ -1347,6 +1365,69 @@ class JBImporter:
             log.warning(f"   detail DOM scrape error: {e}")
             return []
 
+    def _parse_unidades_dom(self, rows: list[dict]) -> list[dict]:
+        """Parsea filas de la tabla Unidades del editor JB → unidades bc-api.
+        Mapea por nombre de header (robusto al orden de columnas).
+        Headers JB: Número, Modelo, Tipología, Tipo, O, ST, Descuento, Bono Pie,
+        Precio Final, Bodega, Est., Pack, Disponible.
+        ST (superficie total) viene como '22,60 m²' → 22.60.
+        """
+        def _num(s, pct=False):
+            if not s:
+                return None
+            t = str(s).replace("m²", "").replace("%", "").replace("UF", "").strip()
+            t = t.replace(".", "").replace(",", ".")  # CL: 2.450,00 → 2450.00
+            try:
+                v = float(t)
+                return v
+            except ValueError:
+                return None
+
+        out = []
+        seen = set()
+        for r in rows:
+            cells = r.get("cells") or []
+            headers = r.get("headers") or []
+            if not cells or not headers or len(cells) != len(headers):
+                continue
+            # map header→cell
+            row = {}
+            for h, c in zip(headers, cells):
+                row[(h or "").strip().lower()] = (c or "").strip()
+            numero = row.get("número") or row.get("numero") or ""
+            if not numero or numero in seen:
+                continue
+            # solo deptos (Tipo == Depto); saltar bodegas/estac/pack si aparecieran
+            tipo = (row.get("tipo") or "").lower()
+            if tipo and tipo not in ("depto", "departamento", ""):
+                continue
+            seen.add(numero)
+            # disponible: columna 'disponible' suele traer icono; usar cells_icons
+            disponible = True
+            icons = r.get("cells_icons") or []
+            for ic in icons:
+                if ic.get("hasClose"):
+                    disponible = False
+                    break
+            data = {
+                "numero": numero,
+                "modelo": row.get("modelo") or "",
+                "tipologia": row.get("tipología") or row.get("tipologia") or "",
+                "tipo": "Depto",
+                "orientacion": row.get("o") or "",
+                "sup_total": _num(row.get("st")),
+                "descuento_pct": _num(row.get("descuento")) or 0,
+                "bono_pie_pct": _num(row.get("bono pie")) or 0,
+                "precio_lista_uf": _num(row.get("precio final")),
+                "precio_final_uf": _num(row.get("precio final")),
+                "estac_flag": "optional",
+                "bodega_flag": "optional",
+                "pack_flag": "optional",
+                "disponible": disponible,
+            }
+            out.append(data)
+        return out
+
     async def _scrape_table_rows(self) -> list[dict]:
         """Scrapea la tabla principal de la página actual. Devuelve lista de rows con cells/links/imgs.
         Cada row además trae cells_icons (lista por celda con mat-icon name + flags de check/close)
@@ -1714,6 +1795,31 @@ class JBImporter:
                 ".pdf": "application/pdf", ".webp": "image/webp"}.get(ext, "application/octet-stream")
 
     # ── Unidades: subir directo via POST /unidades ───────────────────────
+    async def upload_unidades_direct(self, proyecto_id: str, units: list[dict]) -> dict:
+        """POST de unidades que YA vienen en formato bc-api (del scrape DOM Unidades).
+        No filtra ni transforma — las filas ya fueron parseadas por _parse_unidades_dom.
+        """
+        inserted = 0
+        errors: list[str] = []
+        seen = set()
+        for u in units:
+            numero = str(u.get("numero") or "").strip()
+            if not numero or numero in seen:
+                continue
+            seen.add(numero)
+            try:
+                resp = await self._bc_client.post(f"/proyectos/{proyecto_id}/unidades", json=u)
+                if resp.status_code in (200, 201):
+                    inserted += 1
+                else:
+                    errors.append(f"{numero}: HTTP {resp.status_code} {resp.text[:80]}")
+            except Exception as e:
+                errors.append(f"{numero}: {e}")
+        log.info(f"   📦 Unidades DOM insertadas: {inserted}/{len(units)} (errors: {len(errors)})")
+        if errors[:3]:
+            log.warning(f"      primeros errores: {errors[:3]}")
+        return {"inserted": inserted, "errors": errors}
+
     async def upload_unidades(self, proyecto_id: str, units: list[dict]) -> dict:
         """Inserta unidades en bc-api desde el array de API JB.
 
@@ -2257,14 +2363,22 @@ class JBImporter:
                 # Solo unidades con apartmentModel.name (deptos) — bodegas/estac van por Excel.
                 if excel_inserted == 0:
                     api_units = api_data.get("units") or []
-                    # Detectar si api_units tiene deptos reales (con apartmentModel.name)
                     api_deptos = sum(1 for u in api_units if isinstance(u.get("apartmentModel"), dict) and u["apartmentModel"].get("name"))
                     if api_deptos == 0:
-                        # api_units está vacío o solo trae bodegas → fallback al detail page scrape
-                        log.info(f"   🔁 API y Excel sin deptos → fallback detail page scrape")
-                        detail_units = await self._scrape_units_from_detail(jb_id)
-                        if detail_units:
-                            api_units = detail_units
+                        # FALLBACK 1: tabla Unidades del editor (DOM, con superficie total).
+                        # Cubre proyectos sin stock disponible donde Excel/API vienen vacíos
+                        # pero el editor sí lista todas las unidades (vendidas + disponibles).
+                        if self._pending_unidades:
+                            log.info(f"   🔁 Excel/API sin deptos → usando tabla Unidades DOM ({len(self._pending_unidades)})")
+                            ur = await self.upload_unidades_direct(rep.proyecto_id, self._pending_unidades)
+                            rep.warnings.append(f"unidades (DOM tab): {ur['inserted']} inserted")
+                            api_units = []  # ya subidas
+                        else:
+                            # FALLBACK 2: detail page scrape
+                            log.info(f"   🔁 API y Excel sin deptos → fallback detail page scrape")
+                            detail_units = await self._scrape_units_from_detail(jb_id)
+                            if detail_units:
+                                api_units = detail_units
                     if api_units:
                         units_result = await self.upload_unidades(rep.proyecto_id, api_units)
                         rep.warnings.append(f"unidades (API fallback): {units_result['inserted']} inserted")
