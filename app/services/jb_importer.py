@@ -934,9 +934,9 @@ class JBImporter:
         try:
             await self._click_tab("Unidades")
             await self._page.wait_for_timeout(2_500)
-            total = await self._load_all_table_rows()
-            log.info(f"   🏠 Unidades tras paginación: {total} rows")
-            uni_rows = await self._scrape_table_rows()
+            # Subir page-size si hay selector, luego scrapear página por página
+            await self._load_all_table_rows()  # intenta page-size grande primero
+            uni_rows = await self._scrape_unidades_paginated()
             parsed = self._parse_unidades_dom(uni_rows)
             if parsed:
                 self._pending_unidades = parsed
@@ -1364,6 +1364,58 @@ class JBImporter:
         except Exception as e:
             log.warning(f"   detail DOM scrape error: {e}")
             return []
+
+    async def _scrape_unidades_paginated(self, max_pages: int = 50) -> list[dict]:
+        """Scrapea la tabla Unidades página por página, ACUMULANDO.
+        La tabla JB es server-paginada (reemplaza filas al pasar de página),
+        por eso hay que leer cada página y juntar, no paginar-y-leer-una-vez.
+        Dedup por la fila completa (cells). Para cuando 'next' no cambia nada.
+        """
+        all_rows: list[dict] = []
+        seen: set = set()
+        for page_n in range(max_pages):
+            rows = await self._scrape_table_rows()
+            new = 0
+            for r in rows:
+                cells = r.get("cells") or []
+                key = "|".join(str(c) for c in cells)
+                if not key.strip("|") or key in seen:
+                    continue
+                seen.add(key)
+                all_rows.append(r)
+                new += 1
+            # Si la página no aportó filas nuevas, terminamos
+            if new == 0 and page_n > 0:
+                break
+            # Click 'next' del paginador (mat-paginator o genérico)
+            clicked = await self._page.evaluate(r"""() => {
+                const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active, .mat-tab-body-active') || document;
+                const sels = [
+                    'button.mat-mdc-paginator-navigation-next:not([disabled])',
+                    'button[aria-label*="next" i]:not([disabled])',
+                    'button[aria-label*="siguiente" i]:not([disabled])',
+                    '.pagination-next:not(.disabled) a, li.next:not(.disabled) a',
+                    '[class*="paginat"] [class*="next"]:not([disabled])',
+                ];
+                for (const s of sels) {
+                    const el = scope.querySelector(s) || document.querySelector(s);
+                    if (el && el.offsetParent && !el.disabled && !el.classList.contains('disabled')) {
+                        (el.closest('button,a,li') || el).click();
+                        return true;
+                    }
+                }
+                // fallback por texto
+                const btns = [...(scope.querySelectorAll('button,a,li'))];
+                const nx = btns.find(b => /^(siguiente|next|›|»|>)$/i.test((b.innerText||'').trim())
+                    && b.offsetParent && !b.disabled && !b.classList.contains('disabled'));
+                if (nx) { nx.click(); return true; }
+                return false;
+            }""")
+            if not clicked:
+                break
+            await self._page.wait_for_timeout(1100)
+        log.info(f"   🏠 Unidades paginado: {len(all_rows)} filas en {page_n+1} páginas")
+        return all_rows
 
     def _parse_unidades_dom(self, rows: list[dict]) -> list[dict]:
         """Parsea filas de la tabla Unidades del editor JB → unidades bc-api.
