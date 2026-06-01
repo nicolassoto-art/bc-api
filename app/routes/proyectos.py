@@ -195,16 +195,11 @@ def listar(
         total, disp = counts.get(p.id, (0, 0))
         extra = p.extra or {}
         comercial = extra.get("comercial") or {}
-        # Cruce de stock: si no hay detalle unidad-por-unidad (total contado = 0),
-        # usar el total agregado del editor JB (extra.fisicos.unidades_totales).
-        # JB no publica el detalle de algunos proyectos pero sí el total del edificio.
-        if total == 0:
-            try:
-                agg = int((extra.get("fisicos") or {}).get("unidades_totales") or 0)
-            except (TypeError, ValueError):
-                agg = 0
-            if agg > 0:
-                total = agg  # mostrar el agregado como total; disp queda 0 (sin detalle)
+        # NOTA: NO inflar unidades_total con extra.fisicos.unidades_totales.
+        # Ese campo es el total del EDIFICIO, no stock disponible a la venta.
+        # Proyectos sin detalle publicado en JB deben mostrar "sin stock" (0),
+        # no el tamaño del edificio (que confunde). El total del edificio queda
+        # disponible en la ficha (tab General) como dato informativo.
         out.append(
             ProyectoSummary.model_validate(p).model_copy(
                 update={
