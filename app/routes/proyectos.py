@@ -27,18 +27,32 @@ def slugify(s: str) -> str:
 # El extra se "aplana" al top-level para que el worker lea estacionamientos/
 # bodegas/modelos/comercial directamente. Se enmascaran campos sensibles.
 
-_SENSITIVE_EXTRA_KEYS = {"comision_admin", "timeline"}
+# Claves de `extra` SEGURAS para el catálogo público. Allow-list (fail-closed):
+# si el importador agrega una clave nueva, NO se filtra hasta listarla acá.
+# Reemplaza la vieja deny-list que apuntaba a nombres inexistentes (rut/numero/
+# rut_spa) y dejaba pasar titular_rut, numero_cuenta, link_pago, spa_proyecto.rut,
+# notas internas y el path del Excel de stock.
+_PUBLIC_EXTRA_KEYS = {
+    "external_id", "publicar_en_catalogo",
+    "modelos", "estacionamientos", "bodegas",
+    "etiquetas", "equipamiento", "areas_comunes", "entorno",
+    "descripcion", "constructora", "modalidad", "fisicos",
+}
+# Subcampos de `comercial` que el catálogo necesita; el resto (promo_broker,
+# tipo_descuento, márgenes, etc.) NO sale.
+_PUBLIC_COMERCIAL_KEYS = {
+    "pie_pct", "cuoton_inicial_pct", "cuoton_final_pct",
+    "cuotas_pre_entrega", "cuotas_post_entrega", "valor_reserva_clp",
+}
 
 
-def _mask_extra(extra: dict) -> dict:
-    """Quita del extra los campos que NO deben salir al catálogo público."""
-    e = {k: v for k, v in (extra or {}).items() if k not in _SENSITIVE_EXTRA_KEYS}
-    cr = e.get("cuenta_reserva")
-    if isinstance(cr, dict):
-        e["cuenta_reserva"] = {k: v for k, v in cr.items() if k not in ("rut", "numero")}
-    spa = e.get("spa_proyecto")
-    if isinstance(spa, dict):
-        e["spa_proyecto"] = {k: v for k, v in spa.items() if k != "rut_spa"}
+def _public_extra(extra: dict) -> dict:
+    """Allow-list: SOLO las claves seguras de extra van al catálogo público."""
+    src = extra or {}
+    e = {k: src[k] for k in _PUBLIC_EXTRA_KEYS if k in src}
+    com = src.get("comercial")
+    if isinstance(com, dict):
+        e["comercial"] = {k: v for k, v in com.items() if k in _PUBLIC_COMERCIAL_KEYS}
     return e
 
 
@@ -56,7 +70,7 @@ def _unidad_dict(u: Unidad) -> dict:
 
 def _proyecto_public_dict(p: Proyecto) -> dict:
     """Forma que el worker espera: extra aplanado + unidades + relaciones, enmascarado."""
-    extra = _mask_extra(p.extra or {})
+    extra = p.extra or {}
     d = {
         "id": p.id,
         "external_id": extra.get("external_id") or p.id,
@@ -83,9 +97,10 @@ def _proyecto_public_dict(p: Proyecto) -> dict:
             for dc in (p.documentos or [])
         ],
     }
-    # Aplanar el resto del extra (estacionamientos, bodegas, modelos, comercial,
-    # etiquetas, equipamiento, areas_comunes, entorno, descripcion, constructora…)
-    for k, v in extra.items():
+    # Aplanar SOLO las claves seguras de extra (allow-list, fail-closed):
+    # estacionamientos, bodegas, modelos, comercial[sanitizado], etiquetas,
+    # equipamiento, areas_comunes, entorno, descripcion, constructora, fisicos.
+    for k, v in _public_extra(extra).items():
         if k not in d:
             d[k] = v
     return d

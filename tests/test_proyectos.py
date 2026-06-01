@@ -1,4 +1,5 @@
 """Smoke test del CRUD de proyectos."""
+import json
 from app.settings import settings
 
 
@@ -70,3 +71,63 @@ def test_crud_proyecto(client, admin):
     assert r.status_code == 204
     r = client.get("/proyectos/test-cicd", headers=h)
     assert r.status_code == 404
+
+
+def test_public_dict_no_filtra_datos_sensibles():
+    """El catálogo público (allow-list) NUNCA debe exponer RUT, cuenta bancaria,
+    notas internas, comisiones, promos de broker ni el path del Excel de stock.
+
+    Regresión de C1/C2: el importador JB escribe cuenta_reserva.titular_rut /
+    numero_cuenta / link_pago y spa_proyecto.rut — nombres que el mask viejo
+    (rut/numero/rut_spa) NO borraba. Y el aplanado volcaba TODO el extra.
+    """
+    from types import SimpleNamespace
+    from app.routes.proyectos import _proyecto_public_dict
+
+    p = SimpleNamespace(
+        id="test-leak", nombre="Edificio X", inmobiliaria="Inmobiliaria Real",
+        comuna="Ñuñoa", region="RM", direccion="Calle 1", gps_lat=None, gps_lon=None,
+        fase="Verde", modalidad="Nuevo", fecha_entrega=None, ano_entrega=None,
+        foto_principal_url=None, unidades=[], imagenes=[], documentos=[],
+        extra={
+            # --- seguros (deben salir) ---
+            "external_id": "Sfp8j2Sq",
+            "publicar_en_catalogo": True,
+            "descripcion": "descripcion publica ok",
+            "modelos": [{"nombre": "2D2B"}],
+            "estacionamientos": [{"numero": "E-1"}],
+            "bodegas": [{"numero": "B-1"}],
+            "etiquetas": ["destacado"],
+            "comercial": {"pie_pct": 20, "valor_reserva_clp": 500000,
+                          "promo_broker": "SECRETO 5% extra"},
+            # --- sensibles que el importador SÍ escribe (NO deben salir) ---
+            "cuenta_reserva": {"titular_rut": "77.389.903-7",
+                               "numero_cuenta": "92311635", "link_pago": "http://pay"},
+            "spa_proyecto": {"rut": "76.000.000-0", "nombre": "SPA X"},
+            "notas_html": "<p>nota interna confidencial</p>",
+            "notas_text": "nota interna confidencial",
+            "comision_admin": {"pct": 3},
+            "_jb_stock_excel": {"path": "/srv/import/stock.xlsx"},
+            "promocion_broker": "margen oculto",
+        },
+    )
+    d = _proyecto_public_dict(p)
+    blob = json.dumps(d, ensure_ascii=False)
+
+    fugas = [
+        "77.389.903-7", "92311635", "titular_rut", "numero_cuenta", "link_pago",
+        "cuenta_reserva", "spa_proyecto", "76.000.000-0",
+        "notas_html", "notas_text", "nota interna",
+        "comision_admin", "_jb_stock_excel", "stock.xlsx",
+        "promo_broker", "SECRETO", "promocion_broker", "margen oculto",
+    ]
+    for needle in fugas:
+        assert needle not in blob, f"FUGA en catálogo público: '{needle}'"
+
+    # Los campos seguros SÍ deben estar presentes
+    assert d["descripcion"] == "descripcion publica ok"
+    assert d["external_id"] == "Sfp8j2Sq"
+    assert d["estacionamientos"] == [{"numero": "E-1"}]
+    assert d["comercial"]["pie_pct"] == 20
+    assert d["comercial"]["valor_reserva_clp"] == 500000
+    assert "promo_broker" not in d["comercial"]  # comercial sanitizado
