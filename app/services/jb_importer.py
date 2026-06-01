@@ -1385,30 +1385,38 @@ class JBImporter:
                 key = "|".join(str(c) for c in cells)
                 if key.strip("|") and key not in all_rows:
                     all_rows[key] = r
-            # Scroll incremental del viewport virtual / contenedor scrolleable
+            # INFINITE SCROLL: el trigger es traer la ÚLTIMA fila a la vista
+            # (intersection observer). Scrolleamos la última tr al viewport +
+            # todos los contenedores scrolleables al fondo + window al fondo.
             await self._page.evaluate(r"""() => {
-                const cands = [
-                    document.querySelector('.cdk-virtual-scroll-viewport'),
-                    document.querySelector('mat-tab-body.mat-mdc-tab-body-active [style*="overflow"]'),
-                    document.querySelector('mat-tab-body.mat-mdc-tab-body-active .table-responsive'),
-                    document.querySelector('mat-tab-body.mat-mdc-tab-body-active'),
-                ].filter(Boolean);
-                for (const vp of cands) {
-                    const before = vp.scrollTop;
-                    vp.scrollTop = vp.scrollTop + Math.max(280, (vp.clientHeight || 400) - 50);
-                    if (vp.scrollTop !== before) break;
+                const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
+                // 1) Última fila visible → scrollIntoView (dispara lazy-load)
+                const trs = scope.querySelectorAll('table tbody tr');
+                if (trs.length) {
+                    trs[trs.length - 1].scrollIntoView({block: 'end', behavior: 'instant'});
                 }
-                window.scrollBy(0, 380);
+                // 2) Todos los contenedores scrolleables → al fondo
+                const all = scope.querySelectorAll('*');
+                for (const el of all) {
+                    if (el.scrollHeight > el.clientHeight + 40) {
+                        el.scrollTop = el.scrollHeight;
+                    }
+                }
+                // 3) Viewport virtual conocido + window
+                const vp = document.querySelector('.cdk-virtual-scroll-viewport');
+                if (vp) vp.scrollTop = vp.scrollHeight;
+                window.scrollTo(0, document.body.scrollHeight);
             }""")
-            await self._page.wait_for_timeout(420)
+            # Esperar más: el lazy-load hace una llamada API que tarda
+            await self._page.wait_for_timeout(900)
             if len(all_rows) == last_count:
                 stable += 1
-                if stable >= 6:
+                if stable >= 8:  # más paciencia antes de rendirse
                     break
             else:
                 stable = 0
                 last_count = len(all_rows)
-        log.info(f"   🏠 Unidades virtual-scroll: {len(all_rows)} filas en {step+1} pasos")
+        log.info(f"   🏠 Unidades infinite-scroll: {len(all_rows)} filas en {step+1} pasos")
         return list(all_rows.values())
 
     def _parse_unidades_dom(self, rows: list[dict]) -> list[dict]:
