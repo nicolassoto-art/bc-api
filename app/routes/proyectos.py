@@ -287,3 +287,29 @@ def set_estado(
             "pie_pct": comercial.get("pie_pct"),
         }
     )
+
+
+class _PublicarBody(BaseModel):
+    publicar: bool
+
+
+@router.patch("/{proyecto_id}/publicar")
+def set_publicar(
+    proyecto_id: str,
+    body: _PublicarBody,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(super_admin),
+):
+    """Marca/desmarca un proyecto para el catálogo público (extra.publicar_en_catalogo).
+    Toggle liviano desde la lista de stock — toca SOLO el flag, no unidades ni nada más."""
+    from sqlalchemy.orm.attributes import flag_modified
+    p = db.get(Proyecto, proyecto_id)
+    if not p:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
+    extra = dict(p.extra or {})
+    extra["publicar_en_catalogo"] = bool(body.publicar)
+    p.extra = extra
+    flag_modified(p, "extra")
+    p.updated_at = datetime.utcnow()
+    db.commit()
+    return {"ok": True, "id": p.id, "publicar_en_catalogo": bool(body.publicar)}
