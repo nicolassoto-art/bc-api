@@ -67,22 +67,64 @@ def _is_jb_excel(wb) -> bool:
     return JB_SHEETS.issubset(set(wb.sheetnames))
 
 
+def _normalize_label(s: str) -> str:
+    """Normaliza header: sin tildes, lowercase, sin puntos, espacios normalizados.
+    Sup./Sup./Superficie/SUP. → 'sup'; Logía/Logia → 'logia'; Jardín/Jardin → 'jardin'.
+    """
+    import unicodedata
+    s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode("ascii")
+    s = s.lower().replace(".", "").replace("º", "").replace("°", "")
+    s = " ".join(s.split())  # colapsa espacios
+    # equivalencias de prefijo "superficie" → "sup"
+    if s.startswith("superficie "):
+        s = "sup " + s[len("superficie "):]
+    return s
+
+
+def _build_idx_map(labels: list[str]) -> dict[int, str]:
+    """Mapea índice de columna → bc-api key, con matching robusto (case+tildes+sinónimos)."""
+    norm_to_key = {_normalize_label(k): v for k, v in JB_UNIDAD_MAP.items()}
+    # Sinónimos extra (defensivo, por si JB cambia headers)
+    extra = {
+        "sup logia": "sup_logia", "sup logía": "sup_logia",
+        "superficie logia": "sup_logia", "superficie logía": "sup_logia",
+        "sup jardin": "sup_jardin", "sup jardín": "sup_jardin",
+        "superficie jardin": "sup_jardin", "superficie jardín": "sup_jardin",
+        "sup interior": "sup_interior", "superficie interior": "sup_interior",
+        "sup terraza": "sup_terraza", "superfice terraza": "sup_terraza",  # typo JB conocido
+        "superficie terraza": "sup_terraza",
+        "sup total": "sup_total", "superficie total": "sup_total",
+    }
+    for k, v in extra.items():
+        norm_to_key[_normalize_label(k)] = v
+    idx_map: dict[int, str] = {}
+    for i, label in enumerate(labels):
+        norm = _normalize_label(label)
+        if norm in norm_to_key:
+            idx_map[i] = norm_to_key[norm]
+    return idx_map
+
+
 def _parse_jb_excel(wb) -> tuple[list[dict], list[str]]:
     """Parsea sheet UNIDAD del Excel JB → lista de dicts compatibles con bc-api.
 
     Retorna (rows_data, errors). Cada row ya tiene los nombres normalizados a bc-api.
     """
+    import logging
+    log = logging.getLogger(__name__)
     ws = wb["UNIDAD"]
     all_rows = list(ws.iter_rows(values_only=True))
     if len(all_rows) < 3:
         return [], ["Sheet UNIDAD vacío"]
     # Fila 2 (index 1) tiene los labels reales
     labels = [str(c or "").strip() for c in all_rows[1]]
-    # Mapeo column_index → bc-api key
-    idx_map: dict[int, str] = {}
-    for i, label in enumerate(labels):
-        if label in JB_UNIDAD_MAP:
-            idx_map[i] = JB_UNIDAD_MAP[label]
+    idx_map = _build_idx_map(labels)
+    # Loggear qué columnas se mapearon (debug) y cuáles quedaron sin mapear
+    mapped_keys = sorted(set(idx_map.values()))
+    unmapped = [labels[i] for i in range(len(labels)) if i not in idx_map and labels[i]]
+    log.info(f"   📋 Excel UNIDAD mapeado: {mapped_keys}")
+    if unmapped:
+        log.info(f"   📋 Headers sin mapear: {unmapped}")
     out_rows = []
     errors = []
     for row_idx, row in enumerate(all_rows[2:], start=3):
