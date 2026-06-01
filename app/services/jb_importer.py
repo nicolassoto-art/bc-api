@@ -1439,57 +1439,48 @@ class JBImporter:
             log.warning(f"   detail DOM scrape error: {e}")
             return []
 
-    async def _scrape_unidades_paginated(self, max_pages: int = 50) -> list[dict]:
-        """Scrapea la tabla Unidades página por página, ACUMULANDO.
-        La tabla JB es server-paginada (reemplaza filas al pasar de página),
-        por eso hay que leer cada página y juntar, no paginar-y-leer-una-vez.
-        Dedup por la fila completa (cells). Para cuando 'next' no cambia nada.
+    async def _scrape_unidades_paginated(self, max_steps: int = 150) -> list[dict]:
+        """Scrapea la tabla Unidades con VIRTUAL SCROLL acumulando.
+        La tabla JB no tiene paginador (no hay mat-paginator, select ni next):
+        usa virtual scroll, solo ~30 filas en el DOM a la vez. Scrolleamos el
+        contenedor en pasos y juntamos las filas que aparecen, deduplicando.
+        Paramos cuando el total deja de crecer por varios pasos.
         """
-        all_rows: list[dict] = []
-        seen: set = set()
-        for page_n in range(max_pages):
+        all_rows: dict = {}
+        last_count = -1
+        stable = 0
+        for step in range(max_steps):
             rows = await self._scrape_table_rows()
-            new = 0
             for r in rows:
                 cells = r.get("cells") or []
                 key = "|".join(str(c) for c in cells)
-                if not key.strip("|") or key in seen:
-                    continue
-                seen.add(key)
-                all_rows.append(r)
-                new += 1
-            # Si la página no aportó filas nuevas, terminamos
-            if new == 0 and page_n > 0:
-                break
-            # Click 'next' del paginador (mat-paginator o genérico)
-            clicked = await self._page.evaluate(r"""() => {
-                const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active, .mat-tab-body-active') || document;
-                const sels = [
-                    'button.mat-mdc-paginator-navigation-next:not([disabled])',
-                    'button[aria-label*="next" i]:not([disabled])',
-                    'button[aria-label*="siguiente" i]:not([disabled])',
-                    '.pagination-next:not(.disabled) a, li.next:not(.disabled) a',
-                    '[class*="paginat"] [class*="next"]:not([disabled])',
-                ];
-                for (const s of sels) {
-                    const el = scope.querySelector(s) || document.querySelector(s);
-                    if (el && el.offsetParent && !el.disabled && !el.classList.contains('disabled')) {
-                        (el.closest('button,a,li') || el).click();
-                        return true;
-                    }
+                if key.strip("|") and key not in all_rows:
+                    all_rows[key] = r
+            # Scroll incremental del viewport virtual / contenedor scrolleable
+            await self._page.evaluate(r"""() => {
+                const cands = [
+                    document.querySelector('.cdk-virtual-scroll-viewport'),
+                    document.querySelector('mat-tab-body.mat-mdc-tab-body-active [style*="overflow"]'),
+                    document.querySelector('mat-tab-body.mat-mdc-tab-body-active .table-responsive'),
+                    document.querySelector('mat-tab-body.mat-mdc-tab-body-active'),
+                ].filter(Boolean);
+                for (const vp of cands) {
+                    const before = vp.scrollTop;
+                    vp.scrollTop = vp.scrollTop + Math.max(280, (vp.clientHeight || 400) - 50);
+                    if (vp.scrollTop !== before) break;
                 }
-                // fallback por texto
-                const btns = [...(scope.querySelectorAll('button,a,li'))];
-                const nx = btns.find(b => /^(siguiente|next|›|»|>)$/i.test((b.innerText||'').trim())
-                    && b.offsetParent && !b.disabled && !b.classList.contains('disabled'));
-                if (nx) { nx.click(); return true; }
-                return false;
+                window.scrollBy(0, 380);
             }""")
-            if not clicked:
-                break
-            await self._page.wait_for_timeout(1100)
-        log.info(f"   🏠 Unidades paginado: {len(all_rows)} filas en {page_n+1} páginas")
-        return all_rows
+            await self._page.wait_for_timeout(420)
+            if len(all_rows) == last_count:
+                stable += 1
+                if stable >= 6:
+                    break
+            else:
+                stable = 0
+                last_count = len(all_rows)
+        log.info(f"   🏠 Unidades virtual-scroll: {len(all_rows)} filas en {step+1} pasos")
+        return list(all_rows.values())
 
     def _parse_unidades_dom(self, rows: list[dict]) -> list[dict]:
         """Parsea filas de la tabla Unidades del editor JB → unidades bc-api.
