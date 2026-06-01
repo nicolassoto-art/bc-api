@@ -77,8 +77,25 @@ async def main():
             except Exception as e:
                 print(f"  API err: {e}")
 
+            # Interceptar XHR de la tab Unidades (busca endpoint con surfaces)
+            captured_xhr = []
+            async def on_resp(resp):
+                try:
+                    u = resp.url
+                    if "/api/" not in u or resp.status != 200: return
+                    if "json" not in resp.headers.get("content-type", "").lower(): return
+                    j = await resp.json()
+                    items = j if isinstance(j, list) else (j.get("data") or j.get("elements") or [])
+                    if isinstance(items, list) and items and isinstance(items[0], dict):
+                        ks = set(items[0].keys())
+                        # ¿tiene superficies?
+                        if any("surface" in k.lower() or "sup" in k.lower() for k in ks):
+                            captured_xhr.append((u, len(items), sorted(ks), items[0]))
+                except Exception: pass
+
             # Navegar editor y contar filas por tab
             try:
+                imp._page.on("response", on_resp)
                 await imp._page.goto(f"https://app.jetbrokers.io/projects/edit/{jb_id}", wait_until="networkidle", timeout=60_000)
                 await imp._page.wait_for_timeout(3_500)
                 await imp._dismiss_popups()
@@ -95,6 +112,12 @@ async def main():
                         print(f"  TAB {tab}: {n} filas en tabla")
                     except Exception as e:
                         print(f"  TAB {tab}: {e}")
+                imp._page.remove_listener("response", on_resp)
+                print(f"  --- XHR con superficies capturados ({len(captured_xhr)}) ---")
+                for u, n, ks, sample in captured_xhr:
+                    print(f"    🔗 {u}")
+                    print(f"       {n} items · keys: {ks}")
+                    print(f"       sample: {json.dumps(sample, ensure_ascii=False)[:300]}")
             except Exception as e:
                 print(f"  editor nav err: {e}")
     finally:
