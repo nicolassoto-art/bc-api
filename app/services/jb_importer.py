@@ -1378,6 +1378,19 @@ class JBImporter:
         all_rows: dict = {}
         last_count = -1
         stable = 0
+        # Posicionar el mouse SOBRE la tabla para que mouse.wheel scrollee ahí
+        try:
+            box = await self._page.evaluate("""() => {
+                const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
+                const t = scope.querySelector('table');
+                if (!t) return null;
+                const r = t.getBoundingClientRect();
+                return {x: r.x + r.width/2, y: r.y + Math.min(r.height/2, 300)};
+            }""")
+            if box:
+                await self._page.mouse.move(box["x"], box["y"])
+        except Exception:
+            pass
         for step in range(max_steps):
             rows = await self._scrape_table_rows()
             for r in rows:
@@ -1385,6 +1398,11 @@ class JBImporter:
                 key = "|".join(str(c) for c in cells)
                 if key.strip("|") and key not in all_rows:
                     all_rows[key] = r
+            # SCROLL FÍSICO con rueda real (muchos lazy-loads solo escuchan wheel)
+            try:
+                await self._page.mouse.wheel(0, 2500)
+            except Exception:
+                pass
             # INFINITE SCROLL: el trigger es traer la ÚLTIMA fila a la vista
             # (intersection observer). JIGGLE: subir un poco y bajar fuerte
             # re-dispara el observer cuando se "atasca" tras cargar un lote.
