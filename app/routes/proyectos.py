@@ -207,6 +207,7 @@ def listar(
                     "unidades_disponibles": int(disp),
                     "pie_pct": comercial.get("pie_pct"),
                     "precio_desde_uf": precios_min.get(p.id),
+                    "publicar_en_catalogo": bool(extra.get("publicar_en_catalogo")),
                 }
             )
         )
@@ -295,6 +296,7 @@ def set_estado(
             "unidades_total": int(total or 0),
             "unidades_disponibles": int(disp or 0),
             "pie_pct": comercial.get("pie_pct"),
+            "publicar_en_catalogo": bool((p.extra or {}).get("publicar_en_catalogo")),
         }
     )
 

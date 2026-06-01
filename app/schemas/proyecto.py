@@ -126,3 +126,5 @@ class ProyectoSummary(BaseModel):
     # Campos extraídos de extra.comercial para el listado
     pie_pct: Optional[float] = None
     precio_desde_uf: Optional[float] = None
+    # Flag extraído de extra.publicar_en_catalogo (toggle del catálogo público)
+    publicar_en_catalogo: bool = False
