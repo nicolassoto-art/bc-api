@@ -24,6 +24,11 @@ def _gen_id() -> str:
     return "inm-" + uuid.uuid4().hex[:9]
 
 
+# Nombres placeholder o no-inmobiliaria que NO deben ir al catálogo maestro.
+# (Regla del proyecto: BigCapital es el broker, no una inmobiliaria.)
+_PLACEHOLDERS = {"bigcapital", "sin asignar", "", "-", "—"}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     grp = ap.add_mutually_exclusive_group(required=True)
@@ -39,7 +44,7 @@ def main():
         nombres = set()
         for p in db.query(Proyecto).filter(Proyecto.inmobiliaria.isnot(None), Proyecto.inmobiliaria != "").all():
             n = p.inmobiliaria.strip()
-            if not n:
+            if not n or n.lower() in _PLACEHOLDERS:
                 continue
             nombres.add(n)
             ex = (p.extra or {}).get("inmobiliaria") or {}
