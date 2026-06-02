@@ -20,4 +20,4 @@ jobs:
             time.sleep(5)
           ")
           echo "::add-mask::$JWT"; echo "BC_API_JWT=$JWT" >> "$GITHUB_ENV"
-      - run: python3 scripts/diag_vivaceta.py
+      - run: python3 scripts/diag_full_viv.py && echo "---" && python3 scripts/diag_vivaceta.py
