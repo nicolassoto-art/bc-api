@@ -268,20 +268,201 @@ def eliminar(
     db.commit()
 
 
+# ── Excel formato JetBrokers v2.4 (4 sheets) ────────────────────────────────
+# Estructura JB:
+#   INSTRUCCIONES: descripción + guía
+#   UNIDAD:        row1=marcadores REQ/OPC, row2=labels español, row3+=data deptos
+#   ESTACIONAMIENTOS / BODEGAS: row1=labels español, row2+=data
+# Generamos compatible con JB para que el archivo pueda subirse tanto a bc-api
+# como al editor JetBrokers original.
+
+# Labels JB para sheet UNIDAD (orden = columnas). bc-api key + label visible + REQ.
+JB_UNIDAD_COLS = [
+    ("numero_depto",    "Unidad Número",          "REQ"),
+    ("_dormitorios",    "Dormitorios",            "REQ"),
+    ("_banos",          "Baños",                  "REQ"),
+    ("modelo",          "Modelo",                 "OPC"),
+    ("orientacion",     "Orientacion",            "OPC"),
+    ("sup_interior",    "Sup Interior",           "OPC"),
+    ("sup_terraza",     "Sup Terraza",            "OPC"),
+    ("sup_logia",       "Sup Logia",              "OPC"),
+    ("sup_jardin",      "Sup Jardin",             "OPC"),
+    ("sup_total",       "Sup Total",              "REQ"),
+    ("precio_lista_uf", "ValorUF",                "REQ"),
+    ("descuento_pct",   "Descuento",              "OPC"),
+    ("bono_pie_pct",    "Bonopie",                "OPC"),
+    ("estac_flag",      "Cotiza Estacionamiento", "OPC"),
+    ("bodega_flag",     "Cotiza Bodega",          "OPC"),
+    ("pack_flag",       "Cotiza Pack",            "OPC"),
+    ("disponible",      "Disponible",             "OPC"),
+]
+
+JB_FLAG_TO_LABEL = {"required": "Obligatorio", "optional": "Opcional", "never": "Nunca"}
+
+JB_BODEGAS_COLS = [("numero", "Número"), ("precio_uf", "ValorUF"), ("superficie", "Sup Total"), ("disponible", "Disponible")]
+JB_ESTAC_COLS = [("numero", "Número"), ("precio_uf", "ValorUF"), ("nivel", "Nivel"), ("tipo", "Tipo"), ("disponible", "Disponible")]
+
+
+def _is_depto(u: Unidad) -> bool:
+    t = (u.tipo or "").lower()
+    return t in ("depto", "departamento", "apartment", "")
+
+
+def _parse_dorm_banos(tipologia: str) -> tuple[int | None, int | None]:
+    """'3D - 2B' / '3D2B' → (3, 2)."""
+    import re as _re
+    if not tipologia: return (None, None)
+    m = _re.search(r"(\d+)\s*D[^\d]*(\d+)\s*B", tipologia.upper())
+    return (int(m.group(1)), int(m.group(2))) if m else (None, None)
+
+
 @router.get("/excel/template")
 def descargar_plantilla(
     proyecto_id: str,
     con_datos: bool = False,
+    formato: str = "jb",  # "jb" (4 sheets compat JetBrokers) | "legacy" (1 sheet vieja)
     db: Session = Depends(get_db),
     _: Usuario = Depends(super_admin),
 ):
-    """Devuelve un .xlsx — vacío (solo headers + ejemplo) o con datos actuales."""
+    """Excel en formato JetBrokers (4 sheets: INSTRUCCIONES / UNIDAD / ESTACIONAMIENTOS / BODEGAS).
+
+    Compatible con el editor JetBrokers — se puede descargar de bc-api,
+    editar offline, y re-subir a JB o a bc-api.
+
+    Parámetros:
+      - con_datos: True → exporta unidades/bodegas/estac existentes
+                   False → plantilla vacía con 1 fila de ejemplo
+      - formato:   "jb" (default, 4 sheets) | "legacy" (1 sheet técnica)
+    """
     proy = _ensure_project(db, proyecto_id)
+
+    if formato == "legacy":
+        return _excel_legacy(proy, proyecto_id, con_datos, db)
+
+    wb = Workbook()
+    wb.remove(wb.active)  # quitar Sheet default
+
+    # ── 1. INSTRUCCIONES ──────────────────────────────────────────────
+    ws = wb.create_sheet("INSTRUCCIONES")
+    ws.append(["Stock — formato compatible JetBrokers"])
+    ws.append([])
+    ws.append([f"Proyecto: {proy.nombre or '?'}"])
+    ws.append([f"Inmobiliaria: {proy.inmobiliaria or '?'}"])
+    ws.append([f"Comuna: {proy.comuna or '?'}"])
+    ws.append([])
+    ws.append(["Pestañas:"])
+    ws.append(["  UNIDAD            → departamentos (1 fila por depto)"])
+    ws.append(["  ESTACIONAMIENTOS  → estacionamientos"])
+    ws.append(["  BODEGAS           → bodegas"])
+    ws.append([])
+    ws.append(["Convenciones:"])
+    ws.append(["  REQ = obligatorio · OPC = opcional (marcado en fila 1 de UNIDAD)"])
+    ws.append(["  Cotiza Estac/Bodega/Pack: Obligatorio · Opcional · Nunca"])
+    ws.append(["  Disponible: TRUE = a la venta · FALSE = reservada/vendida"])
+    ws.append([])
+    ws.append(["Generado por BigCapital · bc-api"])
+
+    # ── 2. UNIDAD ─────────────────────────────────────────────────────
+    ws = wb.create_sheet("UNIDAD")
+    # Row 1: marcadores REQ/OPC (como JB)
+    ws.append([req for (_, _, req) in JB_UNIDAD_COLS])
+    # Row 2: labels en español (como JB)
+    ws.append([label for (_, label, _) in JB_UNIDAD_COLS])
+
+    if con_datos:
+        unidades = db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).order_by(Unidad.numero).all()
+        for u in unidades:
+            if not _is_depto(u):
+                continue
+            dorm, banos = _parse_dorm_banos(u.tipologia or "")
+            row = []
+            for key, _label, _req in JB_UNIDAD_COLS:
+                if key == "_dormitorios": row.append(dorm)
+                elif key == "_banos": row.append(banos)
+                elif key == "numero_depto": row.append(u.numero)
+                elif key in ("estac_flag", "bodega_flag", "pack_flag"):
+                    row.append(JB_FLAG_TO_LABEL.get(getattr(u, key) or "optional", "Opcional"))
+                elif key == "disponible":
+                    row.append("TRUE" if u.disponible else "FALSE")
+                else:
+                    row.append(getattr(u, key, None))
+            ws.append(row)
+    else:
+        # Fila de ejemplo
+        ws.append(["101", 3, 2, "A1", "N", 60.0, 2.5, 0, 0, 62.5, 3200, 0, 20,
+                   "Opcional", "Obligatorio", "Nunca", "TRUE"])
+
+    # ── 3. ESTACIONAMIENTOS ───────────────────────────────────────────
+    ws = wb.create_sheet("ESTACIONAMIENTOS")
+    # JB tiene row 1 vacío opcional. Usamos solo row 2 con labels.
+    ws.append([])  # row 1: vacía (compat JB)
+    ws.append([label for (_, label) in JB_ESTAC_COLS])
+    if con_datos:
+        extra = proy.extra or {}
+        for source in (extra.get("estacionamientos_dom"), extra.get("_estacionamientos_dom")):
+            if not source: continue
+            for e in source:
+                cells = e.get("cells") if isinstance(e, dict) else None
+                if cells:
+                    # Cells JB típicas: [_, numero, precio, nivel, tipo, ...]
+                    ws.append([cells[1] if len(cells)>1 else "",
+                               cells[2] if len(cells)>2 else "",
+                               cells[3] if len(cells)>3 else "",
+                               cells[4] if len(cells)>4 else "",
+                               "TRUE" if e.get("disponible", True) else "FALSE"])
+            break
+        # También unidades con tipo="Estacionamiento"
+        for u in db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).all():
+            t = (u.tipo or "").lower()
+            if "estac" in t or "parking" in t:
+                ws.append([u.numero, u.precio_lista_uf, u.orientacion or "", u.modelo or "",
+                           "TRUE" if u.disponible else "FALSE"])
+    else:
+        ws.append(["E-101", 250, "S1", "Doble", "TRUE"])
+
+    # ── 4. BODEGAS ────────────────────────────────────────────────────
+    ws = wb.create_sheet("BODEGAS")
+    ws.append([])  # row 1: vacía
+    ws.append([label for (_, label) in JB_BODEGAS_COLS])
+    if con_datos:
+        extra = proy.extra or {}
+        for source in (extra.get("bodegas_dom"), extra.get("_bodegas_dom")):
+            if not source: continue
+            for b in source:
+                cells = b.get("cells") if isinstance(b, dict) else None
+                if cells:
+                    ws.append([cells[1] if len(cells)>1 else "",
+                               cells[2] if len(cells)>2 else "",
+                               cells[3] if len(cells)>3 else "",
+                               "TRUE" if b.get("disponible", True) else "FALSE"])
+            break
+        for u in db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).all():
+            t = (u.tipo or "").lower()
+            if "bodega" in t or t == "storage":
+                ws.append([u.numero, u.precio_lista_uf, u.sup_total or "",
+                           "TRUE" if u.disponible else "FALSE"])
+    else:
+        ws.append(["B-15", 80, 3.5, "TRUE"])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    suffix = "_con_datos" if con_datos else ""
+    safe_name = "".join(c if c.isalnum() else "_" for c in (proy.nombre or "proyecto"))
+    fname = f"{safe_name}_stock{suffix}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+def _excel_legacy(proy, proyecto_id, con_datos, db):
+    """Formato viejo de 1 sheet — fallback opcional."""
     wb = Workbook()
     ws = wb.active
     ws.title = "Stock"
     ws.append(HEADERS)
-
     if con_datos:
         for u in db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).order_by(Unidad.numero).all():
             ws.append([
@@ -294,13 +475,12 @@ def descargar_plantilla(
     else:
         ws.append(["101", "A1", "3D - 2B", "Depto", "N", 62.5, 60.0, 2.5, 0, 0,
                    3200, 0, 20, 3200, "optional", "never", "never", "TRUE"])
-
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
     suffix = "_con_datos" if con_datos else ""
     safe_name = "".join(c if c.isalnum() else "_" for c in (proy.nombre or "proyecto"))
-    fname = f"{safe_name}_stock{suffix}.xlsx"
+    fname = f"{safe_name}_stock_legacy{suffix}.xlsx"
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
