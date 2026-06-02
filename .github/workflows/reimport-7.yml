@@ -1,0 +1,14 @@
+name: Re-import 7 puntuales
+on: { workflow_dispatch: {} }
+concurrency:
+  group: import-jb-serial
+  cancel-in-progress: false
+jobs:
+  reimport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions: { contents: read, actions: write, issues: write }
+    steps:
+      - uses: actions/checkout@v4
+      - env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        run: python3 scripts/reimport_7_puntuales.py
