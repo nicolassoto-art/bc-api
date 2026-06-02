@@ -1,0 +1,12 @@
+name: Re-import 4 assets
+on: { workflow_dispatch: {} }
+concurrency: { group: import-jb-serial, cancel-in-progress: false }
+jobs:
+  r:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions: { contents: read, actions: write }
+    steps:
+      - uses: actions/checkout@v4
+      - env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        run: python3 scripts/reimport_4_assets.py
