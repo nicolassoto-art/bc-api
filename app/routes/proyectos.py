@@ -246,6 +246,12 @@ def detalle(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depend
     )
     if not p:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
+    # Fallback de foto: si foto_principal_url está vacía pero hay imágenes,
+    # usar la URL de la primera. Misma lógica que en listar(), pero per-request.
+    # Mutar el objeto SQLAlchemy es seguro acá porque no llamamos commit().
+    if not p.foto_principal_url and p.imagenes:
+        first_img = min(p.imagenes, key=lambda im: im.id)
+        p.foto_principal_url = first_img.url
     return p
 
 
