@@ -1,6 +1,6 @@
 # Eventos anómalos — registro automático
 
-Última actualización: Mon 01/06/2026 15:11 Chile · 53 eventos totales
+Última actualización: Tue 02/06/2026 07:54 Chile · 73 eventos totales
 
 Este archivo se regenera automáticamente desde `eventos_anomalos.jsonl`.
 Los eventos están deduplicados en ventanas de 24h.
@@ -11,10 +11,11 @@ Los eventos están deduplicados en ventanas de 24h.
 |---|---|---|
 | 2026-05-28 21:34:11 | `import-jb.yml#26596794924` | created=Thu 28/05 15:19 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26596794924) |
 
-## ⚠ Proyectos con modelos pero sin unidades (21 en total, mostrando últimos 21)
+## ⚠ Proyectos con modelos pero sin unidades (22 en total, mostrando últimos 22)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-06-02 11:54:41 | `jb-vwkzk19n · _Bandera 1060_` | 6 modelos pero 0 unidades — Excel JB vacío |
 | 2026-06-01 19:11:34 | `jb-wwmcny3e · _Los Alerces_` | 25 modelos pero 0 unidades — Excel JB vacío |
 | 2026-06-01 19:11:34 | `jb-48t1iinf · _EDIFICIO CONEXIÓN INDEPENDENCI_` | 17 modelos pero 0 unidades — Excel JB vacío |
 | 2026-06-01 19:11:34 | `jb-sffaxziq · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
@@ -37,10 +38,29 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-05-28 13:49:56 | `jb-wwmcny3e · _Los Alerces_` | 25 modelos pero 0 unidades — Excel JB vacío |
 | 2026-05-28 13:49:52 | `jb-48t1iinf · _EDIFICIO CONEXIÓN INDEPENDENCI_` | 17 modelos pero 0 unidades — Excel JB vacío |
 
-## ⚠ Proyectos huérfanos (JB sin data) (9 en total, mostrando últimos 9)
+## ⚠ Proyectos huérfanos (JB sin data) (28 en total, mostrando últimos 28)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-06-02 11:54:37 | `jb-86yw1rpt · _Centenario I_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:37 | `jb-72gkwnlw · _Terrazzo_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:37 | `jb-5d7qpmgc · _Trinidad III_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:37 | `jb-48t1iinf · _EDIFICIO CONEXIÓN INDEPENDENCI_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:37 | `jb-3jcwggzi · _Edificio Peumayen_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:37 | `jb-1gavjbkl · _Fuentes de Lomas IV_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:36 | `jb-dr6uuhkx · _Altos de Collao_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:36 | `jb-cgfo7vdq · _Matta_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:36 | `jb-c0xmpk4k · _Eleuterio Ramírez_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:36 | `jb-b7aniv5k · _Rosas 1444_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:36 | `jb-atuirs6m · _Edificio Teatinos 750_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:36 | `jb-9yo68roa · _Aires La Florida 2_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:36 | `jb-9mubheq8 · _Tocornal_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:35 | `jb-igfwzvh2 · _Condominio La Rioja_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:35 | `jb-iaiq9ith · _Vivaceta 864_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:35 | `jb-hw9soclo · _Plaza Victoria_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:35 | `jb-gmrpayqt · _Edificio Vista Morandé_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:35 | `jb-g3jwrroe · _Abdón Cifuentes_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
+| 2026-06-02 11:54:35 | `jb-f8vqhyvk · _Condominio Mallorca_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
 | 2026-05-30 00:17:12 | `jb-4kny8vbw · _Novus Torre G_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
 | 2026-05-29 19:56:24 | `jb-osnl3m1c · _Vista San Martin_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
 | 2026-05-28 21:34:00 | `jb-4kny8vbw · _Novus Torre G_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
