@@ -194,21 +194,30 @@ def listar(
     ).all()
     precios_min = {pid: precio for pid, precio in precio_rows if precio}
 
-    # Foto fallback: si Proyecto.foto_principal_url está vacío (todos los importados
-    # de JB hoy lo están), usar la PRIMERA imagen del proyecto. Evita N+1 con un solo
-    # query: agrupa por proyecto_id y toma el min(id) de imagen.
+    # Foto fallback: si Proyecto.foto_principal_url está vacío (importados JB),
+    # priorizar FACHADA real ('jb-foto', '', 'fachada', 'exterior') sobre plantas
+    # ('jb-planta-*') y otros assets. min(id) alfabético elegía a veces
+    # 'jb-planta-3d1b' antes que 'jb-foto' (problema reportado en Alto Buzeta).
     from ..models import Imagen
-    first_img_rows = db.execute(
-        select(Imagen.proyecto_id, func.min(Imagen.id).label("img_id"))
-        .group_by(Imagen.proyecto_id)
+    all_imgs = db.execute(
+        select(Imagen.id, Imagen.proyecto_id, Imagen.url, Imagen.categoria).order_by(Imagen.id)
     ).all()
-    img_ids = [r.img_id for r in first_img_rows if r.img_id]
+
+    def _is_facade(cat: str) -> bool:
+        c = (cat or "").lower()
+        return c in {"jb-foto", "foto", "fachada", "exterior", ""} or "foto" in c
+
+    # Por proyecto: si hay alguna con categoría de fachada, esa gana (la primera
+    # por id). Si no, usar la primera imagen sin discriminar.
     img_url_by_pid: dict[str, str] = {}
-    if img_ids:
-        img_rows = db.execute(
-            select(Imagen.id, Imagen.proyecto_id, Imagen.url).where(Imagen.id.in_(img_ids))
-        ).all()
-        img_url_by_pid = {r.proyecto_id: r.url for r in img_rows}
+    img_facade_by_pid: dict[str, str] = {}
+    for r in all_imgs:
+        if r.proyecto_id not in img_url_by_pid:
+            img_url_by_pid[r.proyecto_id] = r.url  # primera de cualquier tipo
+        if _is_facade(r.categoria) and r.proyecto_id not in img_facade_by_pid:
+            img_facade_by_pid[r.proyecto_id] = r.url
+    # Merge: la fachada gana si existe; si no, la primera cualquiera.
+    img_url_by_pid = {**img_url_by_pid, **img_facade_by_pid}
 
     out = []
     for p in proys:
@@ -247,11 +256,17 @@ def detalle(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depend
     if not p:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
     # Fallback de foto: si foto_principal_url está vacía pero hay imágenes,
-    # usar la URL de la primera. Misma lógica que en listar(), pero per-request.
-    # Mutar el objeto SQLAlchemy es seguro acá porque no llamamos commit().
+    # priorizar la FACHADA REAL (categoria='jb-foto' / 'fachada' / vacía) por
+    # encima de plantas ('jb-planta-*'). Si no hay fachada categorizada, usar
+    # la primera por id como último recurso. Mutar el objeto SQLAlchemy es
+    # seguro acá porque no llamamos commit().
     if not p.foto_principal_url and p.imagenes:
-        first_img = min(p.imagenes, key=lambda im: im.id)
-        p.foto_principal_url = first_img.url
+        def _is_facade(im):
+            c = (im.categoria or "").lower()
+            return c in {"jb-foto", "foto", "fachada", "exterior", ""} or "foto" in c
+        ordered = sorted(p.imagenes, key=lambda im: im.id)
+        facade = next((im for im in ordered if _is_facade(im)), None)
+        p.foto_principal_url = (facade.url if facade else ordered[0].url)
     return p
 
 
