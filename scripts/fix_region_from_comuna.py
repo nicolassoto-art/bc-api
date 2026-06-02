@@ -28,7 +28,9 @@ COMUNAS_POR_REGION: dict[str, list[str]] = {
         "Macul","Peñalolén","Maipú","La Florida","Puente Alto","San Miguel","San Joaquín",
         "Estación Central","Quinta Normal","Independencia","Recoleta","Huechuraba","Conchalí",
         "Renca","Cerro Navia","Pudahuel","Lo Prado","Quilicura","Colina","Lampa","Tiltil",
-        "San Bernardo","Buin","Paine","Calera de Tabaco",
+        "San Bernardo","Buin","Paine","Calera de Tango",
+        "Cerrillos","La Cisterna","La Granja","El Bosque","Pedro Aguirre Cerda","San Ramón",
+        "Lo Espejo","La Pintana",
     ],
     "Valparaíso": [
         "Valparaíso","Viña del Mar","Concón","Quilpué","Villa Alemana","Reñaca","Quintero",
