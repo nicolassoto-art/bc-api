@@ -27,7 +27,17 @@ def clean_nombre(s: str) -> str:
     parts = [p.strip() for p in s.split(" - ")]
     # Detección: 4+ partes Y la 2da parece código numérico
     if len(parts) >= 4 and re.match(r'^\d+$', parts[1] or ''):
-        return parts[0]
+        candidate = parts[0]
+        # Guardrail: si el resultado queda como puro número (ej. "1", "12"),
+        # NO recortar — el nombre real probablemente está en parts[3] u otra.
+        # Caso conocido: JB "1 - 1003 - TER - Terrazo" → si cortamos queda "1"
+        # sin sentido humano. Mejor dejar el original.
+        if re.match(r'^\d+$', candidate):
+            # Intentar usar parts[3] (subnombre) si parece nombre real
+            if len(parts) >= 4 and parts[3] and not re.match(r'^\d+$', parts[3]):
+                return parts[3]
+            return s
+        return candidate
     return s
 
 
