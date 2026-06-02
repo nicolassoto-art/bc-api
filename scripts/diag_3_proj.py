@@ -2,7 +2,7 @@ import os, httpx
 jwt = os.environ["BC_API_JWT"]
 cli = httpx.Client(base_url="https://bc-api.178-105-91-29.nip.io",
                    headers={"Authorization": f"Bearer {jwt}"}, timeout=30)
-for pid in ["jb-b7aniv5k"]:
+for pid in ["jb-72gkwnlw"]:
     r = cli.get(f"/proyectos/{pid}")
     print(f"GET /proyectos/{pid} → HTTP {r.status_code}")
     if r.status_code != 200:
