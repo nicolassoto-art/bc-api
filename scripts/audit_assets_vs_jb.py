@@ -92,7 +92,8 @@ async def main():
             try:
                 info = await count_jb_assets(imp, c["jb_id"])
                 if "err" in info:
-                    print(f"  {c['jb_id']:<12} {c['nombre']:<35} {f'{c[\"fotos\"]}/{c[\"planos\"]}':<10} -          err={info['err']}")
+                    bcfp = f"{c['fotos']}/{c['planos']}"
+                    print(f"  {c['jb_id']:<12} {c['nombre']:<35} {bcfp:<10} -          err={info['err']}")
                     continue
                 jb_f = info.get("fotos", 0)
                 jb_p = info.get("planos", 0)
