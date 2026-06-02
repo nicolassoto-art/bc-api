@@ -1,0 +1,26 @@
+name: Re-import los 84 (scrape Modelos arreglado)
+on: { workflow_dispatch: {} }
+
+concurrency:
+  group: import-jb-serial
+  cancel-in-progress: false
+
+jobs:
+  reimport:
+    runs-on: ubuntu-latest
+    # 84 × 8 min = ~11h. Lo divido implícitamente — el job de GH se mata a las 6h.
+    # Si se mata, vuelves a disparar el workflow y arranca desde el primero que falte
+    # (idempotente vía Excel/DOM scrape).
+    timeout-minutes: 350
+    permissions:
+      contents: read
+      actions: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install httpx
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/reimport_todos_84.py
