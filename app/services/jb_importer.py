@@ -814,11 +814,14 @@ class JBImporter:
             log.warning(f"   documentos → {e}")
 
         # ── Tab Modelos: tabla con plantas (Plano column) ──
+        # IMPORTANTE: usa la MISMA paginación scroll-humano que la tab Unidades,
+        # porque JB también pagina Modelos. Antes scrapeaba solo ~30 (visibles)
+        # y perdía modelos como "100, 101, 102..." que coexisten con "01A, 01B..."
         try:
             await self._click_tab("Modelos")
             await self._page.wait_for_timeout(2_500)
             await self._page.screenshot(path=str(debug_dir / "tab-modelos.png"), full_page=True)
-            modelos_rows = await self._scrape_table_rows()
+            modelos_rows = await self._scrape_unidades_paginated(max_steps=80)
             if modelos_rows:
                 (debug_dir / "tab-modelos_rows.json").write_text(
                     json.dumps(modelos_rows, indent=2, ensure_ascii=False), encoding="utf-8"
