@@ -2,7 +2,7 @@ import os, httpx
 jwt = os.environ["BC_API_JWT"]
 cli = httpx.Client(base_url="https://bc-api.178-105-91-29.nip.io",
                    headers={"Authorization": f"Bearer {jwt}"}, timeout=30)
-for pid in ["jb-g3jwrroe","jb-lmvjgz7f","jb-zkp4z7hh"]:
+for pid in ["jb-b7aniv5k"]:
     p = cli.get(f"/proyectos/{pid}").json()
     extra = p.get("extra") or {}
     modelos = extra.get("modelos") or []
