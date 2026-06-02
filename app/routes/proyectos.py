@@ -194,6 +194,22 @@ def listar(
     ).all()
     precios_min = {pid: precio for pid, precio in precio_rows if precio}
 
+    # Foto fallback: si Proyecto.foto_principal_url está vacío (todos los importados
+    # de JB hoy lo están), usar la PRIMERA imagen del proyecto. Evita N+1 con un solo
+    # query: agrupa por proyecto_id y toma el min(id) de imagen.
+    from ..models import Imagen
+    first_img_rows = db.execute(
+        select(Imagen.proyecto_id, func.min(Imagen.id).label("img_id"))
+        .group_by(Imagen.proyecto_id)
+    ).all()
+    img_ids = [r.img_id for r in first_img_rows if r.img_id]
+    img_url_by_pid: dict[str, str] = {}
+    if img_ids:
+        img_rows = db.execute(
+            select(Imagen.id, Imagen.proyecto_id, Imagen.url).where(Imagen.id.in_(img_ids))
+        ).all()
+        img_url_by_pid = {r.proyecto_id: r.url for r in img_rows}
+
     out = []
     for p in proys:
         total, disp = counts.get(p.id, (0, 0))
@@ -204,6 +220,8 @@ def listar(
         # Proyectos sin detalle publicado en JB deben mostrar "sin stock" (0),
         # no el tamaño del edificio (que confunde). El total del edificio queda
         # disponible en la ficha (tab General) como dato informativo.
+        # Foto principal: si no hay foto_principal_url, fallback a la primera imagen.
+        foto = p.foto_principal_url or img_url_by_pid.get(p.id) or None
         out.append(
             ProyectoSummary.model_validate(p).model_copy(
                 update={
@@ -212,6 +230,7 @@ def listar(
                     "pie_pct": comercial.get("pie_pct"),
                     "precio_desde_uf": precios_min.get(p.id),
                     "publicar_en_catalogo": bool(extra.get("publicar_en_catalogo")),
+                    "foto_principal_url": foto,
                 }
             )
         )
