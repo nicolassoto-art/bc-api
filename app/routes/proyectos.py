@@ -37,6 +37,10 @@ _PUBLIC_EXTRA_KEYS = {
     "modelos", "estacionamientos", "bodegas",
     "etiquetas", "equipamiento", "areas_comunes", "entorno",
     "descripcion", "constructora", "modalidad", "fisicos",
+    # Notas comerciales del proyecto. Salen al worker (server-side, autenticado
+    # con service token); el worker decide si reenviarlas al navegador solo en
+    # bcStockToCatalogoDetalle (broker logueado), NO en bcStockToCatalogoPublic.
+    "notas_html", "notas_text",
 }
 # Subcampos de `comercial` que el catálogo necesita; el resto (promo_broker,
 # tipo_descuento, márgenes, etc.) NO sale.
