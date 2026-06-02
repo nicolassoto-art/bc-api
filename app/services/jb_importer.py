@@ -2400,14 +2400,14 @@ class JBImporter:
                 log.info(f"   ✓ Proyecto creado: id={current.get('id')}")
             rep.proyecto_id = current["id"]
 
-            # 2. WIPE — etapa inherente del pipeline (JB = single source of truth)
-            if not dry_run:
-                wipe_stats = await self._wipe_proyecto_full(rep.proyecto_id, current)
-                rep.warnings.append(f"wipe: {wipe_stats}")
-                # Re-fetch current para tener el estado post-wipe
-                current = await self.get_proyecto(rep.proyecto_id)
+            # ── Snapshot pre-cambio: para guardrail anti-vacío ──
+            pre_extra = current.get("extra") or {}
+            pre_modelos = len(pre_extra.get("modelos") or [])
+            pre_unidades = len(current.get("unidades") or [])
+            pre_imgs = len(current.get("imagenes") or [])
+            log.info(f"   📊 Snapshot pre-cambio: modelos={pre_modelos}, unidades={pre_unidades}, imgs={pre_imgs}")
 
-            # 2. API JB
+            # 2. API JB (ANTES del wipe — necesitamos saber si JB tiene data)
             api_data = await self.fetch_api(jb_id)
             modelos = self._extract_modelos(api_data.get("units") or [])
             cover_url = None
@@ -2418,10 +2418,38 @@ class JBImporter:
                     if cv.get("id") else None
                 )
 
-            # 3. DOM editor
+            # 3. DOM editor (ANTES del wipe)
             scraped = await self.scrape_editor(jb_id)
             rep.fields_extracted = self._count_leaves(scraped)
             rep.extracted = scraped
+
+            # ── GUARDRAIL anti-vacío: NO destruir bc-api si JB devuelve nada ──
+            # Si bc-api tenía datos pero JB scrape no encontró NI modelos NI unidades NI excel,
+            # significa que JB editor está roto o el scrape falló — abortar sin tocar bc-api.
+            scraped_extra = scraped.get("extra") or {}
+            scraped_modelos = len(scraped_extra.get("modelos_dom") or [])
+            jb_units = len(api_data.get("units") or [])
+            jb_excel_path = (scraped_extra.get("_jb_stock_excel") or {}).get("path")
+            pending_dom_units = len(self._pending_unidades or [])
+            jb_has_any_data = scraped_modelos > 0 or jb_units > 0 or pending_dom_units > 0 or jb_excel_path
+            bc_had_data = pre_modelos > 0 or pre_unidades > 0
+            if bc_had_data and not jb_has_any_data:
+                msg = (f"GUARDRAIL: bc-api tenía {pre_modelos} modelos + {pre_unidades} unidades "
+                       f"pero JB devolvió 0 modelos, 0 unidades API, 0 unidades DOM, 0 excel. "
+                       f"Abortando SIN tocar bc-api para evitar vaciar el proyecto.")
+                log.error(f"   ✗ {msg}")
+                rep.errors.append(msg)
+                rep.finished_at = time.time()
+                out_dir = self.imports_dir / jb_id
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "report.json").write_text(json.dumps(rep.to_dict(), indent=2, default=str))
+                raise RuntimeError(msg)
+
+            # 4. WIPE — recién acá, después de confirmar que JB tiene data
+            if not dry_run:
+                wipe_stats = await self._wipe_proyecto_full(rep.proyecto_id, current)
+                rep.warnings.append(f"wipe: {wipe_stats}")
+                current = await self.get_proyecto(rep.proyecto_id)
 
             # ── HEALTH CHECK: detectar run degradado ──
             # Si el scraping extrae <20 campos, JB rechazó o falló silenciosamente
