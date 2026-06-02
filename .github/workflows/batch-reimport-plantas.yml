@@ -1,0 +1,90 @@
+name: Batch re-import (plantas + vacíos)
+
+# Re-importa los 45 proyectos detectados por audit_plantas_vs_uploads.py:
+# - 3 vacíos (Vivaceta 864, Terrazzo, V.Mackenna 1194) — el guardrail anti-vacío evita
+#   que queden peor si JB editor sigue devolviendo 0 filas
+# - 42 con modelos sin planta_url (solo planta_thumb_src apuntando a CDN JB)
+# Secuencial 1 a 1 (regla inviolable). NO usa skip_assets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_from:
+        description: 'Índice 0-based desde donde reanudar (default 0)'
+        required: false
+        default: '0'
+
+concurrency:
+  group: batch-reimport-plantas
+  cancel-in-progress: false
+
+jobs:
+  batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350   # 45 proyectos × ~7min ≈ 5.25h, dejamos margen
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Disparar import-jb.yml uno a uno
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          START_FROM: ${{ inputs.start_from || '0' }}
+        run: |
+          set -euo pipefail
+          IDS=(
+            1gavjbkl 1kvflc3m 3jcwggzi 48t1iinf 5d7qpmgc
+            72gkwnlw 86yw1rpt 9mubheq8 9yo68roa atuirs6m
+            b7aniv5k c0xmpk4k cgfo7vdq dr6uuhkx f8vqhyvk
+            g3jwrroe gmrpayqt hw9soclo iaiq9ith igfwzvh2
+            is9kmud9 jfkjbrpq kshjwbab kuym4rl8 m9zxfnhe
+            ml02ecl7 neou0rvu ngbhe0jo nyjxw5kl owphi37z
+            pkr9sdrb qlkzufjk sffaxziq t8uuef2r teqxjtnq
+            uaq8pgxr v8tavcog vw1zokv6 vwekp0em wgff1hcm
+            whl2aukl wwmcny3e xm0guxto xm0zqpxk zkp4z7hh
+          )
+          TOTAL=${#IDS[@]}
+          echo "Total proyectos a re-importar: $TOTAL"
+          echo "Reanudando desde índice: $START_FROM"
+
+          for ((i=START_FROM; i<TOTAL; i++)); do
+            ID="${IDS[$i]}"
+            echo ""
+            echo "=========================================="
+            echo "[$((i+1))/$TOTAL] Disparando import-jb.yml para $ID"
+            echo "=========================================="
+
+            gh workflow run import-jb.yml -f jb_id="$ID" -R "$GITHUB_REPOSITORY"
+            sleep 12
+
+            # Captura el run ID más reciente de import-jb.yml
+            RUN_ID=$(gh run list --workflow=import-jb.yml --limit 1 \
+              --json databaseId -q '.[0].databaseId' -R "$GITHUB_REPOSITORY")
+            echo "Run ID: $RUN_ID"
+
+            # Espera a que termine (polling cada 30s, max 25 min)
+            START=$SECONDS
+            while true; do
+              STATUS=$(gh run view "$RUN_ID" --json status -q .status -R "$GITHUB_REPOSITORY" 2>/dev/null || echo "unknown")
+              if [ "$STATUS" = "completed" ]; then
+                CONCL=$(gh run view "$RUN_ID" --json conclusion -q .conclusion -R "$GITHUB_REPOSITORY")
+                echo "  [$ID] → $CONCL"
+                break
+              fi
+              if (( SECONDS - START > 1500 )); then
+                echo "  [$ID] → TIMEOUT (>25 min) — sigo con siguiente"
+                break
+              fi
+              sleep 30
+            done
+
+            # Pausa entre imports (rate-limit JB)
+            echo "  pausa 60s antes del siguiente..."
+            sleep 60
+          done
+
+          echo ""
+          echo "=========================================="
+          echo "Batch completado."
+          echo "=========================================="
