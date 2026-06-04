@@ -493,9 +493,14 @@ async def subir_excel(
     proyecto_id: str,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: Usuario = Depends(stock_access),
+    usuario: Usuario = Depends(stock_access),
 ):
-    """Upsert por numero_depto. Devuelve resumen {inserted, updated, errors}."""
+    """Upsert por numero_depto. Devuelve resumen {inserted, updated, errors}.
+
+    - Preserva campos manuales (orientación) cuando el Excel viene vacío.
+    - Da de baja (disponible=False) los deptos que ya no vienen en el Excel.
+    - Registra un evento en extra.timeline ("Excel Stock") con qué cambió.
+    """
     proy = _ensure_project(db, proyecto_id)
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="El archivo debe ser .xlsx o .xls")
@@ -624,7 +629,13 @@ async def subir_excel(
 
         if num in by_num:
             u = by_num[num]
+            # Upsert parcial: campos manuales que el origen (PlanOk/MNK) NO provee
+            # se preservan si vienen vacíos, para no pisar datos cargados a mano.
+            # Ej: orientación — PlanOk no la expone, es manual en BC.
+            PRESERVAR_SI_VACIO = {"orientacion"}
             for k, v in data.items():
+                if k in PRESERVAR_SI_VACIO and (v is None or v == ""):
+                    continue
                 setattr(u, k, v)
             updated.append(num)
         else:
@@ -632,18 +643,52 @@ async def subir_excel(
             db.add(u)
             inserted.append(num)
 
+    # ── Baja de stock: deptos que YA NO vienen en el Excel → disponible=False ──
+    # El scraper sube el stock disponible completo; lo que falta = vendido/reservado.
+    # NO se borra (preserva registro + datos manuales). Si reaparece → se reactiva.
+    seen_nums = {str(d.get("numero_depto") or "").strip() for _i, d in rows_iter}
+    dados_de_baja = []
+    for u in db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).all():
+        if _is_depto(u) and u.numero not in seen_nums and u.disponible:
+            u.disponible = False
+            dados_de_baja.append(u.numero)
+
     proy.stock_last_upload = {
         "filename": file.filename,
         "at": datetime.utcnow().isoformat() + "Z",
         "inserted": len(inserted),
         "updated": len(updated),
         "errors": len(errors),
+        "dados_de_baja": len(dados_de_baja),
         "format": "jb_v2.4" if is_jb else "bc_api",
     }
 
-    # Si es JB, guardar extras (estac + bodegas individuales) en extra.X
+    # ── Timeline: registrar el evento de actualización con comentario corto ──
+    _es_scraper = (getattr(usuario, "email", "") or "").lower().startswith("mnk-scraper")
+    _origen = "Actualización automática (scraper MNK · PlanOk)" if _es_scraper else "Carga de Excel de stock"
+    _partes = [f"{len(updated)} actualizadas"]
+    if inserted:
+        _partes.append(f"{len(inserted)} nuevas")
+    if dados_de_baja:
+        _muestra = ", ".join(dados_de_baja[:8]) + ("…" if len(dados_de_baja) > 8 else "")
+        _partes.append(f"{len(dados_de_baja)} dadas de baja ({_muestra})")
+    _evento = {
+        "id": "tl-" + uuid.uuid4().hex[:10],
+        "fecha": datetime.utcnow().isoformat() + "Z",
+        "tipo": "Excel Stock",
+        "detalles": f"{_origen} — {', '.join(_partes)}",
+        "usuario": getattr(usuario, "email", None) or "sistema",
+        "archivo_url": None,
+    }
+
+    # Componer extra: jb_extras (si JB) + timeline actualizado
+    _extra = {**(proy.extra or {})}
     if is_jb and jb_extras:
-        proy.extra = {**(proy.extra or {}), **jb_extras}
+        _extra.update(jb_extras)
+    _tl = list(_extra.get("timeline") or [])
+    _tl.insert(0, _evento)
+    _extra["timeline"] = _tl
+    proy.extra = _extra
 
     db.commit()
 
@@ -651,6 +696,7 @@ async def subir_excel(
         "format": "jb_v2.4" if is_jb else "bc_api",
         "inserted": len(inserted),
         "updated": len(updated),
+        "dados_de_baja": dados_de_baja,
         "errors": errors,
         "estacionamientos_count": len(jb_extras.get("_estacionamientos_dom", [])),
         "bodegas_count": len(jb_extras.get("_bodegas_dom", [])),
