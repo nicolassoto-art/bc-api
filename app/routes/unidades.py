@@ -322,6 +322,50 @@ def _valor_cambio(old, new) -> bool:
     return norm(old) != norm(new)
 
 
+# Etiquetas legibles de campos para el comentario del timeline
+_CAMPO_LABEL = {
+    "precio_lista_uf": "precio", "precio_final_uf": "precio final",
+    "descuento_pct": "descuento", "bono_pie_pct": "bono pie",
+    "modelo": "modelo", "tipologia": "tipología", "tipo": "tipo",
+    "orientacion": "orientación",
+    "sup_total": "sup. total", "sup_interior": "sup. interior",
+    "sup_terraza": "sup. terraza", "sup_logia": "sup. logia", "sup_jardin": "sup. jardín",
+    "disponible": "disponibilidad",
+    "estac_flag": "cotiza estac", "bodega_flag": "cotiza bodega", "pack_flag": "cotiza pack",
+}
+
+
+def _fmt_val(campo: str, val) -> str:
+    """Formatea un valor para el comentario (precios con miles, disponible legible)."""
+    if val is None or val == "":
+        return "—"
+    if campo in ("precio_lista_uf", "precio_final_uf"):
+        try:
+            return f"{float(val):,.0f} UF".replace(",", ".")
+        except (TypeError, ValueError):
+            return str(val)
+    if campo in ("descuento_pct", "bono_pie_pct"):
+        try:
+            return f"{float(val):g}%"
+        except (TypeError, ValueError):
+            return str(val)
+    if campo == "disponible":
+        return "disponible" if val else "no disponible"
+    try:
+        return f"{float(val):g}"
+    except (TypeError, ValueError):
+        return str(val)
+
+
+def _desc_modificacion(num: str, campos: list) -> str:
+    """'52A: precio 3.030→3.050 UF, descuento 0%→5%'."""
+    partes = [
+        f"{_CAMPO_LABEL.get(k, k)} {_fmt_val(k, old)}→{_fmt_val(k, new)}"
+        for k, old, new in campos
+    ]
+    return f"{num}: " + ", ".join(partes)
+
+
 def _parse_dorm_banos(tipologia: str) -> tuple[int | None, int | None]:
     """'3D - 2B' / '3D2B' → (3, 2)."""
     import re as _re
@@ -648,16 +692,17 @@ async def subir_excel(
             # se preservan si vienen vacíos, para no pisar datos cargados a mano.
             # Ej: orientación — PlanOk no la expone, es manual en BC.
             PRESERVAR_SI_VACIO = {"orientacion"}
-            cambio_real = False
+            cambios_campos = []  # (campo, old, new) de lo que cambió de verdad
             for k, v in data.items():
                 if k in PRESERVAR_SI_VACIO and (v is None or v == ""):
                     continue
-                if _valor_cambio(getattr(u, k, None), v):
-                    cambio_real = True
+                old = getattr(u, k, None)
+                if _valor_cambio(old, v):
+                    cambios_campos.append((k, old, v))
                 setattr(u, k, v)
             updated.append(num)
-            if cambio_real:
-                modificadas.append(num)
+            if cambios_campos:
+                modificadas.append((num, cambios_campos))
         else:
             u = Unidad(id="u-" + uuid.uuid4().hex[:10], proyecto_id=proyecto_id, **data)
             db.add(u)
@@ -704,7 +749,9 @@ async def subir_excel(
             _partes.append(f"{len(dados_de_baja)} {_t} ({_corta(dados_de_baja)})")
         if modificadas:
             _t = "modificado" if len(modificadas) == 1 else "modificados"
-            _partes.append(f"{len(modificadas)} {_t} ({_corta(modificadas)})")
+            _descs = [_desc_modificacion(num, campos) for num, campos in modificadas]
+            _det_mod = " · ".join(_descs[:5]) + ("…" if len(_descs) > 5 else "")
+            _partes.append(f"{len(modificadas)} {_t} → {_det_mod}")
         _detalles = f"{_origen} — " + ", ".join(_partes)
 
     _evento = {
