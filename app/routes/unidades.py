@@ -308,6 +308,20 @@ def _is_depto(u: Unidad) -> bool:
     return t in ("depto", "departamento", "apartment", "")
 
 
+def _valor_cambio(old, new) -> bool:
+    """True si el valor cambió realmente (normaliza None/''/float/bool)."""
+    def norm(x):
+        if x is None or x == "":
+            return None
+        if isinstance(x, bool):
+            return x
+        try:
+            return round(float(x), 2)
+        except (TypeError, ValueError):
+            return str(x).strip()
+    return norm(old) != norm(new)
+
+
 def _parse_dorm_banos(tipologia: str) -> tuple[int | None, int | None]:
     """'3D - 2B' / '3D2B' → (3, 2)."""
     import re as _re
@@ -514,6 +528,7 @@ async def subir_excel(
     # ── Detectar formato: JB (4 sheets) o bc-api (1 sheet con headers en row 1) ──
     is_jb = _is_jb_excel(wb)
     inserted, updated, errors = [], [], []
+    modificadas = []  # deptos existentes cuyos datos REALMENTE cambiaron (precio, etc.)
     by_num = {u.numero: u for u in db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).all()}
     jb_extras: dict = {}
 
@@ -633,11 +648,16 @@ async def subir_excel(
             # se preservan si vienen vacíos, para no pisar datos cargados a mano.
             # Ej: orientación — PlanOk no la expone, es manual en BC.
             PRESERVAR_SI_VACIO = {"orientacion"}
+            cambio_real = False
             for k, v in data.items():
                 if k in PRESERVAR_SI_VACIO and (v is None or v == ""):
                     continue
+                if _valor_cambio(getattr(u, k, None), v):
+                    cambio_real = True
                 setattr(u, k, v)
             updated.append(num)
+            if cambio_real:
+                modificadas.append(num)
         else:
             u = Unidad(id="u-" + uuid.uuid4().hex[:10], proyecto_id=proyecto_id, **data)
             db.add(u)
@@ -663,20 +683,31 @@ async def subir_excel(
         "format": "jb_v2.4" if is_jb else "bc_api",
     }
 
-    # ── Timeline: registrar el evento de actualización con comentario corto ──
+    # ── Timeline: comentario "Sin cambios" o resumen de qué cambió ──
     _es_scraper = (getattr(usuario, "email", "") or "").lower().startswith("mnk-scraper")
     _origen = "Actualización automática (scraper MNK · PlanOk)" if _es_scraper else "Carga de Excel de stock"
-    _partes = [f"{len(updated)} actualizadas"]
-    if inserted:
-        _partes.append(f"{len(inserted)} nuevas")
-    if dados_de_baja:
-        _muestra = ", ".join(dados_de_baja[:8]) + ("…" if len(dados_de_baja) > 8 else "")
-        _partes.append(f"{len(dados_de_baja)} dadas de baja ({_muestra})")
+
+    def _corta(lst):
+        return ", ".join(lst[:6]) + ("…" if len(lst) > 6 else "")
+
+    if not (inserted or dados_de_baja or modificadas):
+        # Nada cambió respecto al estado anterior
+        _detalles = f"{_origen} — Sin cambios (stock idéntico: {len(updated)} deptos)"
+    else:
+        _partes = []
+        if inserted:
+            _partes.append(f"{len(inserted)} nuevas ({_corta(inserted)})")
+        if dados_de_baja:
+            _partes.append(f"{len(dados_de_baja)} dadas de baja ({_corta(dados_de_baja)})")
+        if modificadas:
+            _partes.append(f"{len(modificadas)} con cambios ({_corta(modificadas)})")
+        _detalles = f"{_origen} — " + ", ".join(_partes)
+
     _evento = {
         "id": "tl-" + uuid.uuid4().hex[:10],
         "fecha": datetime.utcnow().isoformat() + "Z",
         "tipo": "Excel Stock",
-        "detalles": f"{_origen} — {', '.join(_partes)}",
+        "detalles": _detalles,
         "usuario": getattr(usuario, "email", None) or "sistema",
         "archivo_url": None,
     }
