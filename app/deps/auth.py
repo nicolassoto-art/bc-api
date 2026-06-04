@@ -55,3 +55,32 @@ def super_admin(user: Usuario = Depends(current_user)) -> Usuario:
     if not user.is_admin and user.email.lower() not in settings.super_admins_list:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Requiere permisos de super admin")
     return user
+
+
+def stock_access(
+    creds: HTTPAuthorizationCredentials = Depends(bearer),
+    db: Session = Depends(get_db),
+) -> Usuario:
+    """Acceso a Stock propio: super admin O usuario con permiso de stock.
+
+    El permiso de stock viene del claim `stock_admin` del JWT (lo setea
+    /auth/exchange desde el flag stock_admin de herramientas). NO requiere ser
+    super admin completo — solo gestionar el stock. Los super admin pasan siempre.
+    """
+    try:
+        payload = decode_token(creds.credentials)
+        email = payload.get("sub")
+        if not email:
+            raise JWTError("missing sub")
+    except JWTError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado")
+
+    user = db.query(Usuario).filter(Usuario.email == email, Usuario.activo == True).first()  # noqa: E712
+    if not user:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado o inactivo")
+
+    is_super = user.is_admin or user.email.lower() in settings.super_admins_list
+    has_stock = bool(payload.get("stock_admin"))
+    if not (is_super or has_stock):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Requiere permiso de Stock propio")
+    return user

@@ -9,7 +9,7 @@ from sqlalchemy import select, func, Integer
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
-from ..deps.auth import super_admin, service_token
+from ..deps.auth import service_token, stock_access
 from ..models import Proyecto, Unidad, Usuario
 from ..schemas import ProyectoIn, ProyectoOut, ProyectoSummary
 
@@ -151,7 +151,7 @@ def listar(
     fase: Optional[str] = None,
     comuna: Optional[str] = None,
     db: Session = Depends(get_db),
-    _: Usuario = Depends(super_admin),
+    _: Usuario = Depends(stock_access),
 ):
     stmt = select(Proyecto)
     if activo is not None:
@@ -247,7 +247,7 @@ def listar(
 
 
 @router.get("/{proyecto_id}", response_model=ProyectoOut)
-def detalle(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(super_admin)):
+def detalle(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
     p = db.get(
         Proyecto,
         proyecto_id,
@@ -271,7 +271,7 @@ def detalle(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depend
 
 
 @router.post("", response_model=ProyectoOut, status_code=status.HTTP_201_CREATED)
-def crear(body: ProyectoIn, db: Session = Depends(get_db), _: Usuario = Depends(super_admin)):
+def crear(body: ProyectoIn, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
     pid = body.id or slugify(body.nombre)
     if db.get(Proyecto, pid):
         raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Ya existe un proyecto con id '{pid}'")
@@ -288,7 +288,7 @@ def actualizar(
     proyecto_id: str,
     body: ProyectoIn,
     db: Session = Depends(get_db),
-    _: Usuario = Depends(super_admin),
+    _: Usuario = Depends(stock_access),
 ):
     p = db.get(Proyecto, proyecto_id)
     if not p:
@@ -302,7 +302,7 @@ def actualizar(
 
 
 @router.delete("/{proyecto_id}", status_code=status.HTTP_204_NO_CONTENT)
-def eliminar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(super_admin)):
+def eliminar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
     p = db.get(Proyecto, proyecto_id)
     if not p:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
@@ -319,7 +319,7 @@ def set_estado(
     proyecto_id: str,
     body: _EstadoBody,
     db: Session = Depends(get_db),
-    _: Usuario = Depends(super_admin),
+    _: Usuario = Depends(stock_access),
 ):
     """Activa (activo=true) o desactiva (activo=false) un proyecto. Usado por el validador."""
     p = db.get(Proyecto, proyecto_id)
@@ -354,7 +354,7 @@ def set_publicar(
     proyecto_id: str,
     body: _PublicarBody,
     db: Session = Depends(get_db),
-    _: Usuario = Depends(super_admin),
+    _: Usuario = Depends(stock_access),
 ):
     """Marca/desmarca un proyecto para el catálogo público (extra.publicar_en_catalogo).
     Toggle liviano desde la lista de stock — toca SOLO el flag, no unidades ni nada más."""

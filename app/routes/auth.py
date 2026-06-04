@@ -110,8 +110,9 @@ def exchange_bc_token(body: ExchangeIn, db: Session = Depends(get_db)):
     elif not user.activo:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Usuario inactivo en bc-api")
 
-    # Issue JWT
-    jwt_token, expires_in = create_token(sub=user.email)
+    # Issue JWT — incluye el claim stock_admin (acceso a Stock propio sin ser super
+    # admin). La dependencia stock_access lo lee para autorizar los endpoints de stock.
+    jwt_token, expires_in = create_token(sub=user.email, extra={"stock_admin": bool(stock_admin or is_super)})
     user.last_login_at = datetime.utcnow()
     db.commit()
 

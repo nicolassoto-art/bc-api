@@ -15,7 +15,7 @@ from pydantic import BaseModel, HttpUrl
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps.auth import super_admin
+from ..deps.auth import stock_access
 from ..models import Proyecto, Imagen, Usuario
 from ..schemas import ImagenOut, ImagenUpdate
 from ..settings import settings
@@ -41,7 +41,7 @@ def _ensure_project(db: Session, proyecto_id: str) -> Proyecto:
 
 
 @router.get("", response_model=List[ImagenOut])
-def listar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(super_admin)):
+def listar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
     _ensure_project(db, proyecto_id)
     return (
         db.query(Imagen)
@@ -58,7 +58,7 @@ async def subir(
     categoria: str = Form("Otro"),
     es_principal: bool = Form(False),
     db: Session = Depends(get_db),
-    _: Usuario = Depends(super_admin),
+    _: Usuario = Depends(stock_access),
 ):
     proy = _ensure_project(db, proyecto_id)
     if not files:
@@ -123,7 +123,7 @@ def registrar_url(
     proyecto_id: str,
     body: ImagenUrlIn,
     db: Session = Depends(get_db),
-    _: Usuario = Depends(super_admin),
+    _: Usuario = Depends(stock_access),
 ):
     """Registra una imagen por URL externa (sin subir archivo).
     Útil para importar fotos de JetBrokers u otros servicios externos.
@@ -160,7 +160,7 @@ def actualizar(
     imagen_id: str,
     body: ImagenUpdate,
     db: Session = Depends(get_db),
-    _: Usuario = Depends(super_admin),
+    _: Usuario = Depends(stock_access),
 ):
     proy = _ensure_project(db, proyecto_id)
     img = db.get(Imagen, imagen_id)
@@ -192,7 +192,7 @@ def eliminar(
     proyecto_id: str,
     imagen_id: str,
     db: Session = Depends(get_db),
-    _: Usuario = Depends(super_admin),
+    _: Usuario = Depends(stock_access),
 ):
     proy = _ensure_project(db, proyecto_id)
     img = db.get(Imagen, imagen_id)

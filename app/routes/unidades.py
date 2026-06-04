@@ -9,7 +9,7 @@ from openpyxl import Workbook, load_workbook
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps.auth import super_admin
+from ..deps.auth import stock_access
 from ..models import Proyecto, Unidad, Usuario
 from ..schemas import UnidadIn, UnidadOut
 
@@ -214,7 +214,7 @@ def _num_or_none(v):
 
 
 @router.get("", response_model=List[UnidadOut])
-def listar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(super_admin)):
+def listar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
     _ensure_project(db, proyecto_id)
     return db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).order_by(Unidad.numero).all()
 
@@ -224,7 +224,7 @@ def crear(
     proyecto_id: str,
     body: UnidadIn,
     db: Session = Depends(get_db),
-    _: Usuario = Depends(super_admin),
+    _: Usuario = Depends(stock_access),
 ):
     _ensure_project(db, proyecto_id)
     if db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id, Unidad.numero == body.numero).first():
@@ -242,7 +242,7 @@ def actualizar(
     unidad_id: str,
     body: UnidadIn,
     db: Session = Depends(get_db),
-    _: Usuario = Depends(super_admin),
+    _: Usuario = Depends(stock_access),
 ):
     u = db.get(Unidad, unidad_id)
     if not u or u.proyecto_id != proyecto_id:
@@ -259,7 +259,7 @@ def eliminar(
     proyecto_id: str,
     unidad_id: str,
     db: Session = Depends(get_db),
-    _: Usuario = Depends(super_admin),
+    _: Usuario = Depends(stock_access),
 ):
     u = db.get(Unidad, unidad_id)
     if not u or u.proyecto_id != proyecto_id:
@@ -322,7 +322,7 @@ def descargar_plantilla(
     con_datos: bool = False,
     formato: str = "jb",  # "jb" (4 sheets compat JetBrokers) | "legacy" (1 sheet vieja)
     db: Session = Depends(get_db),
-    _: Usuario = Depends(super_admin),
+    _: Usuario = Depends(stock_access),
 ):
     """Excel en formato JetBrokers (4 sheets: INSTRUCCIONES / UNIDAD / ESTACIONAMIENTOS / BODEGAS).
 
@@ -493,7 +493,7 @@ async def subir_excel(
     proyecto_id: str,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: Usuario = Depends(super_admin),
+    _: Usuario = Depends(stock_access),
 ):
     """Upsert por numero_depto. Devuelve resumen {inserted, updated, errors}."""
     proy = _ensure_project(db, proyecto_id)
