@@ -573,6 +573,7 @@ async def subir_excel(
     is_jb = _is_jb_excel(wb)
     inserted, updated, errors = [], [], []
     modificadas = []  # deptos existentes cuyos datos REALMENTE cambiaron (precio, etc.)
+    nuevos_info = {}  # {numero: (modelo, precio)} de los deptos insertados, para la referencia
     by_num = {u.numero: u for u in db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).all()}
     jb_extras: dict = {}
 
@@ -707,6 +708,7 @@ async def subir_excel(
             u = Unidad(id="u-" + uuid.uuid4().hex[:10], proyecto_id=proyecto_id, **data)
             db.add(u)
             inserted.append(num)
+            nuevos_info[num] = (data.get("modelo") or "", data.get("precio_lista_uf"))
 
     # ── Baja de stock: deptos que YA NO vienen en el Excel → disponible=False ──
     # El scraper sube el stock disponible completo; lo que falta = vendido/reservado.
@@ -743,7 +745,13 @@ async def subir_excel(
         _partes = []
         if inserted:
             _t = "depto nuevo" if len(inserted) == 1 else "deptos nuevos"
-            _partes.append(f"{len(inserted)} {_t} ({_corta(inserted)})")
+            _refs = []
+            for n in inserted[:6]:
+                _modelo, _precio = nuevos_info.get(n, ("", None))
+                _ex = [x for x in (_modelo, _fmt_val("precio_lista_uf", _precio) if _precio else "") if x]
+                _refs.append(f"{n} ({', '.join(_ex)})" if _ex else n)
+            _det_new = ", ".join(_refs) + ("…" if len(inserted) > 6 else "")
+            _partes.append(f"{len(inserted)} {_t} → {_det_new}")
         if dados_de_baja:
             _t = "dado de baja" if len(dados_de_baja) == 1 else "dados de baja"
             _partes.append(f"{len(dados_de_baja)} {_t} ({_corta(dados_de_baja)})")
