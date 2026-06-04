@@ -692,15 +692,19 @@ async def subir_excel(
 
     if not (inserted or dados_de_baja or modificadas):
         # Nada cambió respecto al estado anterior
-        _detalles = f"{_origen} — Sin cambios (stock idéntico: {len(updated)} deptos)"
+        _depto_pl = "depto" if len(updated) == 1 else "deptos"
+        _detalles = f"{_origen} — Sin cambios (stock idéntico: {len(updated)} {_depto_pl})"
     else:
         _partes = []
         if inserted:
-            _partes.append(f"{len(inserted)} nuevas ({_corta(inserted)})")
+            _t = "depto nuevo" if len(inserted) == 1 else "deptos nuevos"
+            _partes.append(f"{len(inserted)} {_t} ({_corta(inserted)})")
         if dados_de_baja:
-            _partes.append(f"{len(dados_de_baja)} dadas de baja ({_corta(dados_de_baja)})")
+            _t = "dado de baja" if len(dados_de_baja) == 1 else "dados de baja"
+            _partes.append(f"{len(dados_de_baja)} {_t} ({_corta(dados_de_baja)})")
         if modificadas:
-            _partes.append(f"{len(modificadas)} con cambios ({_corta(modificadas)})")
+            _t = "modificado" if len(modificadas) == 1 else "modificados"
+            _partes.append(f"{len(modificadas)} {_t} ({_corta(modificadas)})")
         _detalles = f"{_origen} — " + ", ".join(_partes)
 
     _evento = {
