@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_pass: str = ""
-    smtp_from: str = "sistemas@bigcapital.cl"
+    smtp_from: str = ""  # vacío → usa smtp_user (Gmail exige from = cuenta autenticada)
     smtp_from_name: str = "BigCapital · Stock"
     notify_to: str = "nicolas.soto@bigcapital.cl"  # destinatario admin de las notificaciones
 

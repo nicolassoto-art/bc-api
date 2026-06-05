@@ -64,15 +64,55 @@ def notify_change(titulo: str, proyecto: str, detalle: str, proyecto_id: str) ->
     try:
         msg = EmailMessage()
         msg["Subject"] = f"{titulo} · {proyecto}"
-        msg["From"] = formataddr((settings.smtp_from_name, settings.smtp_from))
+        from_addr = settings.smtp_from or settings.smtp_user
+        msg["From"] = formataddr((settings.smtp_from_name, from_addr))
         msg["To"] = settings.notify_to
-        msg["Reply-To"] = settings.smtp_from
+        msg["Reply-To"] = from_addr
         msg.set_content(f"{titulo}\n{proyecto}\n{detalle}\n{_fecha_cl()}")
         msg.add_alternative(_html(titulo, proyecto, detalle, proyecto_id), subtype="html")
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as s:
             s.starttls()
-            s.login(settings.smtp_user, settings.smtp_pass)
+            s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))  # Gmail App Password sin espacios
             s.send_message(msg)
         log.info("Notificación '%s' (%s) enviada a %s", titulo, proyecto, settings.notify_to)
     except Exception as e:
         log.warning("Error enviando notificación '%s' (%s): %s", titulo, proyecto, e)
+
+
+def status() -> dict:
+    """Estado de la config SMTP (sin exponer la contraseña). Para diagnóstico."""
+    return {
+        "configured": _configured(),
+        "host": settings.smtp_host or "(vacío)",
+        "port": settings.smtp_port,
+        "user": settings.smtp_user or "(vacío)",
+        "pass_set": bool(settings.smtp_pass),
+        "from": (settings.smtp_from or settings.smtp_user) or "(vacío)",
+        "to": settings.notify_to,
+    }
+
+
+def test_send(to: str | None = None) -> dict:
+    """Envía un correo de prueba SÍNCRONO y devuelve el resultado (diagnóstico)."""
+    st = status()
+    if not _configured():
+        return {**st, "sent": False, "error": "SMTP no configurado: faltan SMTP_HOST/SMTP_USER/SMTP_PASS en el .env de bc-api."}
+    dest = to or settings.notify_to
+    from_addr = settings.smtp_from or settings.smtp_user
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = "Prueba de notificaciones · Stock BigCapital"
+        msg["From"] = formataddr((settings.smtp_from_name, from_addr))
+        msg["To"] = dest
+        msg["Reply-To"] = from_addr
+        msg.set_content("Prueba de envío desde bc-api. Si recibes esto, las notificaciones de stock funcionan.")
+        msg.add_alternative(_html("Prueba de notificaciones ✅", "Stock BigCapital",
+                                  "Si recibes este correo, el envío automático de notificaciones quedó funcionando.", ""),
+                            subtype="html")
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as s:
+            s.starttls()
+            s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))
+            s.send_message(msg)
+        return {**st, "sent": True, "error": None, "dest": dest}
+    except Exception as e:
+        return {**st, "sent": False, "error": f"{type(e).__name__}: {e}", "dest": dest}

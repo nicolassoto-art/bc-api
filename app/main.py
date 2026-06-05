@@ -5,12 +5,15 @@ Docs interactivas: GET /docs (Swagger) y /redoc.
 """
 from __future__ import annotations
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias, documentos
 from .settings import settings
+from .deps.auth import super_admin
+from .services import email_service
+from .models import Usuario
 
 logging.basicConfig(level=settings.log_level)
 
@@ -45,6 +48,13 @@ app.include_router(inmobiliarias.router)
 @app.get("/health", tags=["meta"])
 def health():
     return {"status": "ok", "env": settings.env}
+
+
+@app.get("/diag/email", tags=["meta"])
+def diag_email(send: bool = False, _: Usuario = Depends(super_admin)):
+    """Diagnóstico SMTP (solo super admin). Sin args: estado de config.
+    Con ?send=1: envía un correo de prueba a notify_to y devuelve ok/error."""
+    return email_service.test_send() if send else email_service.status()
 
 
 @app.get("/", tags=["meta"])
