@@ -69,6 +69,21 @@ def facing_es(f):
     return m.get(k, str(f)[:3].upper())
 
 
+def asset_num(s):
+    """assets number 'E100B38 [ 413,00 UF ] [...]' → 'E100B38' (lo de antes del primer corchete)."""
+    return str(s or "").split("[")[0].strip()
+
+
+def asset_uf(s):
+    m = re.search(r"\[\s*([\d.,]+)\s*UF", str(s or ""))
+    return fnum(m.group(1)) if m else None
+
+
+def asset_m2(s):
+    m = re.search(r"\[\s*([\d.,]+)\s*m2", str(s or ""))
+    return fnum(m.group(1)) if m else None
+
+
 async def jb_get(cli, ep):
     r = await cli.get(ep)
     return r.json() if r.status_code == 200 else None
@@ -125,18 +140,17 @@ async def main():
             lst = fr.get("files") if isinstance(fr, dict) else (fr if isinstance(fr, list) else None)
             if lst:
                 files = lst; files_ep = tmpl; break
-    # estacionamientos + bodegas (intenta /list/0 y /available)
-    async def fetch_stock(base, key):
-        r = await jb_get(cli, f"{base}/list/0")
-        if isinstance(r, dict) and isinstance(r.get(key), list) and r[key]:
-            return r[key]
-        r2 = await jb_get(cli, f"{base}/available")
-        if isinstance(r2, list) and r2:
-            return r2
-        return []
-    parkings = await fetch_stock(f"/parking/project/{PID}", "parkings")
-    stores = await fetch_stock(f"/store/project/{PID}", "stores")
-    packs = await fetch_stock(f"/pack/project/{PID}", "packs")
+    # estac/bodegas/packs: endpoint UNIFICADO /project/{id}/assets (vía flujo de cotización).
+    # Funciona para proyectos propios Y de reventa (los /parking,/store dan 401 en reventa).
+    acli = httpx.AsyncClient(base_url=JB_API_BASE, cookies=jar, timeout=30.0,
+        headers={**JB_HEADERS, "jet-brokers-version": "7.43.1",
+                 "Authorization": f"Bearer {imp._jb_token}",
+                 "Referer": "https://app.jetbrokers.io/quotes"})
+    assets = await jb_get(acli, f"/project/{PID}/assets") or {}
+    await acli.aclose()
+    parkings = assets.get("parkings", []) if isinstance(assets, dict) else []
+    stores = assets.get("stores", []) if isinstance(assets, dict) else []
+    packs = assets.get("packs", []) if isinstance(assets, dict) else []
     await cli.aclose()
 
     print(f"### {detail.get('name')!r} (id {PID})", flush=True)
@@ -220,15 +234,21 @@ async def main():
     extra["modelos"] = modelos
     # estacionamientos / bodegas → extra.*_dom (formato cells que lee el frontend)
     extra["estacionamientos_dom"] = [
-        {"cells": [None, pk.get("number"), pk.get("price"),
+        {"cells": [None, asset_num(pk.get("number")), pk.get("price"),
                    str(pk.get("level")) if pk.get("level") is not None else "",
                    (",".join(pk.get("type")) if isinstance(pk.get("type"), list) else str(pk.get("type") or ""))],
-         "disponible": bool(pk.get("available"))}
+         "disponible": bool(pk.get("available", True))}
         for pk in parkings if pk.get("number")]
     extra["bodegas_dom"] = [
-        {"cells": [None, st.get("number"), st.get("price"), str(st.get("surface") or st.get("surfaceTotal") or "")],
-         "disponible": bool(st.get("available"))}
+        {"cells": [None, asset_num(st.get("number")), st.get("price"), str(asset_m2(st.get("number")) or "")],
+         "disponible": bool(st.get("available", True))}
         for st in stores if st.get("number")]
+    extra["packs_dom"] = [
+        {"numero": asset_num(pk.get("number")), "precio_uf": asset_uf(pk.get("number")),
+         "estacionamientos": [asset_num(p.get("number")) for p in (pk.get("parkings") or [])],
+         "bodegas": [asset_num(s.get("number")) for s in (pk.get("stores") or [])],
+         "disponible": bool(pk.get("available", True))}
+        for pk in packs if pk.get("number")]
     # mapa blueprint→nombre comercial + flags por modelo
     bp_name = {md["_blueprint"]: md["nombre"] for md in modelos if md.get("_blueprint")}
     id_name = {m.get("id"): m.get("name") for m in models}
@@ -284,11 +304,13 @@ async def main():
               f"int={u0['sup_interior']} precio={u0['precio_lista_uf']} disp={u0['disponible']} "
               f"flags(est/bod/pack)={u0['estac_flag']}/{u0['bodega_flag']}/{u0['pack_flag']}", flush=True)
     print(f"\n--- ESTACIONAMIENTOS / BODEGAS / PACKS ---", flush=True)
-    print(f"   estacionamientos: {len(extra['estacionamientos_dom'])} · bodegas: {len(extra['bodegas_dom'])} · packs: {len(packs)}", flush=True)
+    print(f"   estacionamientos: {len(extra['estacionamientos_dom'])} · bodegas: {len(extra['bodegas_dom'])} · packs: {len(extra['packs_dom'])}", flush=True)
     if extra["estacionamientos_dom"]:
         print(f"   ej estac: {extra['estacionamientos_dom'][0]}", flush=True)
-    if packs:
-        print(f"   ej pack CRUDO: {json.dumps(packs[0], ensure_ascii=False)[:300]}", flush=True)
+    if extra["bodegas_dom"]:
+        print(f"   ej bodega: {extra['bodegas_dom'][0]}", flush=True)
+    if extra["packs_dom"]:
+        print(f"   ej pack: {extra['packs_dom'][0]}", flush=True)
     print(f"\n--- FICHA → bc-api ---", flush=True)
     print(f"   inmobiliaria={inmob!r} comuna={detail.get('locality')!r} direccion={detail.get('address')!r}", flush=True)
     print(f"   banco={extra['cuenta_reserva']['banco']!r} spa={extra['spa_proyecto']['nombre']!r} "
