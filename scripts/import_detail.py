@@ -54,6 +54,17 @@ def yn(v):
     return str(v).lower() in ("yes", "true", "1", "sí", "si")
 
 
+def facing_es(f):
+    """JB facing (inglés) → orientación chilena abreviada (N/S/O/P y combinaciones)."""
+    if not f:
+        return None
+    k = str(f).strip().lower().replace("-", "").replace("_", "").replace(" ", "")
+    m = {"north": "N", "south": "S", "east": "O", "west": "P",
+         "northeast": "NO", "northwest": "NP", "southeast": "SO", "southwest": "SP",
+         "eastnorth": "NO", "westnorth": "NP", "eastsouth": "SO", "westsouth": "SP"}
+    return m.get(k, str(f)[:3].upper())
+
+
 async def jb_get(cli, ep):
     r = await cli.get(ep)
     return r.json() if r.status_code == 200 else None
@@ -98,9 +109,15 @@ async def main():
             lst = fr.get("files") if isinstance(fr, dict) else (fr if isinstance(fr, list) else None)
             if lst:
                 files = lst; files_ep = tmpl; break
+    # estacionamientos + bodegas (proyectos propios)
+    parkings = ((await jb_get(cli, f"/parking/project/{PID}/list/0")) or {}).get("parkings", [])
+    stores = ((await jb_get(cli, f"/store/project/{PID}/list/0")) or {}).get("stores", [])
     await cli.aclose()
 
     print(f"### {detail.get('name')!r} (id {PID})", flush=True)
+    disp_u = sum(1 for u in units if u.get("available"))
+    print(f"   estacionamientos={len(parkings)} ({sum(1 for p in parkings if p.get('available'))} disp) "
+          f"bodegas={len(stores)} · unidades disponibles={disp_u}/{len(units)}", flush=True)
     print(f"   modelos={len(models)} unidades={len(units)} notas={len(notes) if notes else 0}b "
           f"archivos={len(files)} (via {files_ep})", flush=True)
     print(f"   developerName(inmobiliaria)={detail.get('developerName')!r} buildingCompany={detail.get('buildingCompany')!r} "
@@ -170,9 +187,21 @@ async def main():
             "_blueprint": bp, "planta_url": None, "planta_thumb_src": None,
         })
     extra["modelos"] = modelos
-    # mapa blueprint→nombre comercial (para etiquetar unidades por su modelo)
+    # estacionamientos / bodegas → extra.*_dom (formato cells que lee el frontend)
+    extra["estacionamientos_dom"] = [
+        {"cells": [None, pk.get("number"), pk.get("price"),
+                   str(pk.get("level")) if pk.get("level") is not None else "",
+                   (",".join(pk.get("type")) if isinstance(pk.get("type"), list) else str(pk.get("type") or ""))],
+         "disponible": bool(pk.get("available"))}
+        for pk in parkings if pk.get("number")]
+    extra["bodegas_dom"] = [
+        {"cells": [None, st.get("number"), st.get("price"), str(st.get("surface") or st.get("surfaceTotal") or "")],
+         "disponible": bool(st.get("available"))}
+        for st in stores if st.get("number")]
+    # mapa blueprint→nombre comercial + flags por modelo
     bp_name = {md["_blueprint"]: md["nombre"] for md in modelos if md.get("_blueprint")}
     id_name = {m.get("id"): m.get("name") for m in models}
+    id_req = {m.get("id"): m for m in models}
 
     # ── Unidades ──
     def umodel(u):
@@ -180,18 +209,26 @@ async def main():
         if isinstance(am, dict):
             return am.get("name") or bp_name.get((am.get("blueprint") or {}).get("id") if isinstance(am.get("blueprint"), dict) else am.get("blueprint")) or id_name.get(am.get("id"))
         return id_name.get(am)
+    def uflags(u):
+        am = u.get("apartmentModel") or {}
+        mid = am.get("id") if isinstance(am, dict) else am
+        md = id_req.get(mid) or (am if isinstance(am, dict) else {})
+        return (md.get("requiredParking") or "optional",
+                md.get("requiredStorage") or "optional",
+                md.get("requiredPack") or "optional")
     unidades = []
     for u in units:
+        est, bod, pak = uflags(u)
         unidades.append({
             "numero": u.get("number"), "modelo": umodel(u),
-            "tipo": u.get("type") or "apartment", "orientacion": u.get("facing"),
+            "tipo": u.get("type") or "apartment", "orientacion": facing_es(u.get("facing")),
             "sup_total": fnum(u.get("surfaceTotal")), "sup_interior": fnum(u.get("surfaceInterior")),
             "sup_terraza": fnum(u.get("surfaceTerrace")), "sup_logia": fnum(u.get("surfaceLogia")),
             "sup_jardin": fnum(u.get("surfaceGarden")),
             "precio_lista_uf": fnum(u.get("price")), "precio_final_uf": fnum(u.get("finalPrice")),
             "descuento_pct": fnum(u.get("discountRate")) or 0, "bono_pie_pct": fnum(u.get("bonoPie")) or 0,
             "disponible": bool(u.get("available")), "id_externo": u.get("idExternal"),
-            "estac_flag": "optional", "bodega_flag": "optional", "pack_flag": "optional",
+            "estac_flag": est, "bodega_flag": bod, "pack_flag": pak,
         })
 
     # ── Reporte ──
@@ -207,10 +244,18 @@ async def main():
     mset = {md["nombre"] for md in modelos}
     huer = sum(1 for u in unidades if u["modelo"] not in mset)
     print(f"   enlazadas a modelo: {len(unidades)-huer}/{len(unidades)} huérfanas={huer}", flush=True)
+    disp_n = sum(1 for u in unidades if u["disponible"])
+    orients = Counter(u["orientacion"] for u in unidades if u["orientacion"])
+    print(f"   disponibles: {disp_n}/{len(unidades)} · orientaciones (ES abreviadas): {dict(orients)}", flush=True)
     if unidades:
         u0 = unidades[0]
-        print(f"   ej: {u0['numero']} modelo={u0['modelo']!r} ST={u0['sup_total']} int={u0['sup_interior']} "
-              f"terr={u0['sup_terraza']} precio={u0['precio_lista_uf']} disp={u0['disponible']}", flush=True)
+        print(f"   ej: {u0['numero']} modelo={u0['modelo']!r} orient={u0['orientacion']!r} ST={u0['sup_total']} "
+              f"int={u0['sup_interior']} precio={u0['precio_lista_uf']} disp={u0['disponible']} "
+              f"flags(est/bod/pack)={u0['estac_flag']}/{u0['bodega_flag']}/{u0['pack_flag']}", flush=True)
+    print(f"\n--- ESTACIONAMIENTOS / BODEGAS ---", flush=True)
+    print(f"   estacionamientos: {len(extra['estacionamientos_dom'])} · bodegas: {len(extra['bodegas_dom'])}", flush=True)
+    if extra["estacionamientos_dom"]:
+        print(f"   ej estac: {extra['estacionamientos_dom'][0]}", flush=True)
     print(f"\n--- FICHA → bc-api ---", flush=True)
     print(f"   inmobiliaria={inmob!r} comuna={detail.get('locality')!r} direccion={detail.get('address')!r}", flush=True)
     print(f"   banco={extra['cuenta_reserva']['banco']!r} spa={extra['spa_proyecto']['nombre']!r} "
