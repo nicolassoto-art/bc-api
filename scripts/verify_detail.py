@@ -39,7 +39,13 @@ async def main():
     mnames = {m.get("nombre") for m in modelos}
     huer = sum(1 for u in unidades if u.get("modelo") not in mnames)
     sup = sum(1 for u in unidades if u.get("sup_total"))
+    disp = sum(1 for u in unidades if u.get("disponible"))
+    orient = Counter(u.get("orientacion") for u in unidades if u.get("orientacion"))
     print(f"   enlazadas a modelo: {len(unidades)-huer}/{len(unidades)} huérfanas={huer} · con sup_total: {sup}", flush=True)
+    print(f"   disponibles: {disp}/{len(unidades)} · orientaciones: {dict(orient)}", flush=True)
+    estac = extra.get("estacionamientos_dom") or []
+    bod = extra.get("bodegas_dom") or []
+    print(f"   estacionamientos: {len(estac)} · bodegas: {len(bod)}", flush=True)
 
     print(f"\n[4] IMÁGENES ({len(imgs)}):", flush=True)
     cats = Counter(i.get("categoria") for i in imgs)
