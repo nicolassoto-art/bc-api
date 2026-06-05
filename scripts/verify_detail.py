@@ -66,7 +66,26 @@ async def main():
             pass
     print(f"   plantas HTTP 200 (muestra 3): {alive}", flush=True)
 
-    # [5] VISUAL — screenshots vista pública
+    # [5] ENUMS — deben estar en español (sin inglés crudo)
+    print(f"\n[5] ENUMS (tipos en español):", flush=True)
+    RAW = {"voluntary", "all", "onlyapartment", "downpayment", "projectdeveloper",
+           "yesauthorized", "yesemergency", "yesopen", "shared", "operationalexpenses", "torefund"}
+    com = extra.get("comercial") or {}
+    fis = extra.get("fisicos") or {}
+    cta = extra.get("cuenta_reserva") or {}
+    checks = {"tipo_pie": com.get("tipo_pie"), "tipo_descuento": com.get("tipo_descuento"),
+              "tipo_bono_pie": com.get("tipo_bono_pie"), "tipo_reserva": com.get("tipo_reserva"),
+              "destino_reserva": com.get("destino_reserva"), "acepta_cesion": fis.get("acepta_cesion"),
+              "permiso_construccion": fis.get("permiso_construccion"), "tipo_cuenta": cta.get("tipo_cuenta")}
+    issues = []
+    for k, v in checks.items():
+        bad = str(v).strip().lower() in RAW
+        if bad:
+            issues.append(k)
+        print(f"   {k}: {v!r}  {'⚠ INGLÉS CRUDO' if bad else '✓'}", flush=True)
+    print(f"   → {'TODO en español ✓' if not issues else 'REVISAR: ' + str(issues)}", flush=True)
+
+    # [6] VISUAL — screenshots vista pública
     print(f"\n[5] VISUAL — capturando vista pública...", flush=True)
     async with async_playwright() as pw:
         b = await pw.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage"])
