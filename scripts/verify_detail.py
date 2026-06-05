@@ -45,7 +45,10 @@ async def main():
     print(f"   disponibles: {disp}/{len(unidades)} · orientaciones: {dict(orient)}", flush=True)
     estac = extra.get("estacionamientos_dom") or []
     bod = extra.get("bodegas_dom") or []
-    print(f"   estacionamientos: {len(estac)} · bodegas: {len(bod)}", flush=True)
+    packs = extra.get("packs_dom") or []
+    print(f"   estacionamientos: {len(estac)} · bodegas: {len(bod)} · packs: {len(packs)}", flush=True)
+    if packs:
+        print(f"   ej pack: {packs[0]}", flush=True)
 
     print(f"\n[4] IMÁGENES ({len(imgs)}):", flush=True)
     cats = Counter(i.get("categoria") for i in imgs)
