@@ -1,0 +1,17 @@
+name: Diag mkt types
+on: { workflow_dispatch: { inputs: { id: { required: false, default: 'utPNS9kv' } } } }
+concurrency: { group: diag-mkt-types, cancel-in-progress: false }
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11', cache: 'pip' }
+      - run: pip install --upgrade pip && pip install -r requirements.txt && python -m playwright install chromium --with-deps
+      - env: { JETBROKERS_EMAIL: "${{ secrets.JETBROKERS_EMAIL }}", JETBROKERS_PASS: "${{ secrets.JETBROKERS_PASS }}", DIAG_ID: "${{ inputs.id || 'utPNS9kv' }}" }
+        run: python3 scripts/diag_mkt_types.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: mkt-types, path: imports/_diag/, retention-days: 14 }
