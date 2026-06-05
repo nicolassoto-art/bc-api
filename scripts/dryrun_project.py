@@ -87,58 +87,44 @@ async def main():
             cap.append(e)
     page.on("response", on_resp)
 
-    await page.goto("https://app.jetbrokers.io/catalog", wait_until="networkidle", timeout=45_000)
-    await page.wait_for_timeout(3_000)
+    # Navegación DIRECTA al workview del proyecto objetivo (abre contexto server-side).
+    await page.goto(f"https://app.jetbrokers.io/marketplace/workview/{pid}",
+                    wait_until="networkidle", timeout=45_000)
+    await page.wait_for_timeout(4_000)
     await imp._dismiss_popups()
-    await page.wait_for_timeout(800)
-    # buscar por nombre
-    try:
-        sbox = None
-        for sel in ("input[placeholder*='Buscar']", "input[type='text']", "input[type='search']", "input"):
-            loc = page.locator(sel).first
-            if await loc.count() > 0:
-                sbox = loc; break
-        if sbox:
-            await sbox.fill(re.sub(r"(?i)etapa\s*\d+", "", target_name).strip() or target_name)
-            await page.wait_for_timeout(3_000)
-            print(f"   búsqueda escrita en catálogo", flush=True)
-    except Exception as e:
-        print(f"   search err: {str(e)[:50]}", flush=True)
-    await page.screenshot(path=str(OUT / "jb-00-catalog.png"), full_page=True)
-    # clic en la tarjeta cuyo texto matchee mejor (o la primera)
-    clicked = False
-    try:
-        cards = await page.evaluate(r"""() => {
-            const out=[]; let i=0;
-            for (const el of document.querySelectorAll('.card-img-top.clickable')) {
-                const card = el.closest('.card') || el.parentElement;
-                const txt = (card?.innerText||'').replace(/\s+/g,' ').trim();
-                const r = el.getBoundingClientRect();
-                out.push({i:i++, txt:txt.slice(0,60), cx:Math.round(r.x+r.width/2), cy:Math.round(r.y+r.height/2)});
-            }
-            return out;
-        }""")
-        pick = None
-        for c in cards:
-            if norm(target_name).split()[0] in norm(c["txt"]):
-                pick = c; break
-        pick = pick or (cards[0] if cards else None)
-        if pick:
-            await page.mouse.click(pick["cx"], pick["cy"]); clicked = True
-            print(f"   clic tarjeta: {pick['txt']!r}", flush=True)
-    except Exception as e:
-        print(f"   click err: {str(e)[:50]}", flush=True)
-    await page.wait_for_timeout(5_000)
-    await imp._dismiss_popups()
-    wv_url = page.url
-    print(f"   workview url: {wv_url}", flush=True)
+    print(f"   workview url: {page.url}", flush=True)
     await page.screenshot(path=str(OUT / "jb-01-workview.png"), full_page=True)
-    real_pid = (re.search(r"workview/([A-Za-z0-9]+)", wv_url) or [None, None])[1]
-    if real_pid and real_pid != pid:
-        print(f"   ⚠ pid navegado ({real_pid}) ≠ objetivo ({pid}) — uso el navegado", flush=True)
-        pid = real_pid
 
-    # clic tabs Stock y Documentos (coordenada) para disparar units-search/files
+    # Tras abrir el workview en el navegador, httpx con Referer del proyecto suele habilitarse.
+    api = {}
+    dcli = httpx.AsyncClient(base_url=JB_API_BASE,
+        headers={**JB_HEADERS, "jet-brokers-version": "7.43.1",
+                 "Authorization": f"Bearer {imp._jb_token}",
+                 "Referer": f"https://app.jetbrokers.io/marketplace/workview/{pid}"},
+        cookies=jar, timeout=30.0)
+    for key, ep in (("workview", f"/marketplace/{pid}/workview"),
+                    ("models", f"/marketplace/stock-selectors/{pid}"),
+                    ("files", f"/marketplace/files/{pid}/0")):
+        try:
+            rr = await dcli.get(ep)
+            print(f"   httpx GET {ep.split('/')[-1] or ep} → {rr.status_code}", flush=True)
+            if rr.status_code == 200:
+                api[key] = rr.json()
+        except Exception as e:
+            print(f"   httpx {ep} ERR: {str(e)[:50]}", flush=True)
+    try:
+        uts = int(time.time() * 1000)
+        ubody = {"tipologies": [], "type": None, "order": "ASC", "models": [], "facings": [],
+                 "projectId": pid, "availability": None, "number": None, "element": 0, "elements": 9999}
+        ur = await dcli.post(f"/marketplace/units-search/{uts}", json=ubody)
+        print(f"   httpx POST units-search → {ur.status_code}", flush=True)
+        if ur.status_code in (200, 201):
+            api["units"] = ur.json()
+    except Exception as e:
+        print(f"   units-search ERR: {str(e)[:50]}", flush=True)
+    await dcli.aclose()
+
+    # Fallback passive: si httpx falló, clic tab Stock para capturar del navegador
     async def click_tab(rx):
         t = await page.evaluate(r"""(rx) => {
             const re = new RegExp(rx, 'i');
@@ -150,17 +136,18 @@ async def main():
             return null;
         }""", rx)
         if t:
-            await page.mouse.click(t["cx"], t["cy"]); await page.wait_for_timeout(3_500)
-            return True
+            await page.mouse.click(t["cx"], t["cy"]); await page.wait_for_timeout(3_500); return True
         return False
-    await click_tab("stock|unidad|disponib")
-    await page.screenshot(path=str(OUT / "jb-02-stock.png"), full_page=True)
-    await click_tab("documento")
-    await page.wait_for_timeout(2_000)
+    if not api.get("models") or not api.get("units"):
+        print(f"   (httpx incompleto → fallback passive por tabs)", flush=True)
+        await click_tab("stock|unidad|disponib")
+        await page.screenshot(path=str(OUT / "jb-02-stock.png"), full_page=True)
+        await click_tab("documento")
+        await page.wait_for_timeout(1_500)
     page.remove_listener("response", on_resp)
     await imp.close()
 
-    # ── 3. Parsear capturas ──
+    # ── 3. Consolidar (httpx primero, passive fallback) ──
     def latest(key):
         for c in reversed(cap):
             if key in c["url"] and c["status"] in (200, 201):
@@ -169,10 +156,10 @@ async def main():
                 except Exception:
                     return None
         return None
-    wv = latest("workview") or {}
-    ss = latest("stock-selectors") or {}
-    us = latest("units-search") or {}
-    fl = latest("marketplace/files") or {}
+    wv = api.get("workview") or latest("workview") or {}
+    ss = api.get("models") or latest("stock-selectors") or {}
+    us = api.get("units") or latest("units-search") or {}
+    fl = api.get("files") or latest("marketplace/files") or {}
     api_models = ss.get("models", []) if isinstance(ss, dict) else []
     units = us.get("apartments", []) if isinstance(us, dict) else []
     files = fl.get("files", []) if isinstance(fl, dict) else []
