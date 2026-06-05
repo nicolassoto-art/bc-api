@@ -30,7 +30,11 @@ import httpx  # noqa: E402
 OUT = Path("imports/_detail"); OUT.mkdir(parents=True, exist_ok=True)
 DRY = os.environ.get("DRY_RUN", "1") != "0"
 LINK = os.environ.get("DIAG_LINK", "")
-PID = os.environ.get("DIAG_ID", "").strip() or (re.search(r"detail/([A-Za-z0-9]+)", LINK) or [None, "exrBr6Tp"])[-1]
+_m = re.search(r"(?:detail|workview)/([A-Za-z0-9]+)", LINK)
+PID = os.environ.get("DIAG_ID", "").strip() or (_m.group(1) if _m else "exrBr6Tp")
+# Tipo de proyecto: 'own' (BigCapital, /projects/detail) o 'mkt' (reventa, /marketplace/workview)
+MODE = "mkt" if ("workview" in LINK or os.environ.get("MODE") == "mkt") else "own"
+REF_PATH = f"projects/detail/{PID}" if MODE == "own" else f"marketplace/workview/{PID}"
 
 COTIZA = {"never": "Nunca", "optional": "Opcional", "required": "Obligatorio", None: "Opcional"}
 STAGE = {"green": "En Verde", "deliveryReady": "Entrega Inmediata", "whiteWork": "Obra Gruesa",
@@ -77,8 +81,8 @@ async def main():
         bc_jwt=os.environ.get("BC_API_JWT", "dummy"), imports_dir=OUT)
     await imp.login()
     page = imp._page
-    # abrir la detail page (establece contexto + token fresco)
-    await page.goto(f"https://app.jetbrokers.io/projects/detail/{PID}", wait_until="networkidle", timeout=50_000)
+    # abrir la página del proyecto (establece contexto de sesión + token fresco)
+    await page.goto(f"https://app.jetbrokers.io/{REF_PATH}", wait_until="networkidle", timeout=50_000)
     await page.wait_for_timeout(4_000)
     await imp._dismiss_popups()
     cookies = await imp._ctx.cookies()
@@ -86,20 +90,32 @@ async def main():
     cli = httpx.AsyncClient(base_url=JB_API_BASE, cookies=jar, timeout=40.0,
                             headers={**JB_HEADERS, "jet-brokers-version": "7.43.1",
                                      "Authorization": f"Bearer {imp._jb_token}",
-                                     "Referer": f"https://app.jetbrokers.io/projects/detail/{PID}"})
+                                     "Referer": f"https://app.jetbrokers.io/{REF_PATH}"})
 
-    # ── Fetch ──
-    detail = await jb_get(cli, f"/project/{PID}/detail") or {}
-    models = await jb_get(cli, f"/apartment-model/project/{PID}/all") or []
+    # ── Fetch (según tipo de proyecto) ──
+    print(f"### MODO: {MODE}  (id {PID})", flush=True)
+    if MODE == "own":
+        detail = await jb_get(cli, f"/project/{PID}/detail") or {}
+        models = await jb_get(cli, f"/apartment-model/project/{PID}/all") or []
+        uts = int(time.time() * 1000)
+        ubody = {"tipologies": [], "type": None, "order": "ASC", "models": [], "facings": [],
+                 "projectId": PID, "availability": None, "number": None, "element": 0, "elements": 9999}
+        ru = await cli.post(f"/apartment/project-detail-search/{uts}", json=ubody)
+        units = (ru.json() or {}).get("apartments", []) if ru.status_code in (200, 201) else []
+    else:  # marketplace
+        detail = await jb_get(cli, f"/marketplace/{PID}/workview") or {}
+        ss = await jb_get(cli, f"/marketplace/stock-selectors/{PID}") or {}
+        models = ss.get("models", []) if isinstance(ss, dict) else []
+        uts = int(time.time() * 1000)
+        ubody = {"tipologies": [], "type": None, "order": "ASC", "models": [], "facings": [],
+                 "projectId": PID, "availability": None, "number": None, "element": 0, "elements": 9999}
+        ru = await cli.post(f"/marketplace/units-search/{uts}", json=ubody)
+        units = (ru.json() or {}).get("apartments", []) if ru.status_code in (200, 201) else []
+    # notas (intentar en ambos modos)
     notes = None
     rn = await cli.get(f"/project/{PID}/notes")
     if rn.status_code == 200:
         notes = rn.text
-    uts = int(time.time() * 1000)
-    ubody = {"tipologies": [], "type": None, "order": "ASC", "models": [], "facings": [],
-             "projectId": PID, "availability": None, "number": None, "element": 0, "elements": 9999}
-    ru = await cli.post(f"/apartment/project-detail-search/{uts}", json=ubody)
-    units = (ru.json() or {}).get("apartments", []) if ru.status_code in (200, 201) else []
     # files: autodetectar endpoint
     files = []
     files_ep = None
@@ -124,7 +140,13 @@ async def main():
           f"organization={detail.get('organization')!r}", flush=True)
 
     # ── Mapear extra + modelos ──
-    inmob = detail.get("developerName") or detail.get("buildingCompany") or "Sin asignar"
+    # inmobiliaria: propio → developerName (MNK); marketplace → organization.name (Maestra).
+    # NUNCA "BigCapital" (es el broker, no inmobiliaria).
+    org = detail.get("organization")
+    org_name = org.get("name") if isinstance(org, dict) else None
+    if org_name and org_name.strip().lower() in ("bigcapital", "big capital"):
+        org_name = None
+    inmob = detail.get("developerName") or org_name or detail.get("buildingCompany") or "Sin asignar"
     extra = {
         "jb_id": PID, "jb_id_v2": True,
         "descripcion": detail.get("description"),
