@@ -98,6 +98,9 @@ def test_public_dict_no_filtra_datos_sensibles():
             "estacionamientos": [{"numero": "E-1"}],
             "bodegas": [{"numero": "B-1"}],
             "etiquetas": ["destacado"],
+            # notas del proyecto: van al worker, que las gatea (brokers logueados · #61)
+            "notas_html": "<p>nota del proyecto</p>",
+            "notas_text": "nota del proyecto",
             "comercial": {"pie_pct": 20, "valor_reserva_clp": 500000,
                           "promo_broker": "SECRETO 5% extra"},
             # --- sensibles que el importador SÍ escribe (NO deben salir) ---

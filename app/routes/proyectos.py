@@ -274,7 +274,8 @@ def detalle(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depend
         proyecto_id,
         options=[selectinload(Proyecto.unidades), selectinload(Proyecto.imagenes), selectinload(Proyecto.documentos)],
     )
-    if not p:
+    if not p or p.deleted_at is not None:
+        # En la papelera = no accesible por el detalle normal (restaurar usa /restaurar).
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
     # Fallback de foto: si foto_principal_url está vacía pero hay imágenes,
     # priorizar la FACHADA REAL (categoria='jb-foto' / 'fachada' / vacía) por

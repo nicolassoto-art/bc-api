@@ -1,0 +1,19 @@
+name: Diag Headers (401 fix)
+on: { workflow_dispatch: {} }
+concurrency: { group: diag-headers, cancel-in-progress: false }
+jobs:
+  h:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11', cache: 'pip' }
+      - run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+      - env:
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+        run: python3 scripts/diag_headers.py
