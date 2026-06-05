@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias
+from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias, documentos
 from .settings import settings
 
 logging.basicConfig(level=settings.log_level)
@@ -36,6 +36,7 @@ app.mount("/uploads", StaticFiles(directory=str(settings.upload_path)), name="up
 app.include_router(auth.router)
 app.include_router(proyectos.router)
 app.include_router(imagenes.router)
+app.include_router(documentos.router)
 app.include_router(unidades.router)
 app.include_router(importador.router)
 app.include_router(inmobiliarias.router)
