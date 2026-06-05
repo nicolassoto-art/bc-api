@@ -49,11 +49,24 @@ async def main():
     await imp.login()
     page = imp._page
 
+    # Cliente httpx CON cookies de la sesión del navegador (stock-selectors/files lo exigen)
+    import httpx
+    from app.services.jb_importer import JB_API_BASE, JB_HEADERS
+
+    async def cookie_cli():
+        cookies = await imp._ctx.cookies()
+        jar = {c["name"]: c["value"] for c in cookies if "jetbrokers" in (c.get("domain") or "")}
+        return httpx.AsyncClient(
+            base_url=JB_API_BASE,
+            headers={**JB_HEADERS, "jet-brokers-version": "7.43.1",
+                     "Authorization": f"Bearer {imp._jb_token}"},
+            cookies=jar, timeout=30.0)
+
     # ── 1. Resolver por nombre ──
-    async with imp._jb_httpx() as cli:
-        ts = int(time.time() * 1000)
-        r = await cli.post(f"/project/organization/{ORG}/list/{ts}", json=LIST_BODY)
-        projs = (r.json() or {}).get("projects", []) if r.status_code in (200, 201) else []
+    cli = await cookie_cli()
+    ts = int(time.time() * 1000)
+    r = await cli.post(f"/project/organization/{ORG}/list/{ts}", json=LIST_BODY)
+    projs = (r.json() or {}).get("projects", []) if r.status_code in (200, 201) else []
     print(f"### Lista org: {len(projs)} proyectos (status {r.status_code})", flush=True)
 
     if FORCED_ID:
@@ -92,22 +105,33 @@ async def main():
     page.on("response", on_resp)
 
     data = {}
-    async with imp._jb_httpx() as cli:
-        for key, ep in (("workview", f"/marketplace/{pid}/workview"),
-                        ("models", f"/marketplace/stock-selectors/{pid}"),
-                        ("files", f"/marketplace/files/{pid}/0")):
-            try:
-                rr = await cli.get(ep)
-                print(f"   API GET {ep} → {rr.status_code}", flush=True)
-                if rr.status_code == 200:
-                    data[key] = rr.json()
-                    (OUT / f"{key}.json").write_text(json.dumps(data[key], indent=2, ensure_ascii=False))
-            except Exception as e:
-                print(f"   API GET {ep} ERR: {str(e)[:60]}", flush=True)
+    for key, ep in (("workview", f"/marketplace/{pid}/workview"),
+                    ("models", f"/marketplace/stock-selectors/{pid}"),
+                    ("files", f"/marketplace/files/{pid}/0")):
+        try:
+            rr = await cli.get(ep)
+            print(f"   API GET {ep} → {rr.status_code}", flush=True)
+            if rr.status_code == 200:
+                data[key] = rr.json()
+                (OUT / f"{key}.json").write_text(json.dumps(data[key], indent=2, ensure_ascii=False))
+        except Exception as e:
+            print(f"   API GET {ep} ERR: {str(e)[:60]}", flush=True)
+    # units-search por API (POST con cookies). Body típico capturado de la app:
+    try:
+        uts = int(time.time() * 1000)
+        ubody = {"project": pid, "facing": None, "tipology": None, "available": None,
+                 "priceFrom": None, "priceTo": None, "element": 0, "elements": 9999}
+        ur = await cli.post(f"/marketplace/units-search/{uts}", json=ubody)
+        print(f"   API POST /marketplace/units-search → {ur.status_code}", flush=True)
+        if ur.status_code in (200, 201):
+            data["units"] = (ur.json() or {}).get("apartments", [])
+            (OUT / "units.json").write_text(json.dumps(data["units"], indent=2, ensure_ascii=False))
+    except Exception as e:
+        print(f"   units-search ERR: {str(e)[:60]}", flush=True)
+    await cli.aclose()
 
-    # ── 3. Navegar workview UI → tab Stock para capturar units-search (body+resp) + screenshots ──
-    units = []
-    units_body = None
+    # ── 3. Navegar workview UI (screenshots) + fallback passive de units ──
+    units = data.get("units") or []
     try:
         await page.goto(f"https://app.jetbrokers.io/marketplace/workview/{pid}",
                         wait_until="networkidle", timeout=45_000)
@@ -115,37 +139,30 @@ async def main():
         await imp._dismiss_popups()
         print(f"   UI workview url: {page.url}", flush=True)
         await page.screenshot(path=str(OUT / "jb-01-workview.png"), full_page=True)
-        # capturar request body de units-search
-        def on_req(req):
-            nonlocal units_body
-            if "units-search" in req.url and req.method == "POST":
-                try:
-                    units_body = json.loads(req.post_data or "{}")
-                except Exception:
-                    pass
-        page.on("request", on_req)
-        # click tab Stock
-        for word in ("Stock", "Unidades", "Disponib"):
-            try:
-                loc = page.locator(f"text={word}").first
-                if await loc.count() > 0:
-                    await loc.click(timeout=4_000)
-                    await page.wait_for_timeout(3_500)
-                    break
-            except Exception:
-                continue
+        # click tab interno por coordenada (robusto, como diag_workview)
+        tabs = await page.evaluate(r"""() => {
+            const out = [];
+            for (const el of document.querySelectorAll('button,a,[role=tab],.nav-link,.tab,[class*=tab]')) {
+                const t = (el.innerText||'').replace(/\s+/g,' ').trim();
+                if (t && /stock|unidad|disponib/i.test(t) && t.length < 25) {
+                    const r = el.getBoundingClientRect();
+                    if (r.width>0 && r.height>0) out.push({t, cx:Math.round(r.x+r.width/2), cy:Math.round(r.y+r.height/2)});
+                }
+            }
+            return out;
+        }""")
+        if tabs:
+            await page.mouse.click(tabs[0]["cx"], tabs[0]["cy"])
+            await page.wait_for_timeout(4_000)
         await page.screenshot(path=str(OUT / "jb-02-stock.png"), full_page=True)
-        # extraer units-search de las capturas
-        for c in cap:
-            if "units-search" in c["url"] and c["status"] in (200, 201):
-                try:
-                    units = json.loads(c["body"]).get("apartments", [])
-                except Exception:
-                    pass
-        print(f"   units-search body usado por la app: {json.dumps(units_body)[:200] if units_body else '(no capturado)'}", flush=True)
-        print(f"   unidades capturadas: {len(units)}", flush=True)
-        if units:
-            (OUT / "units.json").write_text(json.dumps(units, indent=2, ensure_ascii=False))
+        if not units:
+            for c in cap:
+                if "units-search" in c["url"] and c["status"] in (200, 201):
+                    try:
+                        units = json.loads(c["body"]).get("apartments", [])
+                    except Exception:
+                        pass
+        print(f"   unidades (API+passive): {len(units)}", flush=True)
     except Exception as e:
         print(f"   UI workview ERR: {str(e)[:80]}", flush=True)
 
@@ -156,26 +173,38 @@ async def main():
                         wait_until="networkidle", timeout=45_000)
         await page.wait_for_timeout(4_000)
         await imp._dismiss_popups()
-        await page.screenshot(path=str(OUT / "jb-03-editor.png"), full_page=True)
-        # ¿proyecto no encontrado?
         body_txt = await page.evaluate("() => document.body.innerText.slice(0,400)")
         notfound = "no encontrado" in (body_txt or "").lower()
         print(f"   editor cargó: {'NO (proyecto no encontrado)' if notfound else 'sí'}", flush=True)
         if not notfound:
-            try:
-                await imp._click_tab("Modelos")
-                await page.wait_for_timeout(2_500)
-            except Exception:
-                pass
+            # click tab Modelos por coordenada
+            mtab = await page.evaluate(r"""() => {
+                for (const el of document.querySelectorAll('button,a,[role=tab],.nav-link,.tab,[class*=tab],span,div')) {
+                    const t = (el.innerText||'').replace(/\s+/g,' ').trim();
+                    if (t === 'Modelos') {
+                        const r = el.getBoundingClientRect();
+                        if (r.width>0 && r.height>0) return {cx:Math.round(r.x+r.width/2), cy:Math.round(r.y+r.height/2)};
+                    }
+                }
+                return null;
+            }""")
+            if mtab:
+                await page.mouse.click(mtab["cx"], mtab["cy"])
+            await page.wait_for_timeout(3_500)
+            # scroll para cargar lazy-rows
+            for _ in range(6):
+                await page.mouse.wheel(0, 500)
+                await page.wait_for_timeout(400)
+            await page.wait_for_timeout(1_500)
             await page.screenshot(path=str(OUT / "jb-04-editor-modelos.png"), full_page=True)
-            # extraer filas: nombre + img thumbnail (planta_id en src)
             scraped_models = await page.evaluate(r"""() => {
                 const out = [];
                 const scope = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
-                const rows = scope.querySelectorAll('table tbody tr');
+                let rows = scope.querySelectorAll('table tbody tr');
+                if (!rows.length) rows = scope.querySelectorAll('.mat-row,[role=row],.model-row,.card');
                 for (const tr of rows) {
-                    const name = (tr.querySelector('input')?.value
-                                  || tr.cells?.[0]?.innerText || '').trim();
+                    const inp = tr.querySelector('input');
+                    const name = (inp ? inp.value : (tr.querySelector('td,.cell')?.innerText || '')).trim();
                     let plantaId = null;
                     const img = tr.querySelector('img');
                     if (img && img.src) {
@@ -186,6 +215,13 @@ async def main():
                 }
                 return out;
             }""")
+            if not scraped_models:
+                # dump HTML del tab activo para debug
+                html = await page.evaluate("""() => {
+                    const s = document.querySelector('mat-tab-body.mat-mdc-tab-body-active') || document.body;
+                    return s.innerHTML.slice(0, 8000);
+                }""")
+                (OUT / "editor-modelos-tab.html").write_text(html)
         print(f"   modelos scrapeados del editor: {len(scraped_models)}", flush=True)
         for m in scraped_models[:30]:
             print(f"      name={m.get('name')!r:28} planta_id={m.get('plantaId')!r}", flush=True)
