@@ -1,0 +1,28 @@
+name: Patch enums (no-destructivo)
+on:
+  workflow_dispatch:
+    inputs:
+      pids: { description: 'bc-api ids (csv)', required: false, default: 'vistamar,etapa-2-portal-del-pinar' }
+concurrency: { group: patch-enums, cancel-in-progress: false }
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install httpx
+      - name: Login bc-api
+        env: { BC_API_PASSWORD: "${{ secrets.BC_API_PASSWORD }}" }
+        run: |
+          JWT=$(python3 -c "import os,httpx,time
+          for i in range(6):
+            try:
+              r=httpx.post('https://bc-api.178-105-91-29.nip.io/auth/login',json={'email':'nicolas.soto@bigcapital.cl','password':os.environ['BC_API_PASSWORD']},timeout=15)
+              if r.status_code==200: print(r.json()['access_token']); break
+            except: pass
+            time.sleep(4)")
+          echo "::add-mask::$JWT"; echo "BC_API_JWT=$JWT" >> "$GITHUB_ENV"
+      - env: { PID_BC: "${{ inputs.pids || 'vistamar,etapa-2-portal-del-pinar' }}" }
+        run: python3 scripts/patch_enums.py
