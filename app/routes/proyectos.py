@@ -3,7 +3,7 @@ from typing import List, Optional
 import re
 import uuid
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func, Integer
 from sqlalchemy.orm import Session, selectinload
@@ -12,6 +12,7 @@ from ..db import get_db
 from ..deps.auth import service_token, stock_access
 from ..models import Proyecto, Unidad, Usuario
 from ..schemas import ProyectoIn, ProyectoOut, ProyectoSummary
+from ..services import email_service
 
 router = APIRouter(prefix="/proyectos", tags=["proyectos"])
 
@@ -271,7 +272,7 @@ def detalle(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depend
 
 
 @router.post("", response_model=ProyectoOut, status_code=status.HTTP_201_CREATED)
-def crear(body: ProyectoIn, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
+def crear(body: ProyectoIn, background_tasks: BackgroundTasks, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
     pid = body.id or slugify(body.nombre)
     if db.get(Proyecto, pid):
         raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Ya existe un proyecto con id '{pid}'")
@@ -280,6 +281,10 @@ def crear(body: ProyectoIn, db: Session = Depends(get_db), _: Usuario = Depends(
     db.add(p)
     db.commit()
     db.refresh(p)
+    background_tasks.add_task(
+        email_service.notify_change, "Nuevo proyecto en stock", p.nombre or pid,
+        f"Se creó el proyecto ({p.inmobiliaria or 'sin inmobiliaria'} · {p.comuna or 's/comuna'}).", p.id,
+    )
     return p
 
 
@@ -353,6 +358,7 @@ class _PublicarBody(BaseModel):
 def set_publicar(
     proyecto_id: str,
     body: _PublicarBody,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _: Usuario = Depends(stock_access),
 ):
@@ -368,4 +374,11 @@ def set_publicar(
     flag_modified(p, "extra")
     p.updated_at = datetime.utcnow()
     db.commit()
+    background_tasks.add_task(
+        email_service.notify_change,
+        "Publicado en catálogo" if body.publicar else "Quitado del catálogo",
+        p.nombre or p.id,
+        "Ahora es visible en el catálogo público." if body.publicar else "Ya no aparece en el catálogo público.",
+        p.id,
+    )
     return {"ok": True, "id": p.id, "publicar_en_catalogo": bool(body.publicar)}

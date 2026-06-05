@@ -3,7 +3,7 @@ from typing import List
 import io
 import uuid
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, status
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from sqlalchemy.orm import Session
@@ -12,6 +12,7 @@ from ..db import get_db
 from ..deps.auth import stock_access
 from ..models import Proyecto, Unidad, Usuario
 from ..schemas import UnidadIn, UnidadOut
+from ..services import email_service
 
 router = APIRouter(prefix="/proyectos/{proyecto_id}/unidades", tags=["unidades"])
 
@@ -563,6 +564,7 @@ def _excel_legacy(proy, proyecto_id, con_datos, db):
 @router.post("/excel/upload")
 async def subir_excel(
     proyecto_id: str,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(stock_access),
@@ -797,6 +799,12 @@ async def subir_excel(
 
     db.commit()
 
+    background_tasks.add_task(
+        email_service.notify_change, "Stock actualizado", proy.nombre or proyecto_id,
+        f"Subida de Excel: +{len(inserted)} nuevas, {len(updated)} actualizadas"
+        + (f", {dados_de_baja} dadas de baja" if dados_de_baja else "") + ".",
+        proyecto_id,
+    )
     return {
         "format": "jb_v2.4" if is_jb else "bc_api",
         "inserted": len(inserted),

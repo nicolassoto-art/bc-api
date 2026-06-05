@@ -22,6 +22,18 @@ class Settings(BaseSettings):
     env: str = "development"
     log_level: str = "INFO"
 
+    # SMTP para notificaciones de cambios de stock (Fase 2). Reusa las MISMAS
+    # credenciales del dashboard de brokers (mismos nombres de env): basta copiar
+    # el bloque SMTP_* del .env del dashboard al .env de bc-api. Si están vacías,
+    # el envío es no-op (no rompe nada). El "from" sale como sistemas@bigcapital.cl.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_pass: str = ""
+    smtp_from: str = "sistemas@bigcapital.cl"
+    smtp_from_name: str = "BigCapital · Stock"
+    notify_to: str = "nicolas.soto@bigcapital.cl"  # destinatario admin de las notificaciones
+
     @property
     def upload_path(self) -> Path:
         p = Path(self.upload_dir)
