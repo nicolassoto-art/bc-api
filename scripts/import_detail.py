@@ -136,6 +136,7 @@ async def main():
         return []
     parkings = await fetch_stock(f"/parking/project/{PID}", "parkings")
     stores = await fetch_stock(f"/store/project/{PID}", "stores")
+    packs = await fetch_stock(f"/pack/project/{PID}", "packs")
     await cli.aclose()
 
     print(f"### {detail.get('name')!r} (id {PID})", flush=True)
@@ -282,10 +283,12 @@ async def main():
         print(f"   ej: {u0['numero']} modelo={u0['modelo']!r} orient={u0['orientacion']!r} ST={u0['sup_total']} "
               f"int={u0['sup_interior']} precio={u0['precio_lista_uf']} disp={u0['disponible']} "
               f"flags(est/bod/pack)={u0['estac_flag']}/{u0['bodega_flag']}/{u0['pack_flag']}", flush=True)
-    print(f"\n--- ESTACIONAMIENTOS / BODEGAS ---", flush=True)
-    print(f"   estacionamientos: {len(extra['estacionamientos_dom'])} · bodegas: {len(extra['bodegas_dom'])}", flush=True)
+    print(f"\n--- ESTACIONAMIENTOS / BODEGAS / PACKS ---", flush=True)
+    print(f"   estacionamientos: {len(extra['estacionamientos_dom'])} · bodegas: {len(extra['bodegas_dom'])} · packs: {len(packs)}", flush=True)
     if extra["estacionamientos_dom"]:
         print(f"   ej estac: {extra['estacionamientos_dom'][0]}", flush=True)
+    if packs:
+        print(f"   ej pack CRUDO: {json.dumps(packs[0], ensure_ascii=False)[:300]}", flush=True)
     print(f"\n--- FICHA → bc-api ---", flush=True)
     print(f"   inmobiliaria={inmob!r} comuna={detail.get('locality')!r} direccion={detail.get('address')!r}", flush=True)
     print(f"   banco={extra['cuenta_reserva']['banco']!r} spa={extra['spa_proyecto']['nombre']!r} "
