@@ -1,0 +1,42 @@
+name: Diag Detail (caza endpoint detalle JB)
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: 'nombres a buscar en catálogo (csv)'
+        required: false
+        default: 'Vivaceta,Serrano,Rioja'
+
+concurrency:
+  group: diag-detail
+  cancel-in-progress: false
+
+jobs:
+  detail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+      - name: Cazar endpoint detalle (NO escribe bc-api)
+        env:
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+          DIAG_TARGETS:     ${{ inputs.targets || 'Vivaceta,Serrano,Rioja' }}
+        run: python3 scripts/diag_detail.py
+      - name: Upload artefactos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detail
+          path: imports/_diag/
+          retention-days: 14
