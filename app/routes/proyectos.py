@@ -2,7 +2,7 @@
 from typing import List, Optional
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func, Integer
@@ -123,6 +123,7 @@ def listar_publicos(db: Session = Depends(get_db), _: bool = Depends(service_tok
         select(Proyecto)
         .options(selectinload(Proyecto.unidades), selectinload(Proyecto.imagenes), selectinload(Proyecto.documentos))
         .where(Proyecto.activo == True)  # noqa: E712
+        .where(Proyecto.deleted_at.is_(None))  # excluir papelera
         .order_by(Proyecto.updated_at.desc())
     ).scalars().all()
     return [_proyecto_public_dict(p) for p in proys if _is_publicable(p)]
@@ -135,6 +136,7 @@ def detalle_publico(external_id: str, db: Session = Depends(get_db), _: bool = D
         select(Proyecto)
         .options(selectinload(Proyecto.unidades), selectinload(Proyecto.imagenes), selectinload(Proyecto.documentos))
         .where(Proyecto.activo == True)  # noqa: E712
+        .where(Proyecto.deleted_at.is_(None))  # excluir papelera
     ).scalars().all()
     for p in proys:
         if not _is_publicable(p):
@@ -143,6 +145,24 @@ def detalle_publico(external_id: str, db: Session = Depends(get_db), _: bool = D
         if external_id in (ext, p.id):
             return _proyecto_public_dict(p)
     raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no publicado")
+
+
+@router.get("/papelera", response_model=List[ProyectoSummary])
+def listar_papelera(db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
+    """Proyectos en la papelera (soft-deleted). Purga-al-leer: borra de verdad los
+    que ya pasaron 30 días desde el borrado. El frontend calcula los días restantes
+    a partir de deleted_at. Declarada ANTES de /{proyecto_id} para que no la capture."""
+    limite = datetime.utcnow() - timedelta(days=30)
+    expirados = db.execute(
+        select(Proyecto).where(Proyecto.deleted_at.is_not(None), Proyecto.deleted_at < limite)
+    ).scalars().all()
+    for p in expirados:
+        db.delete(p)
+    if expirados:
+        db.commit()
+    return db.execute(
+        select(Proyecto).where(Proyecto.deleted_at.is_not(None)).order_by(Proyecto.deleted_at.desc())
+    ).scalars().all()
 
 
 @router.get("", response_model=List[ProyectoSummary])
@@ -154,7 +174,7 @@ def listar(
     db: Session = Depends(get_db),
     _: Usuario = Depends(stock_access),
 ):
-    stmt = select(Proyecto)
+    stmt = select(Proyecto).where(Proyecto.deleted_at.is_(None))  # la papelera va aparte (#papelera)
     if activo is not None:
         stmt = stmt.where(Proyecto.activo == activo)
     if fase:
@@ -308,11 +328,35 @@ def actualizar(
 
 @router.delete("/{proyecto_id}", status_code=status.HTTP_204_NO_CONTENT)
 def eliminar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
+    """Soft-delete: mueve el proyecto a la PAPELERA (recuperable 30 días). Se oculta
+    de listados y catálogo (activo=False + publicar=False). La purga final (borrado
+    real) ocurre al listar la papelera una vez pasados los 30 días."""
+    from sqlalchemy.orm.attributes import flag_modified
     p = db.get(Proyecto, proyecto_id)
     if not p:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
-    db.delete(p)
+    p.deleted_at = datetime.utcnow()
+    p.activo = False
+    extra = dict(p.extra or {})
+    if extra.get("publicar_en_catalogo"):
+        extra["publicar_en_catalogo"] = False
+        p.extra = extra
+        flag_modified(p, "extra")
     db.commit()
+
+
+@router.post("/{proyecto_id}/restaurar", response_model=ProyectoOut)
+def restaurar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
+    """Restaura un proyecto desde la papelera: lo reactiva (deleted_at=None, activo=True).
+    NO lo re-publica en el catálogo (eso queda como acción manual del usuario)."""
+    p = db.get(Proyecto, proyecto_id)
+    if not p or p.deleted_at is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="El proyecto no está en la papelera")
+    p.deleted_at = None
+    p.activo = True
+    db.commit()
+    db.refresh(p)
+    return p
 
 
 class _EstadoBody(BaseModel):

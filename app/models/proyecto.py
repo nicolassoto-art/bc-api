@@ -55,6 +55,10 @@ class Proyecto(Base):
     # proyecto). El listado muestra "último stock actualizado" = stock_updated_at.
     stock_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
+    # Soft-delete: papelera de 30 días. Si deleted_at != null el proyecto está en
+    # la papelera (oculto de listados/catálogo, recuperable). NULL = activo normal.
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     unidades: Mapped[List["Unidad"]] = relationship(back_populates="proyecto", cascade="all, delete-orphan")
     imagenes: Mapped[List["Imagen"]] = relationship(back_populates="proyecto", cascade="all, delete-orphan")
     documentos: Mapped[List["Documento"]] = relationship(back_populates="proyecto", cascade="all, delete-orphan")

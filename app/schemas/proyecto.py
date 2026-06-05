@@ -102,6 +102,7 @@ class ProyectoOut(ProyectoBase):
     created_at: datetime
     updated_at: datetime
     stock_updated_at: Optional[datetime] = None
+    deleted_at: Optional[datetime] = None
     unidades: List[UnidadOut] = []
     imagenes: List[ImagenOut] = []
     documentos: List[DocumentoOut] = []

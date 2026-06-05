@@ -1,0 +1,42 @@
+name: Diag API Explore (server-side, solo lectura)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: 'jb_ids separados por coma'
+        required: false
+        default: 'igfwzvh2,lmvjgz7f'
+
+concurrency:
+  group: diag-explore
+  cancel-in-progress: false
+
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+      - name: Explorar API JB (NO escribe en bc-api)
+        env:
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+          DIAG_IDS:         ${{ inputs.ids || 'igfwzvh2,lmvjgz7f' }}
+        run: python3 scripts/diag_api_explore.py
+      - name: Upload artefactos (JSON + screenshots)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-explore
+          path: imports/_diag/
+          retention-days: 14
