@@ -53,16 +53,17 @@ def _html(titulo: str, proyecto: str, detalle: str, proyecto_id: str) -> str:
 </div>"""
 
 
-def _stock_recipients() -> str:
-    """Destinatarios de las notificaciones de STOCK (notify_change): admin + equipo
-    (Pamela, Álvaro). Coma-separado en NOTIFY_STOCK_TO. Los tickets/diagnóstico siguen
-    yendo solo a notify_to."""
-    raw = (settings.notify_stock_to or settings.notify_to or "")
-    return ", ".join([e.strip() for e in raw.split(",") if e.strip()])
+def _stock_cc() -> str:
+    """CC ('en copia') de las notificaciones de STOCK: el equipo (Pamela, Álvaro).
+    El destinatario principal (To) es notify_to. Coma-separado en NOTIFY_STOCK_CC.
+    Excluye a notify_to para no duplicar. Los tickets/diagnóstico no llevan CC."""
+    raw = (settings.notify_stock_cc or "")
+    to = settings.notify_to.strip().lower()
+    return ", ".join([e.strip() for e in raw.split(",") if e.strip() and e.strip().lower() != to])
 
 
 def notify_change(titulo: str, proyecto: str, detalle: str, proyecto_id: str) -> None:
-    """Notificación de cambio de stock al equipo (settings.notify_stock_to).
+    """Notificación de cambio de stock: To = admin (notify_to), Cc = equipo (notify_stock_cc).
 
     NO-OP si SMTP no está configurado. Traga errores (corre como BackgroundTask).
     """
@@ -74,7 +75,10 @@ def notify_change(titulo: str, proyecto: str, detalle: str, proyecto_id: str) ->
         msg["Subject"] = f"{titulo} · {proyecto}"
         from_addr = settings.smtp_from or settings.smtp_user
         msg["From"] = formataddr((settings.smtp_from_name, from_addr))
-        msg["To"] = _stock_recipients()
+        msg["To"] = settings.notify_to
+        _cc = _stock_cc()
+        if _cc:
+            msg["Cc"] = _cc
         msg["Reply-To"] = from_addr
         msg.set_content(f"{titulo}\n{proyecto}\n{detalle}\n{_fecha_cl()}")
         msg.add_alternative(_html(titulo, proyecto, detalle, proyecto_id), subtype="html")
@@ -82,7 +86,7 @@ def notify_change(titulo: str, proyecto: str, detalle: str, proyecto_id: str) ->
             s.starttls()
             s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))  # Gmail App Password sin espacios
             s.send_message(msg)
-        log.info("Notificación '%s' (%s) enviada a %s", titulo, proyecto, _stock_recipients())
+        log.info("Notificación '%s' (%s) → To:%s Cc:%s", titulo, proyecto, settings.notify_to, _stock_cc())
     except Exception as e:
         log.warning("Error enviando notificación '%s' (%s): %s", titulo, proyecto, e)
 
