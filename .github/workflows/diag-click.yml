@@ -1,0 +1,22 @@
+name: Diag Click (detalle real)
+on: { workflow_dispatch: {} }
+concurrency: { group: diag-click, cancel-in-progress: false }
+jobs:
+  click:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11', cache: 'pip' }
+      - run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+      - env:
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+        run: python3 scripts/diag_click.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: click, path: imports/_diag/, retention-days: 14 }
