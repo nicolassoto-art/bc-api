@@ -44,15 +44,20 @@ MODALITY = {"new": "Nuevo", "used": "Usado"}
 PIE_T = {"voluntary": "Opcional", "optional": "Opcional", "required": "Obligatorio", "mandatory": "Obligatorio"}
 DESC_T = {"all": "Todo", "onlyapartment": "Solo Unidad", "no": "No", "none": "No"}
 BONO_T = {"all": "Todo", "onlyapartment": "Solo Unidad", "no": "No", "none": "No"}
-RES_T = {"downpayment": "Pie", "operationalexpenses": "Gastos operacionales",
-         "torefund": "A devolver", "refundable": "A devolver"}
+RES_T = {"downpayment": "Pie", "pie": "Pie", "operationalexpenses": "Gastos operacionales",
+         "expense": "Gastos operacionales", "expenses": "Gastos operacionales",
+         "torefund": "A devolver", "refundable": "A devolver", "refund": "A devolver"}
 DEST_T = {"projectdeveloper": "Inmobiliaria", "developer": "Inmobiliaria", "broker": "Broker"}
 CESION_T = {"no": "No", "yesauthorized": "Si, con autorización de la inmobiliaria",
             "yesemergency": "Si, sólo en casos de emergencia", "yesopen": "Si, abierta", "yes": "Si, abierta"}
-CUENTA_T = {"cta corriente": "Cuenta Corriente", "cuenta corriente": "Cuenta Corriente", "checking": "Cuenta Corriente",
-            "cta vista": "Cuenta Vista", "vista": "Cuenta Vista", "ahorro": "Cuenta de Ahorro",
-            "savings": "Cuenta de Ahorro", "rut": "CuentaRUT", "cuentarut": "CuentaRUT"}
+CUENTA_T = {"cta corriente": "Cuenta Corriente", "cuenta corriente": "Cuenta Corriente",
+            "corriente": "Cuenta Corriente", "checking": "Cuenta Corriente",
+            "cta vista": "Cuenta Vista", "cuenta vista": "Cuenta Vista", "vista": "Cuenta Vista",
+            "ahorro": "Cuenta de Ahorro", "cuenta de ahorro": "Cuenta de Ahorro", "savings": "Cuenta de Ahorro",
+            "rut": "CuentaRUT", "cuentarut": "CuentaRUT"}
 PERMISO_T = {"yes": "1", "no": "0", "inprocess": "tramite", "processing": "tramite", "intramite": "tramite"}
+PREAP_T = {"no": "No", "atpromise": "Aprobación a la promesa", "atreservation": "Aprobación a la reserva",
+           "yespromise": "Si, a la promesa", "yesreservation": "Si, a la reserva"}
 
 
 def emap(d, v):
@@ -206,7 +211,7 @@ async def main():
         "promocion_broker": detail.get("promoBroker"),
         "promocion_cliente": detail.get("promoCustomer"),
         "stock_type": detail.get("stockType"),
-        "solicita_preaprobacion": detail.get("preApprovalRequired"),
+        "solicita_preaprobacion": emap(PREAP_T, detail.get("preApprovalRequired")),
         "etiquetas": detail.get("tags") or [],
         "equipamiento": detail.get("perks") or [],
         "areas_comunes": detail.get("perksCommonAreas") or [],

@@ -69,14 +69,17 @@ async def main():
     # [5] ENUMS — deben estar en español (sin inglés crudo)
     print(f"\n[5] ENUMS (tipos en español):", flush=True)
     RAW = {"voluntary", "all", "onlyapartment", "downpayment", "projectdeveloper",
-           "yesauthorized", "yesemergency", "yesopen", "shared", "operationalexpenses", "torefund"}
+           "yesauthorized", "yesemergency", "yesopen", "shared", "operationalexpenses", "torefund",
+           "expense", "expenses", "refund", "corriente", "vista", "ahorro", "checking", "savings",
+           "atpromise", "atreservation", "yespromise", "yesreservation", "developer"}
     com = extra.get("comercial") or {}
     fis = extra.get("fisicos") or {}
     cta = extra.get("cuenta_reserva") or {}
     checks = {"tipo_pie": com.get("tipo_pie"), "tipo_descuento": com.get("tipo_descuento"),
               "tipo_bono_pie": com.get("tipo_bono_pie"), "tipo_reserva": com.get("tipo_reserva"),
               "destino_reserva": com.get("destino_reserva"), "acepta_cesion": fis.get("acepta_cesion"),
-              "permiso_construccion": fis.get("permiso_construccion"), "tipo_cuenta": cta.get("tipo_cuenta")}
+              "permiso_construccion": fis.get("permiso_construccion"), "tipo_cuenta": cta.get("tipo_cuenta"),
+              "solicita_preaprobacion": extra.get("solicita_preaprobacion"), "stock_type": extra.get("stock_type")}
     issues = []
     for k, v in checks.items():
         bad = str(v).strip().lower() in RAW
