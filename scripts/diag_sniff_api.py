@@ -77,6 +77,22 @@ async def main():
         versions = sorted({c["version"] for c in calls if c["version"]})
         print(f"\n  jet-brokers-version que manda la app: {versions}", flush=True)
         print(f"  total API calls capturadas: {len(calls)}", flush=True)
+        # histograma de status
+        from collections import Counter
+        hist = Counter(c["status"] for c in calls)
+        print(f"  histograma status: {dict(hist)}", flush=True)
+        # endpoints que SÍ respondieron 200 (revela cómo carga el editor)
+        print(f"  --- endpoints 200 OK ---", flush=True)
+        seen200 = set()
+        for c in calls:
+            if c["status"] != 200:
+                continue
+            path = c["url"].split("jetbrokers.io/api", 1)[-1]
+            sig = f"{c['method']} {path.split('?')[0]}"
+            if sig in seen200:
+                continue
+            seen200.add(sig)
+            print(f"    [200] {c['method']:<5} {path[:95]}", flush=True)
         print(f"  --- endpoints relevantes (unit/stock/model/project) ---", flush=True)
         seen = set()
         for c in calls:
