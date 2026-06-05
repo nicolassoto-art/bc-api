@@ -5,7 +5,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # Lee .env (BD, JWT, etc.) y además .env.smtp (solo SMTP, lo escribe el deploy
+    # desde el secreto SMTP_PASS de GitHub) — separados para no tocar nunca el .env
+    # con credenciales sensibles. El segundo pisa al primero si hay choque.
+    model_config = SettingsConfigDict(env_file=(".env", ".env.smtp"), env_file_encoding="utf-8", extra="ignore")
 
     database_url: str = "postgresql+psycopg://bcapi:bcapi@localhost:5432/bcapi"
     jwt_secret: str = "dev-only-change-me"

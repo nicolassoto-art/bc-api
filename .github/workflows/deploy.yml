@@ -30,6 +30,7 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}  # típicamente "root" o "deploy"
           INSTALL_DIR: ${{ secrets.INSTALL_DIR || '/opt/bc-api' }}
           SERVICE_USER: ${{ secrets.SERVICE_USER || 'bcapi' }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}  # App Password de sistema@bigcapital.cl (notificaciones)
         run: |
           ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" bash -s <<EOF
           set -e
@@ -47,6 +48,15 @@ jobs:
 
           # Migrations
           sudo -u $SERVICE_USER bash -lc "cd $INSTALL_DIR && .venv/bin/alembic upgrade head"
+
+          # SMTP (notificaciones): escribir .env.smtp SOLO si el secreto SMTP_PASS existe.
+          # Archivo aparte → NUNCA toca el .env (que tiene DATABASE_URL/JWT). Idempotente.
+          if [ -n "$SMTP_PASS" ]; then
+            sudo -u $SERVICE_USER bash -lc "cd $INSTALL_DIR && printf 'SMTP_HOST=smtp.gmail.com\nSMTP_PORT=587\nSMTP_USER=sistema@bigcapital.cl\nSMTP_PASS=%s\nNOTIFY_TO=nicolas.soto@bigcapital.cl\n' '$SMTP_PASS' > .env.smtp && chmod 600 .env.smtp"
+            echo "✓ .env.smtp actualizado (SMTP configurado)"
+          else
+            echo "· SMTP_PASS no configurado en secrets — .env.smtp sin cambios"
+          fi
 
           # Restart service (sudo solo si no somos root)
           if [ "\$(id -u)" = "0" ]; then SUDO=""; else SUDO="sudo"; fi
