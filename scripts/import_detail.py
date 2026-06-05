@@ -125,9 +125,17 @@ async def main():
             lst = fr.get("files") if isinstance(fr, dict) else (fr if isinstance(fr, list) else None)
             if lst:
                 files = lst; files_ep = tmpl; break
-    # estacionamientos + bodegas (proyectos propios)
-    parkings = ((await jb_get(cli, f"/parking/project/{PID}/list/0")) or {}).get("parkings", [])
-    stores = ((await jb_get(cli, f"/store/project/{PID}/list/0")) or {}).get("stores", [])
+    # estacionamientos + bodegas (intenta /list/0 y /available)
+    async def fetch_stock(base, key):
+        r = await jb_get(cli, f"{base}/list/0")
+        if isinstance(r, dict) and isinstance(r.get(key), list) and r[key]:
+            return r[key]
+        r2 = await jb_get(cli, f"{base}/available")
+        if isinstance(r2, list) and r2:
+            return r2
+        return []
+    parkings = await fetch_stock(f"/parking/project/{PID}", "parkings")
+    stores = await fetch_stock(f"/store/project/{PID}", "stores")
     await cli.aclose()
 
     print(f"### {detail.get('name')!r} (id {PID})", flush=True)
