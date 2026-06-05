@@ -73,13 +73,15 @@ async def main():
     target_name = target.get("name") or NAME
     print(f"\n### Elegido: {target_name} (id {pid})\n", flush=True)
 
-    # ── 2. Captura pasiva + navegación catálogo → buscar → clic → workview → tabs ──
+    # ── 2. Captura pasiva navegando /projects/detail/{id} (vista de proyectos PROPIOS) ──
     cap = []
 
     async def on_resp(resp):
-        if "jetbrokers.io/api" in resp.url and any(
-                k in resp.url for k in ("stock-selectors", "units-search", "marketplace/files", "workview")):
-            e = {"url": resp.url, "status": resp.status}
+        if "jetbrokers.io/api" in resp.url and any(k in resp.url for k in (
+                "/detail", "/notes", "/totals", "apartment-model", "project-detail-search",
+                "stock-selectors", "units-search", "marketplace/files", "workview",
+                "/tipology", "/facing", "project-js-files", "/file/")):
+            e = {"m": resp.request.method, "url": resp.url, "status": resp.status}
             try:
                 e["body"] = await resp.text()
             except Exception:
@@ -87,67 +89,67 @@ async def main():
             cap.append(e)
     page.on("response", on_resp)
 
-    # Navegación DIRECTA al workview del proyecto objetivo (abre contexto server-side).
-    await page.goto(f"https://app.jetbrokers.io/marketplace/workview/{pid}",
-                    wait_until="networkidle", timeout=45_000)
-    await page.wait_for_timeout(4_000)
+    # Vista de proyecto PROPIO: /projects/detail/{id} (no bota sesión, todo 200).
+    await page.goto(f"https://app.jetbrokers.io/projects/detail/{pid}",
+                    wait_until="networkidle", timeout=50_000)
+    await page.wait_for_timeout(5_000)
     await imp._dismiss_popups()
-    print(f"   workview url: {page.url}", flush=True)
-    await page.screenshot(path=str(OUT / "jb-01-workview.png"), full_page=True)
+    print(f"   detail url: {page.url}", flush=True)
+    await page.screenshot(path=str(OUT / "jb-01-detail.png"), full_page=True)
+    # recorrer tabs internos para disparar units/fotos/docs
+    for _ in range(8):
+        clicked = await page.evaluate(r"""() => {
+            const re=/modelo|tipolog|unidad|stock|disponib|foto|galer|documento/i;
+            const done = window.__c || (window.__c=new Set());
+            for (const el of document.querySelectorAll('button,a,[role=tab],.nav-link,.tab,[class*=tab]')) {
+                const s=(el.innerText||'').replace(/\s+/g,' ').trim();
+                if (s && re.test(s) && s.length<22 && !done.has(s)){const r=el.getBoundingClientRect();
+                  if(r.width>0&&r.height>0){done.add(s); el.click(); return s;}}
+            }
+            return null;
+        }""")
+        if not clicked:
+            break
+        await page.wait_for_timeout(2_500)
+    for _ in range(5):
+        await page.mouse.wheel(0, 600); await page.wait_for_timeout(350)
+    await page.wait_for_timeout(2_000)
+    await page.screenshot(path=str(OUT / "jb-02-stock.png"), full_page=True)
 
-    # Tras abrir el workview en el navegador, httpx con Referer del proyecto suele habilitarse.
+    # httpx con Referer = detail page (por si habilita los endpoints sin navegar)
     api = {}
     dcli = httpx.AsyncClient(base_url=JB_API_BASE,
         headers={**JB_HEADERS, "jet-brokers-version": "7.43.1",
                  "Authorization": f"Bearer {imp._jb_token}",
-                 "Referer": f"https://app.jetbrokers.io/marketplace/workview/{pid}"},
+                 "Referer": f"https://app.jetbrokers.io/projects/detail/{pid}"},
         cookies=jar, timeout=30.0)
-    for key, ep in (("workview", f"/marketplace/{pid}/workview"),
-                    ("models", f"/marketplace/stock-selectors/{pid}"),
-                    ("files", f"/marketplace/files/{pid}/0")):
+    for key, ep in (("detail", f"/project/{pid}/detail"),
+                    ("models", f"/apartment-model/project/{pid}/all"),
+                    ("notes", f"/project/{pid}/notes"),
+                    ("totals", f"/project/{pid}/totals")):
         try:
             rr = await dcli.get(ep)
-            print(f"   httpx GET {ep.split('/')[-1] or ep} → {rr.status_code}", flush=True)
+            print(f"   httpx GET {ep} → {rr.status_code}", flush=True)
             if rr.status_code == 200:
-                api[key] = rr.json()
+                try: api[key] = rr.json()
+                except Exception: api[key] = rr.text
         except Exception as e:
             print(f"   httpx {ep} ERR: {str(e)[:50]}", flush=True)
     try:
         uts = int(time.time() * 1000)
         ubody = {"tipologies": [], "type": None, "order": "ASC", "models": [], "facings": [],
                  "projectId": pid, "availability": None, "number": None, "element": 0, "elements": 9999}
-        ur = await dcli.post(f"/marketplace/units-search/{uts}", json=ubody)
-        print(f"   httpx POST units-search → {ur.status_code}", flush=True)
+        ur = await dcli.post(f"/apartment/project-detail-search/{uts}", json=ubody)
+        print(f"   httpx POST project-detail-search → {ur.status_code}", flush=True)
         if ur.status_code in (200, 201):
             api["units"] = ur.json()
     except Exception as e:
-        print(f"   units-search ERR: {str(e)[:50]}", flush=True)
+        print(f"   project-detail-search ERR: {str(e)[:50]}", flush=True)
     await dcli.aclose()
-
-    # Fallback passive: si httpx falló, clic tab Stock para capturar del navegador
-    async def click_tab(rx):
-        t = await page.evaluate(r"""(rx) => {
-            const re = new RegExp(rx, 'i');
-            for (const el of document.querySelectorAll('button,a,[role=tab],.nav-link,.tab,[class*=tab]')) {
-                const s=(el.innerText||'').replace(/\s+/g,' ').trim();
-                if (s && re.test(s) && s.length<25){const r=el.getBoundingClientRect();
-                  if(r.width>0&&r.height>0) return {cx:Math.round(r.x+r.width/2),cy:Math.round(r.y+r.height/2)};}
-            }
-            return null;
-        }""", rx)
-        if t:
-            await page.mouse.click(t["cx"], t["cy"]); await page.wait_for_timeout(3_500); return True
-        return False
-    if not api.get("models") or not api.get("units"):
-        print(f"   (httpx incompleto → fallback passive por tabs)", flush=True)
-        await click_tab("stock|unidad|disponib")
-        await page.screenshot(path=str(OUT / "jb-02-stock.png"), full_page=True)
-        await click_tab("documento")
-        await page.wait_for_timeout(1_500)
     page.remove_listener("response", on_resp)
     await imp.close()
 
-    # ── 3. Consolidar (httpx primero, passive fallback) ──
+    # ── 3. Consolidar (httpx primero, passive del navegador como fallback) ──
     def latest(key):
         for c in reversed(cap):
             if key in c["url"] and c["status"] in (200, 201):
@@ -156,30 +158,37 @@ async def main():
                 except Exception:
                     return None
         return None
-    wv = api.get("workview") or latest("workview") or {}
-    ss = api.get("models") or latest("stock-selectors") or {}
-    us = api.get("units") or latest("units-search") or {}
-    fl = api.get("files") or latest("marketplace/files") or {}
-    api_models = ss.get("models", []) if isinstance(ss, dict) else []
-    units = us.get("apartments", []) if isinstance(us, dict) else []
-    files = fl.get("files", []) if isinstance(fl, dict) else []
-    for nm, obj in (("workview", wv), ("models", ss), ("units", us), ("files", fl)):
+    wv = (api.get("detail") if isinstance(api.get("detail"), dict) else None) or latest(f"/project/{pid}/detail") or {}
+    ss = api.get("models") or latest("apartment-model/project") or []
+    us = api.get("units") or latest("project-detail-search") or {}
+    notes = api.get("notes") or latest(f"/project/{pid}/notes")
+    api_models = ss if isinstance(ss, list) else (ss.get("models", []) if isinstance(ss, dict) else [])
+    if isinstance(us, dict):
+        units = us.get("apartments") or us.get("elements") or us.get("data") or []
+    elif isinstance(us, list):
+        units = us
+    else:
+        units = []
+    files = []
+    for nm, obj in (("detail", wv), ("models", api_models), ("units", units)):
         if obj:
             (OUT / f"{nm}.json").write_text(json.dumps(obj, indent=2, ensure_ascii=False))
-    print(f"\n   capturado: workview={'sí' if wv else 'NO'} modelos={len(api_models)} "
-          f"unidades={len(units)} archivos={len(files)}", flush=True)
+    notes_len = len(notes) if isinstance(notes, str) else len(json.dumps(notes)) if notes else 0
+    print(f"\n   capturado: ficha={'sí' if wv else 'NO'} modelos={len(api_models)} "
+          f"unidades={len(units)} notas={notes_len}b", flush=True)
 
     # ── 4. Mapeo + reporte ──
     print(f"\n{'='*72}\n=== MAPEO QUE SE IMPORTARÍA (dry-run, SIN escribir bc-api) ===\n{'='*72}", flush=True)
     print(f"\n--- MODELOS ({len(api_models)}) ---", flush=True)
+    if api_models:
+        print(f"   [modelo crudo #0]: {json.dumps(api_models[0], ensure_ascii=False)[:400]}", flush=True)
     tip = Counter(); plantas = set()
     for m in api_models:
         bp = (m.get("blueprint") or {}).get("id")
         t = derive_tipo(m.get("rooms"), m.get("bathrooms"))
         tip[t] += 1
         if bp: plantas.add(bp)
-        sup = (m.get("name") or "").split("-")[-1].strip()
-        print(f"   tipo={t}  {m.get('name')!r:42}  planta={bp!r}", flush=True)
+        print(f"   tipo={t}  name={m.get('name')!r:42}  planta={bp!r}", flush=True)
     print(f"\n   → {len(api_models)} modelos · {len(plantas)} plantas DISTINTAS · tipologías={dict(tip)}", flush=True)
     colaps = {t: n for t, n in tip.items() if n > 1}
     if colaps:
@@ -187,20 +196,18 @@ async def main():
 
     print(f"\n--- UNIDADES ({len(units)}) ---", flush=True)
     if units:
+        print(f"   [unidad cruda #0]: {json.dumps(units[0], ensure_ascii=False)[:500]}", flush=True)
         bpset = {(m.get('blueprint') or {}).get('id') for m in api_models}
-        huer = sum(1 for u in units if (u.get('apartmentModel') or {}).get('blueprint', {}).get('id') not in bpset)
-        sup = sum(1 for u in units if u.get('surfaceTotal'))
-        u0 = units[0]
-        print(f"   ej: nº{u0.get('number')} planta_modelo={(u0.get('apartmentModel') or {}).get('blueprint',{}).get('id')} "
-              f"ST={u0.get('surfaceTotal')} int={u0.get('surfaceInterior')} terr={u0.get('surfaceTerrace')} "
-              f"precio={u0.get('price')} facing={u0.get('facing')}", flush=True)
-        print(f"   enlazadas a modelo por planta: {len(units)-huer}/{len(units)} · con superficie: {sup}/{len(units)}", flush=True)
+        def ubp(u):
+            am = u.get('apartmentModel') or u.get('model') or {}
+            return (am.get('blueprint') or {}).get('id') if isinstance(am, dict) else None
+        huer = sum(1 for u in units if ubp(u) not in bpset)
+        print(f"   enlazadas a modelo por planta: {len(units)-huer}/{len(units)} huérfanas={huer}", flush=True)
 
-    print(f"\n--- FOTOS/DOCS ({len(files)} de {fl.get('count') if isinstance(fl,dict) else '?'}) ---", flush=True)
-    print(f"   tipos: {dict(Counter(f.get('type') for f in files))}", flush=True)
+    print(f"\n--- NOTAS / FICHA ---", flush=True)
     print(f"   cover (→ portada/fachada): {wv.get('cover')!r}", flush=True)
-
-    print(f"\n--- FICHA (workview) ---", flush=True)
+    if isinstance(notes, str):
+        print(f"   notas HTML: {len(notes)} chars · muestra: {notes[:120]!r}", flush=True)
     for k in ("name", "address", "locality", "reserveBank", "reserveAccountNumber",
               "shellCompanyName", "pie", "reservaCLP", "apartmentsTotal", "description"):
         print(f"   {k}: {str(wv.get(k))[:60]!r}", flush=True)
