@@ -75,7 +75,8 @@ def test_crud_proyecto(client, admin):
 
 def test_public_dict_no_filtra_datos_sensibles():
     """El catálogo público (allow-list) NUNCA debe exponer RUT, cuenta bancaria,
-    notas internas, comisiones, promos de broker ni el path del Excel de stock.
+    comisiones, promos de broker ni el path del Excel de stock. Las NOTAS del proyecto
+    SÍ van al worker (que las gatea: brokers logueados, no público anónimo · #61).
 
     Regresión de C1/C2: el importador JB escribe cuenta_reserva.titular_rut /
     numero_cuenta / link_pago y spa_proyecto.rut — nombres que el mask viejo
@@ -107,8 +108,6 @@ def test_public_dict_no_filtra_datos_sensibles():
             "cuenta_reserva": {"titular_rut": "77.389.903-7",
                                "numero_cuenta": "92311635", "link_pago": "http://pay"},
             "spa_proyecto": {"rut": "76.000.000-0", "nombre": "SPA X"},
-            "notas_html": "<p>nota interna confidencial</p>",
-            "notas_text": "nota interna confidencial",
             "comision_admin": {"pct": 3},
             "_jb_stock_excel": {"path": "/srv/import/stock.xlsx"},
             "promocion_broker": "margen oculto",
@@ -120,7 +119,6 @@ def test_public_dict_no_filtra_datos_sensibles():
     fugas = [
         "77.389.903-7", "92311635", "titular_rut", "numero_cuenta", "link_pago",
         "cuenta_reserva", "spa_proyecto", "76.000.000-0",
-        "notas_html", "notas_text", "nota interna",
         "comision_admin", "_jb_stock_excel", "stock.xlsx",
         "promo_broker", "SECRETO", "promocion_broker", "margen oculto",
     ]
@@ -130,6 +128,8 @@ def test_public_dict_no_filtra_datos_sensibles():
     # Los campos seguros SÍ deben estar presentes
     assert d["descripcion"] == "descripcion publica ok"
     assert d["external_id"] == "Sfp8j2Sq"
+    # Las notas del proyecto SÍ van al feed (el worker las gatea por audiencia · #61)
+    assert d.get("notas_html") and d.get("notas_text")
     assert d["estacionamientos"] == [{"numero": "E-1"}]
     assert d["comercial"]["pie_pct"] == 20
     assert d["comercial"]["valor_reserva_clp"] == 500000
