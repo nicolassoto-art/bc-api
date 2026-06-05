@@ -1,0 +1,26 @@
+name: Diag detail page (proyectos propios)
+on:
+  workflow_dispatch:
+    inputs:
+      id: { description: 'jb id nuevo', required: false, default: 'exrBr6Tp' }
+concurrency: { group: diag-detail-page, cancel-in-progress: false }
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11', cache: 'pip' }
+      - run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+      - env:
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+          DIAG_ID:          ${{ inputs.id || 'exrBr6Tp' }}
+        run: python3 scripts/diag_detail_page.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: detail-page, path: imports/_diag/, retention-days: 14 }
