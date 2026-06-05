@@ -140,17 +140,26 @@ async def main():
             lst = fr.get("files") if isinstance(fr, dict) else (fr if isinstance(fr, list) else None)
             if lst:
                 files = lst; files_ep = tmpl; break
-    # estac/bodegas/packs: endpoint UNIFICADO /project/{id}/assets (vía flujo de cotización).
-    # Funciona para proyectos propios Y de reventa (los /parking,/store dan 401 en reventa).
-    acli = httpx.AsyncClient(base_url=JB_API_BASE, cookies=jar, timeout=30.0,
-        headers={**JB_HEADERS, "jet-brokers-version": "7.43.1",
-                 "Authorization": f"Bearer {imp._jb_token}",
-                 "Referer": "https://app.jetbrokers.io/quotes"})
-    assets = await jb_get(acli, f"/project/{PID}/assets") or {}
-    await acli.aclose()
-    parkings = assets.get("parkings", []) if isinstance(assets, dict) else []
-    stores = assets.get("stores", []) if isinstance(assets, dict) else []
-    packs = assets.get("packs", []) if isinstance(assets, dict) else []
+    # estac/bodegas/packs: preferir /list/0 (proyectos propios, INVENTARIO COMPLETO con
+    # disponibilidad); fallback a /project/{id}/assets vía cotización (reventa: /list da 401).
+    pk_l = await jb_get(cli, f"/parking/project/{PID}/list/0")
+    st_l = await jb_get(cli, f"/store/project/{PID}/list/0")
+    pc_l = await jb_get(cli, f"/pack/project/{PID}/list/0")
+    parkings = (pk_l.get("parkings") if isinstance(pk_l, dict) else None) or []
+    stores = (st_l.get("stores") if isinstance(st_l, dict) else None) or []
+    packs = (pc_l.get("packs") if isinstance(pc_l, dict) else None) or []
+    src_stock = "list"
+    if not (parkings or stores or packs):
+        acli = httpx.AsyncClient(base_url=JB_API_BASE, cookies=jar, timeout=30.0,
+            headers={**JB_HEADERS, "jet-brokers-version": "7.43.1",
+                     "Authorization": f"Bearer {imp._jb_token}",
+                     "Referer": "https://app.jetbrokers.io/quotes"})
+        assets = await jb_get(acli, f"/project/{PID}/assets") or {}
+        await acli.aclose()
+        parkings = assets.get("parkings", []) if isinstance(assets, dict) else []
+        stores = assets.get("stores", []) if isinstance(assets, dict) else []
+        packs = assets.get("packs", []) if isinstance(assets, dict) else []
+        src_stock = "assets"
     await cli.aclose()
 
     print(f"### {detail.get('name')!r} (id {PID})", flush=True)
@@ -304,7 +313,7 @@ async def main():
               f"int={u0['sup_interior']} precio={u0['precio_lista_uf']} disp={u0['disponible']} "
               f"flags(est/bod/pack)={u0['estac_flag']}/{u0['bodega_flag']}/{u0['pack_flag']}", flush=True)
     print(f"\n--- ESTACIONAMIENTOS / BODEGAS / PACKS ---", flush=True)
-    print(f"   estacionamientos: {len(extra['estacionamientos_dom'])} · bodegas: {len(extra['bodegas_dom'])} · packs: {len(extra['packs_dom'])}", flush=True)
+    print(f"   estacionamientos: {len(extra['estacionamientos_dom'])} · bodegas: {len(extra['bodegas_dom'])} · packs: {len(extra['packs_dom'])} (fuente: {src_stock})", flush=True)
     if extra["estacionamientos_dom"]:
         print(f"   ej estac: {extra['estacionamientos_dom'][0]}", flush=True)
     if extra["bodegas_dom"]:
