@@ -1,0 +1,42 @@
+name: Diag Sniff API (solo lectura)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: 'jb_ids separados por coma'
+        required: false
+        default: 'igfwzvh2'
+
+concurrency:
+  group: diag-sniff
+  cancel-in-progress: false
+
+jobs:
+  sniff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+      - name: Sniff API JB (NO escribe en bc-api)
+        env:
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+          DIAG_IDS:         ${{ inputs.ids || 'igfwzvh2' }}
+        run: python3 scripts/diag_sniff_api.py
+      - name: Upload dump
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sniff-api
+          path: imports/_diag/
+          retention-days: 14
