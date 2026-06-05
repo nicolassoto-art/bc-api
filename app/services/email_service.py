@@ -79,6 +79,51 @@ def notify_change(titulo: str, proyecto: str, detalle: str, proyecto_id: str) ->
         log.warning("Error enviando notificación '%s' (%s): %s", titulo, proyecto, e)
 
 
+def notify_ticket(autor: str, page_url: str, descripcion: str, tiene_captura: bool = False) -> None:
+    """Email inmediato al admin por un nuevo ticket de reporte de falla (Fase 5).
+
+    NO-OP si SMTP no está configurado. Traga errores (corre como BackgroundTask).
+    """
+    if not _configured():
+        log.info("SMTP no configurado — ticket de %s NO notificado.", autor)
+        return
+    try:
+        panel = "https://herramientas.bigcapital.cl/tickets.html"
+        cap_txt = " · incluye captura" if tiene_captura else ""
+        html = f"""<div style="font-family:Inter,Arial,sans-serif;background:#f4f6f9;padding:24px">
+  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e6e9ef">
+    <div style="background:#0e1b2c;padding:18px 24px">
+      <span style="color:#7DC242;font-weight:700;font-size:18px">BigCapital</span><span style="color:#9fb0c7;font-size:13px"> · Reporte de falla</span>
+    </div>
+    <div style="padding:24px">
+      <h2 style="margin:0 0 8px;font-size:18px;color:#0e1b2c">🐞 Nuevo reporte de falla{_esc(cap_txt)}</h2>
+      <p style="margin:0 0 4px;font-size:14px;color:#55657a">Reportó: <b style="color:#0e1b2c">{_esc(autor)}</b></p>
+      <p style="margin:0 0 12px;font-size:13px;color:#9fb0c7;word-break:break-word">Página: {_esc(page_url or '—')}</p>
+      <div style="background:#f4f6f9;border-radius:8px;padding:14px;font-size:14px;color:#0e1b2c;line-height:1.5;white-space:pre-wrap;word-break:break-word">{_esc(descripcion)}</div>
+      <a href="{panel}" style="display:inline-block;margin-top:18px;background:#7DC242;color:#fff;text-decoration:none;padding:10px 22px;border-radius:8px;font-weight:600;font-size:14px">Ver tickets</a>
+      <p style="margin:18px 0 0;font-size:12px;color:#9fb0c7">{_fecha_cl()} · Reporte automático · Herramientas BigCapital</p>
+    </div>
+  </div>
+</div>"""
+        msg = EmailMessage()
+        msg["Subject"] = "🐞 Nuevo reporte de falla · Herramientas"
+        from_addr = settings.smtp_from or settings.smtp_user
+        msg["From"] = formataddr((settings.smtp_from_name, from_addr))
+        msg["To"] = settings.notify_to
+        msg["Reply-To"] = from_addr
+        msg.set_content(
+            f"Nuevo reporte de falla\nReportó: {autor}\nPágina: {page_url or '—'}\n\n{descripcion}\n\nPanel: {panel}\n{_fecha_cl()}"
+        )
+        msg.add_alternative(html, subtype="html")
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as s:
+            s.starttls()
+            s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))
+            s.send_message(msg)
+        log.info("Ticket de %s notificado a %s", autor, settings.notify_to)
+    except Exception as e:
+        log.warning("Error notificando ticket de %s: %s", autor, e)
+
+
 def status() -> dict:
     """Estado de la config SMTP (sin exponer la contraseña). Para diagnóstico."""
     return {

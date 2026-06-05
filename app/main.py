@@ -9,7 +9,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias, documentos
+from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias, documentos, tickets
 from .settings import settings
 from .deps.auth import super_admin
 from .services import email_service
@@ -43,6 +43,7 @@ app.include_router(documentos.router)
 app.include_router(unidades.router)
 app.include_router(importador.router)
 app.include_router(inmobiliarias.router)
+app.include_router(tickets.router)
 
 
 @app.get("/health", tags=["meta"])

@@ -7,3 +7,4 @@ from .proyecto import (  # noqa: F401
 )
 from .auth import LoginIn, TokenOut, UserOut  # noqa: F401
 from .inmobiliaria import InmobiliariaIn, InmobiliariaOut  # noqa: F401
+from .ticket import TicketOut, TicketUpdate  # noqa: F401
