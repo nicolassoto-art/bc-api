@@ -50,6 +50,10 @@ class Proyecto(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Solo cambia cuando cambia el STOCK (unidades): alta/edición/borrado/Excel.
+    # Lo toca app/routes/unidades.py. Distinto de updated_at (cualquier edición del
+    # proyecto). El listado muestra "último stock actualizado" = stock_updated_at.
+    stock_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     unidades: Mapped[List["Unidad"]] = relationship(back_populates="proyecto", cascade="all, delete-orphan")
     imagenes: Mapped[List["Imagen"]] = relationship(back_populates="proyecto", cascade="all, delete-orphan")

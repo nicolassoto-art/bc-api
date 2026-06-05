@@ -204,6 +204,17 @@ def _ensure_project(db: Session, proyecto_id: str) -> Proyecto:
     return p
 
 
+def _touch_stock(db: Session, proyecto_id: str) -> None:
+    """Marca el proyecto como 'stock actualizado ahora'. Solo se llama desde las
+    mutaciones de unidades (alta/edición/borrado), para que stock_updated_at refleje
+    SOLO cambios de stock. Bulk update (no dispara onupdate) → setea ambos a mano."""
+    now = datetime.utcnow()
+    db.query(Proyecto).filter(Proyecto.id == proyecto_id).update(
+        {Proyecto.stock_updated_at: now, Proyecto.updated_at: now},
+        synchronize_session=False,
+    )
+
+
 def _num_or_none(v):
     if v is None or v == "":
         return None
@@ -231,6 +242,7 @@ def crear(
         raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Ya existe la unidad {body.numero}")
     u = Unidad(id="u-" + uuid.uuid4().hex[:10], proyecto_id=proyecto_id, **body.model_dump())
     db.add(u)
+    _touch_stock(db, proyecto_id)
     db.commit()
     db.refresh(u)
     return u
@@ -249,6 +261,7 @@ def actualizar(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Unidad no encontrada")
     for k, v in body.model_dump().items():
         setattr(u, k, v)
+    _touch_stock(db, proyecto_id)
     db.commit()
     db.refresh(u)
     return u
@@ -265,6 +278,7 @@ def eliminar(
     if not u or u.proyecto_id != proyecto_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Unidad no encontrada")
     db.delete(u)
+    _touch_stock(db, proyecto_id)
     db.commit()
 
 
@@ -729,6 +743,7 @@ async def subir_excel(
         "dados_de_baja": len(dados_de_baja),
         "format": "jb_v2.4" if is_jb else "bc_api",
     }
+    proy.stock_updated_at = datetime.utcnow()  # 1.12 · marca el cambio de stock
 
     # ── Timeline: comentario "Sin cambios" o resumen de qué cambió ──
     _es_scraper = (getattr(usuario, "email", "") or "").lower().startswith("mnk-scraper")
