@@ -40,6 +40,26 @@ COTIZA = {"never": "Nunca", "optional": "Opcional", "required": "Obligatorio", N
 STAGE = {"green": "En Verde", "deliveryReady": "Entrega Inmediata", "whiteWork": "Obra Gruesa",
          "construction": "En Construcción", "finished": "Terminado"}
 MODALITY = {"new": "Nuevo", "used": "Usado"}
+# Enums JB (inglés) → valores en español del catálogo del frontend (data/datasets.js)
+PIE_T = {"voluntary": "Opcional", "optional": "Opcional", "required": "Obligatorio", "mandatory": "Obligatorio"}
+DESC_T = {"all": "Todo", "onlyapartment": "Solo Unidad", "no": "No", "none": "No"}
+BONO_T = {"all": "Todo", "onlyapartment": "Solo Unidad", "no": "No", "none": "No"}
+RES_T = {"downpayment": "Pie", "operationalexpenses": "Gastos operacionales",
+         "torefund": "A devolver", "refundable": "A devolver"}
+DEST_T = {"projectdeveloper": "Inmobiliaria", "developer": "Inmobiliaria", "broker": "Broker"}
+CESION_T = {"no": "No", "yesauthorized": "Si, con autorización de la inmobiliaria",
+            "yesemergency": "Si, sólo en casos de emergencia", "yesopen": "Si, abierta", "yes": "Si, abierta"}
+CUENTA_T = {"cta corriente": "Cuenta Corriente", "cuenta corriente": "Cuenta Corriente", "checking": "Cuenta Corriente",
+            "cta vista": "Cuenta Vista", "vista": "Cuenta Vista", "ahorro": "Cuenta de Ahorro",
+            "savings": "Cuenta de Ahorro", "rut": "CuentaRUT", "cuentarut": "CuentaRUT"}
+PERMISO_T = {"yes": "1", "no": "0", "inprocess": "tramite", "processing": "tramite", "intramite": "tramite"}
+
+
+def emap(d, v):
+    """Mapea un enum JB a su valor español; si no está en el mapa, deja el original."""
+    if v in (None, ""):
+        return v
+    return d.get(str(v).strip().lower(), v)
 FILES_EPS = ["/organization/project-js-files/{id}/0", "/marketplace/files/{id}/0", "/project-file/{id}/list/0"]
 
 
@@ -198,17 +218,20 @@ async def main():
             "estacionamientos_totales": detail.get("parkingsTotal"),
             "bodegas_totales": detail.get("storesTotal"), "ascensores": detail.get("elevatorsTotal"),
             "constructora": detail.get("buildingCompany"),
-            "permiso_construccion": detail.get("buildingPermit"),
+            "permiso_construccion": emap(PERMISO_T, detail.get("buildingPermit")),
             "numero_permiso": detail.get("buildingPermitNumber"),
-            "acepta_cesion": detail.get("allowTransfer"),
+            "acepta_cesion": emap(CESION_T, detail.get("allowTransfer")),
         },
         "comercial": {
-            "pie_pct": fnum(detail.get("pie")), "tipo_pie": detail.get("pieTipo"),
+            "pie_pct": fnum(detail.get("pie")), "tipo_pie": emap(PIE_T, detail.get("pieTipo")),
             "cuoton_inicial_pct": fnum(detail.get("cuotonInicial")),
             "cuoton_final_pct": fnum(detail.get("cuotonFinal")),
-            "tipo_descuento": detail.get("discountType"), "tipo_bono_pie": detail.get("bonoPieTipo"),
-            "valor_reserva_clp": detail.get("reservaCLP"), "tipo_reserva": detail.get("reservaTipo"),
-            "destino_reserva": detail.get("reservaDestino"), "valor_cuota_clp": detail.get("valorCuotaCLP"),
+            "tipo_descuento": emap(DESC_T, detail.get("discountType")),
+            "tipo_bono_pie": emap(BONO_T, detail.get("bonoPieTipo")),
+            "valor_reserva_clp": detail.get("reservaCLP"),
+            "tipo_reserva": emap(RES_T, detail.get("reservaTipo")),
+            "destino_reserva": emap(DEST_T, detail.get("reservaDestino")),
+            "valor_cuota_clp": detail.get("valorCuotaCLP"),
         },
         "formas_pago_pie": {
             "cuotas_pre_entrega": detail.get("cuotasPreEntrega"),
@@ -219,7 +242,7 @@ async def main():
         },
         "cuenta_reserva": {
             "titular_nombre": detail.get("reserveName"), "titular_rut": detail.get("reserveTaxId"),
-            "tipo_cuenta": detail.get("reserveAccountType"), "numero_cuenta": detail.get("reserveAccountNumber"),
+            "tipo_cuenta": emap(CUENTA_T, detail.get("reserveAccountType")), "numero_cuenta": detail.get("reserveAccountNumber"),
             "banco": detail.get("reserveBank"), "link_pago": detail.get("onlinePaymentLink"),
         },
         "spa_proyecto": {
@@ -321,6 +344,13 @@ async def main():
     if extra["packs_dom"]:
         print(f"   ej pack: {extra['packs_dom'][0]}", flush=True)
     print(f"\n--- FICHA → bc-api ---", flush=True)
+    c = extra["comercial"]
+    print(f"   ENUMS mapeados: tipo_pie={detail.get('pieTipo')!r}→{c['tipo_pie']!r} · "
+          f"tipo_descuento={detail.get('discountType')!r}→{c['tipo_descuento']!r} · "
+          f"tipo_bono_pie={detail.get('bonoPieTipo')!r}→{c['tipo_bono_pie']!r}", flush=True)
+    print(f"   tipo_reserva={detail.get('reservaTipo')!r}→{c['tipo_reserva']!r} · "
+          f"destino={detail.get('reservaDestino')!r}→{c['destino_reserva']!r} · "
+          f"cesion={detail.get('allowTransfer')!r}→{extra['fisicos']['acepta_cesion']!r}", flush=True)
     print(f"   inmobiliaria={inmob!r} comuna={detail.get('locality')!r} direccion={detail.get('address')!r}", flush=True)
     print(f"   banco={extra['cuenta_reserva']['banco']!r} spa={extra['spa_proyecto']['nombre']!r} "
           f"cover/fachada={detail.get('cover')!r}", flush=True)
