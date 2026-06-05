@@ -104,31 +104,40 @@ async def main():
             cap.append(e)
     page.on("response", on_resp)
 
+    await cli.aclose()
+    # Cliente de DETALLE: requiere Referer = página workview del proyecto (descubierto en diag_headers)
+    dcli = httpx.AsyncClient(
+        base_url=JB_API_BASE,
+        headers={**JB_HEADERS, "jet-brokers-version": "7.43.1",
+                 "Authorization": f"Bearer {imp._jb_token}",
+                 "Referer": f"https://app.jetbrokers.io/marketplace/workview/{pid}"},
+        timeout=30.0)
+
     data = {}
     for key, ep in (("workview", f"/marketplace/{pid}/workview"),
                     ("models", f"/marketplace/stock-selectors/{pid}"),
                     ("files", f"/marketplace/files/{pid}/0")):
         try:
-            rr = await cli.get(ep)
+            rr = await dcli.get(ep)
             print(f"   API GET {ep} → {rr.status_code}", flush=True)
             if rr.status_code == 200:
                 data[key] = rr.json()
                 (OUT / f"{key}.json").write_text(json.dumps(data[key], indent=2, ensure_ascii=False))
         except Exception as e:
             print(f"   API GET {ep} ERR: {str(e)[:60]}", flush=True)
-    # units-search por API (POST con cookies). Body típico capturado de la app:
+    # units-search — body EXACTO capturado de la app (projectId, availability, order...)
     try:
         uts = int(time.time() * 1000)
-        ubody = {"project": pid, "facing": None, "tipology": None, "available": None,
-                 "priceFrom": None, "priceTo": None, "element": 0, "elements": 9999}
-        ur = await cli.post(f"/marketplace/units-search/{uts}", json=ubody)
+        ubody = {"tipologies": [], "type": None, "order": "ASC", "models": [], "facings": [],
+                 "projectId": pid, "availability": None, "number": None, "element": 0, "elements": 9999}
+        ur = await dcli.post(f"/marketplace/units-search/{uts}", json=ubody)
         print(f"   API POST /marketplace/units-search → {ur.status_code}", flush=True)
         if ur.status_code in (200, 201):
             data["units"] = (ur.json() or {}).get("apartments", [])
             (OUT / "units.json").write_text(json.dumps(data["units"], indent=2, ensure_ascii=False))
     except Exception as e:
         print(f"   units-search ERR: {str(e)[:60]}", flush=True)
-    await cli.aclose()
+    await dcli.aclose()
 
     # ── 3. Navegar workview UI (screenshots) + fallback passive de units ──
     units = data.get("units") or []
