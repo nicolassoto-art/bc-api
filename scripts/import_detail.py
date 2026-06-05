@@ -58,6 +58,7 @@ CUENTA_T = {"cta corriente": "Cuenta Corriente", "cuenta corriente": "Cuenta Cor
 PERMISO_T = {"yes": "1", "no": "0", "inprocess": "tramite", "processing": "tramite", "intramite": "tramite"}
 PREAP_T = {"no": "No", "atpromise": "Aprobación a la promesa", "atreservation": "Aprobación a la reserva",
            "yespromise": "Si, a la promesa", "yesreservation": "Si, a la reserva"}
+STOCK_T = {"shared": "Compartido", "exclusive": "Exclusivo", "own": "Propio", "private": "Propio"}
 
 
 def emap(d, v):
@@ -210,7 +211,7 @@ async def main():
         "condiciones_especiales": detail.get("termDetails") or detail.get("saleRoomConditions"),
         "promocion_broker": detail.get("promoBroker"),
         "promocion_cliente": detail.get("promoCustomer"),
-        "stock_type": detail.get("stockType"),
+        "stock_type": emap(STOCK_T, detail.get("stockType")),
         "solicita_preaprobacion": emap(PREAP_T, detail.get("preApprovalRequired")),
         "etiquetas": detail.get("tags") or [],
         "equipamiento": detail.get("perks") or [],
