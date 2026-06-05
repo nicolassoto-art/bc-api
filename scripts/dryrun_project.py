@@ -36,6 +36,13 @@ def derive_tipo(rooms, baths):
         return "?"
 
 
+def bp_id(x):
+    """blueprint puede venir como string (proyectos propios) o dict {id} (marketplace)."""
+    if isinstance(x, dict):
+        return x.get("id")
+    return x if isinstance(x, str) else None
+
+
 async def main():
     imp = JBImporter(
         jb_email=os.environ["JETBROKERS_EMAIL"], jb_password=os.environ["JETBROKERS_PASS"],
@@ -184,7 +191,7 @@ async def main():
         print(f"   [modelo crudo #0]: {json.dumps(api_models[0], ensure_ascii=False)[:400]}", flush=True)
     tip = Counter(); plantas = set()
     for m in api_models:
-        bp = (m.get("blueprint") or {}).get("id")
+        bp = bp_id(m.get("blueprint"))
         t = derive_tipo(m.get("rooms"), m.get("bathrooms"))
         tip[t] += 1
         if bp: plantas.add(bp)
@@ -197,11 +204,14 @@ async def main():
     print(f"\n--- UNIDADES ({len(units)}) ---", flush=True)
     if units:
         print(f"   [unidad cruda #0]: {json.dumps(units[0], ensure_ascii=False)[:500]}", flush=True)
-        bpset = {(m.get('blueprint') or {}).get('id') for m in api_models}
+        bpset = {bp_id(m.get('blueprint')) for m in api_models}
+        mid_set = {m.get('id') for m in api_models}
         def ubp(u):
-            am = u.get('apartmentModel') or u.get('model') or {}
-            return (am.get('blueprint') or {}).get('id') if isinstance(am, dict) else None
-        huer = sum(1 for u in units if ubp(u) not in bpset)
+            am = u.get('apartmentModel') or u.get('model')
+            if isinstance(am, dict):
+                return bp_id(am.get('blueprint')) or am.get('id')
+            return am  # puede ser id de modelo (string)
+        huer = sum(1 for u in units if ubp(u) not in bpset and ubp(u) not in mid_set)
         print(f"   enlazadas a modelo por planta: {len(units)-huer}/{len(units)} huérfanas={huer}", flush=True)
 
     print(f"\n--- NOTAS / FICHA ---", flush=True)
