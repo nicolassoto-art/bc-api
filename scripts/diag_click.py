@@ -71,23 +71,21 @@ async def main():
     cap_mark = len(cap)
     url_before = page.url
 
-    # ── Clickear la primera tarjeta grande (por coordenada del centro) ──
+    # ── Clickear el cover clickeable de la primera tarjeta de proyecto ──
     clicked = False
-    if cards:
-        c = cards[0]
+    for sel in (".card-img-top.clickable", ".card-img-top", ".card .clickable", ".card-container .card"):
         try:
-            await page.mouse.click(c["cx"], c["cy"])
-            clicked = True
-            print(f"\n### Click en tarjeta '{c['text']}' @({c['cx']},{c['cy']})", flush=True)
+            loc = page.locator(sel).first
+            if await loc.count() > 0:
+                await loc.scroll_into_view_if_needed(timeout=4_000)
+                await loc.click(timeout=5_000)
+                clicked = True
+                print(f"\n### Click en selector '{sel}'", flush=True)
+                break
         except Exception as e:
-            print(f"   click err: {str(e)[:50]}", flush=True)
+            print(f"   sel '{sel}' err: {str(e)[:50]}", flush=True)
     if not clicked:
-        # fallback: coordenada fija de la primera tarjeta del grid
-        try:
-            await page.mouse.click(200, 240)
-            print("\n### Click fallback @(200,240)", flush=True)
-        except Exception:
-            pass
+        print("\n### No se pudo clickear ninguna tarjeta", flush=True)
 
     await page.wait_for_timeout(5_000)
     await imp._dismiss_popups()
