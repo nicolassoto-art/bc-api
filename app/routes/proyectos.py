@@ -48,6 +48,10 @@ _PUBLIC_EXTRA_KEYS = {
 _PUBLIC_COMERCIAL_KEYS = {
     "pie_pct", "cuoton_inicial_pct", "cuoton_final_pct",
     "cuotas_pre_entrega", "cuotas_post_entrega", "valor_reserva_clp",
+    # Esquema "Maestra": el bono pie infla la tasacion que ve el banco y el cliente
+    # paga el pie sobre el precio lista. El catalogo lo usa para prender Maestra solo
+    # en el simulador al cotizar este proyecto.
+    "bono_infla_tasacion",
 }
 
 
