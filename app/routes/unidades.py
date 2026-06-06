@@ -251,12 +251,16 @@ def _build_jb_extras(jb_estac: list[dict], jb_bodegas: list[dict]) -> dict:
         if not numero:
             continue
         pack_num = _str(b.get("Pack Número"))
+        # El campo "Tipo" de la hoja BODEGAS lleva la tenencia (Dominio / Uso y goce),
+        # mismo criterio que en estacionamientos. "Tenencia" queda como fallback.
+        tipo_v = _str(b.get("Tipo")) or _str(b.get("Tenencia"))
         item = {
             "id": f"jb-bod-{i}",
             "numero": numero,
             "precio_uf": _num(b.get("PrecioUF")),
             "superficie": _num(b.get("Superficie")),
-            "tenencia": _str(b.get("Tenencia")),
+            "tipo": tipo_v,
+            "tenencia": _str(b.get("Tenencia")),  # compat retro
             "disponible": not bool(pack_num),
         }
         if pack_num:
