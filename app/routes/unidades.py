@@ -3,7 +3,7 @@ from typing import List
 import io
 import uuid
 from datetime import datetime
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, UploadFile, File, status
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from sqlalchemy.orm import Session
@@ -50,6 +50,7 @@ JB_UNIDAD_MAP = {
     "Bodega Número":            "_bodega_num",
     "Pack Número":              "_pack_num",
     "Id Externo":               "_jb_id",
+    "_ModeloWarning":           "_modelo_warning",  # ext. Maestra: depto con modelo no registrado
 }
 
 # Mapeo de valores "Cotiza X" JB → flag bc-api
@@ -196,6 +197,94 @@ def _parse_jb_bodegas(wb) -> list[dict]:
         if item.get("Número"):
             out.append(item)
     return out
+
+
+def _build_jb_extras(jb_estac: list[dict], jb_bodegas: list[dict]) -> dict:
+    """Construye los campos de extra que el frontend lee: estacionamientos, bodegas, packs.
+
+    Reglas (alineadas con el scraper Maestra):
+      - "Solo en pack": las unidades que aparecen en algún pack quedan disponible=false
+        en sus listas individuales (siguen como ficha técnica, no se venden sueltas).
+      - "Conflictos: crear ambos packs": cada agrupamiento por "Pack Número" genera 1 pack.
+      - Conserva _estacionamientos_dom / _bodegas_dom como diagnóstico.
+
+    Tenencia: campo opcional de las hojas del Excel JB extendidas; se mapea a cada item.
+    """
+    def _num(v):
+        try:
+            return float(v) if v not in (None, "") else None
+        except (ValueError, TypeError):
+            return None
+
+    def _str(v):
+        return str(v).strip() if v not in (None, "") else ""
+
+    # Indexar por "Pack Número" → para armar packs
+    packs_by_num: dict[str, dict] = {}
+
+    estacs_out = []
+    for i, e in enumerate(jb_estac or []):
+        numero = _str(e.get("Número"))
+        if not numero:
+            continue
+        pack_num = _str(e.get("Pack Número"))
+        item = {
+            "id": f"jb-est-{i}",
+            "numero": numero,
+            "precio_uf": _num(e.get("PrecioUF")),
+            "nivel": _str(e.get("Nivel")),
+            "tipo": _str(e.get("Tipo")),
+            "tenencia": _str(e.get("Tenencia")),
+            # "solo en pack": si la fila trae Pack Número, NO se vende suelto
+            "disponible": not bool(pack_num),
+        }
+        if pack_num:
+            item["pack_numero"] = pack_num
+            grp = packs_by_num.setdefault(pack_num, {"estacionamientos": [], "bodegas": [], "precio_uf": 0.0})
+            grp["estacionamientos"].append(numero)
+            grp["precio_uf"] += item["precio_uf"] or 0
+        estacs_out.append(item)
+
+    bodegas_out = []
+    for i, b in enumerate(jb_bodegas or []):
+        numero = _str(b.get("Número"))
+        if not numero:
+            continue
+        pack_num = _str(b.get("Pack Número"))
+        item = {
+            "id": f"jb-bod-{i}",
+            "numero": numero,
+            "precio_uf": _num(b.get("PrecioUF")),
+            "superficie": _num(b.get("Superficie")),
+            "tenencia": _str(b.get("Tenencia")),
+            "disponible": not bool(pack_num),
+        }
+        if pack_num:
+            item["pack_numero"] = pack_num
+            grp = packs_by_num.setdefault(pack_num, {"estacionamientos": [], "bodegas": [], "precio_uf": 0.0})
+            grp["bodegas"].append(numero)
+            grp["precio_uf"] += item["precio_uf"] or 0
+        bodegas_out.append(item)
+
+    packs_out = []
+    for i, (pn, grp) in enumerate(sorted(packs_by_num.items())):
+        packs_out.append({
+            "id": f"jb-pack-{i}",
+            "numero": pn,
+            "estacionamientos": grp["estacionamientos"],
+            "bodegas": grp["bodegas"],
+            "precio_uf": grp["precio_uf"] or None,
+            "disponible": True,
+        })
+
+    return {
+        "_excel_format": "jb_v2.4",
+        "_estacionamientos_dom": jb_estac,  # raw, para diagnóstico
+        "_bodegas_dom": jb_bodegas,         # raw, para diagnóstico
+        "estacionamientos": estacs_out,     # shape que lee el frontend
+        "bodegas": bodegas_out,
+        "packs": packs_out,
+    }
 
 
 def _ensure_project(db: Session, proyecto_id: str) -> Proyecto:
@@ -590,6 +679,7 @@ async def subir_excel(
     inserted, updated, errors = [], [], []
     modificadas = []  # deptos existentes cuyos datos REALMENTE cambiaron (precio, etc.)
     nuevos_info = {}  # {numero: (modelo, precio)} de los deptos insertados, para la referencia
+    deptos_con_warning: list[dict] = []  # ext. Maestra: [{numero, modelo}, ...] no registrados en extra.modelos
     by_num = {u.numero: u for u in db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).all()}
     jb_extras: dict = {}
 
@@ -617,11 +707,9 @@ async def subir_excel(
         # Estacionamientos + Bodegas → extra (todavía no entidades separadas)
         jb_estac = _parse_jb_estacionamientos(wb)
         jb_bodegas = _parse_jb_bodegas(wb)
-        jb_extras = {
-            "_excel_format": "jb_v2.4",
-            "_estacionamientos_dom": jb_estac,
-            "_bodegas_dom": jb_bodegas,
-        }
+        # Construir shape final que el frontend lee (extra.estacionamientos / .bodegas / .packs).
+        # Ext. Maestra: las hojas pueden traer columna "Tenencia" (Dominio / Uso y goce).
+        jb_extras = _build_jb_extras(jb_estac, jb_bodegas)
         rows_iter = [(i + 3, r) for i, r in enumerate(unidad_rows)]
     else:
         # Parser legado bc-api
@@ -726,6 +814,10 @@ async def subir_excel(
             inserted.append(num)
             nuevos_info[num] = (data.get("modelo") or "", data.get("precio_lista_uf"))
 
+        # Ext. Maestra: si el Excel marcó _modelo_warning para este depto, anotarlo
+        if is_jb and str(d.get("_modelo_warning") or "").strip() in ("1", "true", "True"):
+            deptos_con_warning.append({"numero": num, "modelo": data.get("modelo") or ""})
+
     # ── Baja de stock: deptos que YA NO vienen en el Excel → disponible=False ──
     # El scraper sube el stock disponible completo; lo que falta = vendido/reservado.
     # NO se borra (preserva registro + datos manuales). Si reaparece → se reactiva.
@@ -748,8 +840,13 @@ async def subir_excel(
     proy.stock_updated_at = datetime.utcnow()  # 1.12 · marca el cambio de stock
 
     # ── Timeline: comentario "Sin cambios" o resumen de qué cambió ──
-    _es_scraper = (getattr(usuario, "email", "") or "").lower().startswith("mnk-scraper")
-    _origen = "Actualización automática (scraper MNK · PlanOk)" if _es_scraper else "Carga de Excel de stock"
+    _email_usuario = (getattr(usuario, "email", "") or "").lower()
+    if _email_usuario.startswith("mnk-scraper"):
+        _origen = "Actualización automática (scraper MNK · PlanOk)"
+    elif _email_usuario.startswith("maestra-scraper"):
+        _origen = "Actualización automática (Maestra · Excel)"
+    else:
+        _origen = "Carga de Excel de stock"
 
     def _corta(lst):
         return ", ".join(lst[:6]) + ("…" if len(lst) > 6 else "")
@@ -792,8 +889,35 @@ async def subir_excel(
     _extra = {**(proy.extra or {})}
     if is_jb and jb_extras:
         _extra.update(jb_extras)
+    # Ext. Maestra: persistir deptos con warning de modelo (el frontend muestra badge rojo).
+    # Si no hay warnings, limpiamos la clave (un re-upload sano no debe dejar warnings viejos).
+    if is_jb:
+        if deptos_con_warning:
+            _extra["_deptos_con_warning"] = deptos_con_warning
+        else:
+            _extra.pop("_deptos_con_warning", None)
     _tl = list(_extra.get("timeline") or [])
     _tl.insert(0, _evento)
+    # Si hay warnings, agregar también un evento rojo destacado en la timeline.
+    if is_jb and deptos_con_warning:
+        _warn_evt = {
+            "id": "tl-" + uuid.uuid4().hex[:10],
+            "fecha": datetime.utcnow().isoformat() + "Z",
+            "tipo": "Alerta",
+            "severity": "CRITICO",
+            "titulo": f"Modelos no registrados detectados: {len({d['modelo'] for d in deptos_con_warning})}",
+            "detalles": (
+                f"⚠ {len(deptos_con_warning)} depto(s) con modelo fuera del catálogo de "
+                f"este proyecto: "
+                + ", ".join(f"{d['numero']} ({d['modelo']})" for d in deptos_con_warning[:8])
+                + ("…" if len(deptos_con_warning) > 8 else "")
+                + ". Estos deptos quedan visibles con badge de advertencia hasta que "
+                "registres los modelos en este proyecto."
+            ),
+            "usuario": getattr(usuario, "email", None) or "sistema",
+            "archivo_url": None,
+        }
+        _tl.insert(0, _warn_evt)
     _extra["timeline"] = _tl
     proy.extra = _extra
 
@@ -813,5 +937,53 @@ async def subir_excel(
         "errors": errors,
         "estacionamientos_count": len(jb_extras.get("_estacionamientos_dom", [])),
         "bodegas_count": len(jb_extras.get("_bodegas_dom", [])),
+        "warnings_count": len(deptos_con_warning) if is_jb else 0,
         "stock_last_upload": proy.stock_last_upload,
     }
+
+
+# ── Endpoint para alertas externas (scrapers) ───────────────────────────────
+# El scraper de Maestra postea aquí cuando detecta algo crítico que NO está asociado
+# a un upload (login falló, Excel no se encontró, etc.). El frontend lo renderiza
+# como un evento rojo destacado en la timeline.
+
+@router.post("/timeline/alerta", status_code=status.HTTP_201_CREATED)
+def crear_alerta_timeline(
+    proyecto_id: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(stock_access),
+):
+    """Inserta un evento de tipo 'Alerta' en extra.timeline del proyecto.
+
+    Body esperado: {severity: "CRITICO|WARNING", titulo: str, detalle: str}
+    """
+    proy = _ensure_project(db, proyecto_id)
+    severity = str(payload.get("severity") or "WARNING").upper()
+    if severity not in ("CRITICO", "WARNING"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"severity inválida: {severity!r} (esperaba CRITICO o WARNING)",
+        )
+    titulo = str(payload.get("titulo") or "").strip()
+    detalle = str(payload.get("detalle") or "").strip()
+    if not titulo:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Falta 'titulo'")
+
+    evento = {
+        "id": "tl-" + uuid.uuid4().hex[:10],
+        "fecha": datetime.utcnow().isoformat() + "Z",
+        "tipo": "Alerta",
+        "severity": severity,
+        "titulo": titulo,
+        "detalles": detalle or titulo,
+        "usuario": getattr(usuario, "email", None) or "sistema",
+        "archivo_url": None,
+    }
+    _extra = {**(proy.extra or {})}
+    _tl = list(_extra.get("timeline") or [])
+    _tl.insert(0, evento)
+    _extra["timeline"] = _tl
+    proy.extra = _extra
+    db.commit()
+    return {"ok": True, "evento_id": evento["id"]}
