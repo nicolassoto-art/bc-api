@@ -228,25 +228,49 @@ async def main():
         packs = mkt_assets.get("packs", []) if isinstance(mkt_assets, dict) else []
         src_stock = "assets"
     else:
-        # propios: /list/0 (INVENTARIO COMPLETO con disponibilidad); fallback assets
+        # propios: consultar AMBAS fuentes y mergear.
+        # - /list/0 trae 'surface' como campo plano (bodegas) y 'level' (estac).
+        # - /project/{id}/assets trae A VECES más items (los list/0 puede no traer todos),
+        #   pero embebe precio y m² en el campo 'number' ("X [P UF] [S m2]").
+        # Estrategia: usar la lista MÁS LARGA por tipo, completando 'surface'/'level' desde la otra.
         pk_l = await jb_get(cli, f"/parking/project/{PID}/list/0")
         st_l = await jb_get(cli, f"/store/project/{PID}/list/0")
         pc_l = await jb_get(cli, f"/pack/project/{PID}/list/0")
-        parkings = (pk_l.get("parkings") if isinstance(pk_l, dict) else None) or []
-        stores = (st_l.get("stores") if isinstance(st_l, dict) else None) or []
-        packs = (pc_l.get("packs") if isinstance(pc_l, dict) else None) or []
-        src_stock = "list"
-        if not (parkings or stores or packs):
-            acli = httpx.AsyncClient(base_url=JB_API_BASE, cookies=jar, timeout=30.0,
-                headers={**JB_HEADERS, "jet-brokers-version": "7.43.1",
-                         "Authorization": f"Bearer {imp._jb_token}",
-                         "Referer": "https://app.jetbrokers.io/quotes"})
-            assets = await jb_get(acli, f"/project/{PID}/assets") or {}
-            await acli.aclose()
-            parkings = assets.get("parkings", []) if isinstance(assets, dict) else []
-            stores = assets.get("stores", []) if isinstance(assets, dict) else []
-            packs = assets.get("packs", []) if isinstance(assets, dict) else []
-            src_stock = "assets"
+        parkings_list = (pk_l.get("parkings") if isinstance(pk_l, dict) else None) or []
+        stores_list = (st_l.get("stores") if isinstance(st_l, dict) else None) or []
+        packs_list = (pc_l.get("packs") if isinstance(pc_l, dict) else None) or []
+        acli = httpx.AsyncClient(base_url=JB_API_BASE, cookies=jar, timeout=30.0,
+            headers={**JB_HEADERS, "jet-brokers-version": "7.43.1",
+                     "Authorization": f"Bearer {imp._jb_token}",
+                     "Referer": "https://app.jetbrokers.io/quotes"})
+        assets = await jb_get(acli, f"/project/{PID}/assets") or {}
+        await acli.aclose()
+        parkings_a = assets.get("parkings", []) if isinstance(assets, dict) else []
+        stores_a = assets.get("stores", []) if isinstance(assets, dict) else []
+        packs_a = assets.get("packs", []) if isinstance(assets, dict) else []
+
+        def _merge(list_, assets_, key="surface"):
+            """Toma la lista más larga, completa con datos de la otra por número."""
+            base = list_ if len(list_) >= len(assets_) else assets_
+            other = assets_ if base is list_ else list_
+            other_by_num = {asset_num(o.get("number")): o for o in other if o.get("number")}
+            out = []
+            for it in base:
+                num = asset_num(it.get("number"))
+                merged = dict(it)
+                comp = other_by_num.get(num)
+                if comp:
+                    # completar campos faltantes
+                    for k, v in comp.items():
+                        if not merged.get(k) and v is not None:
+                            merged[k] = v
+                out.append(merged)
+            return out
+
+        parkings = _merge(parkings_list, parkings_a)
+        stores = _merge(stores_list, stores_a)
+        packs = _merge(packs_list, packs_a)
+        src_stock = f"list({len(parkings_list)}/{len(stores_list)}/{len(packs_list)}) + assets({len(parkings_a)}/{len(stores_a)}/{len(packs_a)})"
     await cli.aclose()
 
     print(f"### {detail.get('name')!r} (id {PID})", flush=True)
@@ -332,18 +356,24 @@ async def main():
         })
     extra["modelos"] = modelos
     # estacionamientos / bodegas → extra.*_dom (formato cells que lee el frontend)
+    # estac: 'level' viene de /list; assets embebe precio en number ("X [P UF] [- ]").
     extra["estacionamientos_dom"] = [
-        {"cells": [None, asset_num(pk.get("number")), pk.get("price"),
+        {"cells": [None, asset_num(pk.get("number")),
+                   pk.get("price") or asset_uf(pk.get("number")),
                    str(pk.get("level")) if pk.get("level") is not None else "",
                    (",".join(pk.get("type")) if isinstance(pk.get("type"), list) else str(pk.get("type") or ""))],
          "disponible": bool(pk.get("available", True))}
         for pk in parkings if pk.get("number")]
+    # bodegas: /list/0 trae 'surface' como campo plano; assets embebe precio y m² en number.
     extra["bodegas_dom"] = [
-        {"cells": [None, asset_num(st.get("number")), st.get("price"), str(asset_m2(st.get("number")) or "")],
+        {"cells": [None, asset_num(st.get("number")),
+                   st.get("price") or asset_uf(st.get("number")),
+                   str(st.get("surface") or asset_m2(st.get("number")) or "")],
          "disponible": bool(st.get("available", True))}
         for st in stores if st.get("number")]
     extra["packs_dom"] = [
-        {"numero": asset_num(pk.get("number")), "precio_uf": asset_uf(pk.get("number")),
+        {"numero": asset_num(pk.get("number")),
+         "precio_uf": pk.get("price") or asset_uf(pk.get("number")),
          "estacionamientos": [asset_num(p.get("number")) for p in (pk.get("parkings") or [])],
          "bodegas": [asset_num(s.get("number")) for s in (pk.get("stores") or [])],
          "disponible": bool(pk.get("available", True))}
