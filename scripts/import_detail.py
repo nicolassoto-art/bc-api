@@ -135,6 +135,7 @@ async def main():
 
     # ── Fetch (según tipo de proyecto) ──
     print(f"### MODO: {MODE}  (id {PID})", flush=True)
+    mkt_assets = {}
     if MODE == "own":
         detail = await jb_get(cli, f"/project/{PID}/detail") or {}
         models = await jb_get(cli, f"/apartment-model/project/{PID}/all") or []
@@ -143,22 +144,61 @@ async def main():
                  "projectId": PID, "availability": None, "number": None, "element": 0, "elements": 9999}
         ru = await cli.post(f"/apartment/project-detail-search/{uts}", json=ubody)
         units = (ru.json() or {}).get("apartments", []) if ru.status_code in (200, 201) else []
-    else:  # marketplace
+    else:  # marketplace — httpx flaky en algunos proyectos; assets FRESCO 1º + unidades del navegador
+        acli = httpx.AsyncClient(base_url=JB_API_BASE, cookies=jar, timeout=30.0,
+            headers={**JB_HEADERS, "jet-brokers-version": "7.43.1",
+                     "Authorization": f"Bearer {imp._jb_token}",
+                     "Referer": "https://app.jetbrokers.io/quotes"})
+        mkt_assets = await jb_get(acli, f"/project/{PID}/assets") or {}
+        await acli.aclose()
         detail = await jb_get(cli, f"/marketplace/{PID}/workview") or {}
         ss = await jb_get(cli, f"/marketplace/stock-selectors/{PID}") or {}
         models = ss.get("models", []) if isinstance(ss, dict) else []
-        # units-search: probar availability None y "available" (algunos proyectos solo
-        # responden con uno); quedarse con el que traiga más unidades.
+        # unidades: capturar units-search del NAVEGADOR (Stock tab + scroll) — confiable
+        cap_units = []
+
+        async def _cap(resp):
+            if "units-search" in resp.url and resp.request.method == "POST":
+                try:
+                    cap_units.append(await resp.text())
+                except Exception:
+                    pass
+        page.on("response", _cap)
+        for sel in ('a:has-text("Stock")', '[role=tab]:has-text("Stock")', 'li:has-text("Stock")'):
+            try:
+                loc = page.locator(sel).first
+                if await loc.count() > 0:
+                    await loc.click(timeout=5_000)
+                    break
+            except Exception:
+                pass
+        await page.wait_for_timeout(4_000)
+        for _ in range(45):
+            try:
+                await page.mouse.wheel(0, 600)
+            except Exception:
+                pass
+            await page.wait_for_timeout(110)
+        await page.wait_for_timeout(2_000)
+        page.remove_listener("response", _cap)
         units = []
-        for av in (None, "available"):
-            uts = int(time.time() * 1000)
-            ubody = {"tipologies": [], "type": None, "order": "ASC", "models": [], "facings": [],
-                     "projectId": PID, "availability": av, "number": None, "element": 0, "elements": 9999}
-            ru = await cli.post(f"/marketplace/units-search/{uts}", json=ubody)
-            if ru.status_code in (200, 201):
-                u = (ru.json() or {}).get("apartments", [])
+        for body in cap_units:
+            try:
+                u = json.loads(body).get("apartments", [])
                 if len(u) > len(units):
                     units = u
+            except Exception:
+                pass
+        if not units:  # fallback httpx
+            for av in ("available", None):
+                uts = int(time.time() * 1000)
+                ubody = {"tipologies": [], "type": None, "order": "ASC", "models": [], "facings": [],
+                         "projectId": PID, "availability": av, "number": None, "element": 0, "elements": 9999}
+                ru = await cli.post(f"/marketplace/units-search/{uts}", json=ubody)
+                if ru.status_code in (200, 201):
+                    u = (ru.json() or {}).get("apartments", [])
+                    if len(u) > len(units):
+                        units = u
     # notas (intentar en ambos modos)
     notes = None
     rn = await cli.get(f"/project/{PID}/notes")
@@ -173,26 +213,33 @@ async def main():
             lst = fr.get("files") if isinstance(fr, dict) else (fr if isinstance(fr, list) else None)
             if lst:
                 files = lst; files_ep = tmpl; break
-    # estac/bodegas/packs: preferir /list/0 (proyectos propios, INVENTARIO COMPLETO con
-    # disponibilidad); fallback a /project/{id}/assets vía cotización (reventa: /list da 401).
-    pk_l = await jb_get(cli, f"/parking/project/{PID}/list/0")
-    st_l = await jb_get(cli, f"/store/project/{PID}/list/0")
-    pc_l = await jb_get(cli, f"/pack/project/{PID}/list/0")
-    parkings = (pk_l.get("parkings") if isinstance(pk_l, dict) else None) or []
-    stores = (st_l.get("stores") if isinstance(st_l, dict) else None) or []
-    packs = (pc_l.get("packs") if isinstance(pc_l, dict) else None) or []
-    src_stock = "list"
-    if not (parkings or stores or packs):
-        acli = httpx.AsyncClient(base_url=JB_API_BASE, cookies=jar, timeout=30.0,
-            headers={**JB_HEADERS, "jet-brokers-version": "7.43.1",
-                     "Authorization": f"Bearer {imp._jb_token}",
-                     "Referer": "https://app.jetbrokers.io/quotes"})
-        assets = await jb_get(acli, f"/project/{PID}/assets") or {}
-        await acli.aclose()
-        parkings = assets.get("parkings", []) if isinstance(assets, dict) else []
-        stores = assets.get("stores", []) if isinstance(assets, dict) else []
-        packs = assets.get("packs", []) if isinstance(assets, dict) else []
+    # estac/bodegas/packs:
+    if MODE == "mkt":
+        # reventa: ya traído arriba (assets fresco) — /parking,/store dan 401
+        parkings = mkt_assets.get("parkings", []) if isinstance(mkt_assets, dict) else []
+        stores = mkt_assets.get("stores", []) if isinstance(mkt_assets, dict) else []
+        packs = mkt_assets.get("packs", []) if isinstance(mkt_assets, dict) else []
         src_stock = "assets"
+    else:
+        # propios: /list/0 (INVENTARIO COMPLETO con disponibilidad); fallback assets
+        pk_l = await jb_get(cli, f"/parking/project/{PID}/list/0")
+        st_l = await jb_get(cli, f"/store/project/{PID}/list/0")
+        pc_l = await jb_get(cli, f"/pack/project/{PID}/list/0")
+        parkings = (pk_l.get("parkings") if isinstance(pk_l, dict) else None) or []
+        stores = (st_l.get("stores") if isinstance(st_l, dict) else None) or []
+        packs = (pc_l.get("packs") if isinstance(pc_l, dict) else None) or []
+        src_stock = "list"
+        if not (parkings or stores or packs):
+            acli = httpx.AsyncClient(base_url=JB_API_BASE, cookies=jar, timeout=30.0,
+                headers={**JB_HEADERS, "jet-brokers-version": "7.43.1",
+                         "Authorization": f"Bearer {imp._jb_token}",
+                         "Referer": "https://app.jetbrokers.io/quotes"})
+            assets = await jb_get(acli, f"/project/{PID}/assets") or {}
+            await acli.aclose()
+            parkings = assets.get("parkings", []) if isinstance(assets, dict) else []
+            stores = assets.get("stores", []) if isinstance(assets, dict) else []
+            packs = assets.get("packs", []) if isinstance(assets, dict) else []
+            src_stock = "assets"
     await cli.aclose()
 
     print(f"### {detail.get('name')!r} (id {PID})", flush=True)
