@@ -139,11 +139,18 @@ async def main():
     if MODE == "own":
         detail = await jb_get(cli, f"/project/{PID}/detail") or {}
         models = await jb_get(cli, f"/apartment-model/project/{PID}/all") or []
-        uts = int(time.time() * 1000)
-        ubody = {"tipologies": [], "type": None, "order": "ASC", "models": [], "facings": [],
-                 "projectId": PID, "availability": None, "number": None, "element": 0, "elements": 9999}
-        ru = await cli.post(f"/apartment/project-detail-search/{uts}", json=ubody)
-        units = (ru.json() or {}).get("apartments", []) if ru.status_code in (200, 201) else []
+        # project-detail-search: probar ambos availability (algunos proyectos solo
+        # responden con uno) y quedarse con el que traiga más unidades.
+        units = []
+        for av in (None, "available"):
+            uts = int(time.time() * 1000)
+            ubody = {"tipologies": [], "type": None, "order": "ASC", "models": [], "facings": [],
+                     "projectId": PID, "availability": av, "number": None, "element": 0, "elements": 9999}
+            ru = await cli.post(f"/apartment/project-detail-search/{uts}", json=ubody)
+            if ru.status_code in (200, 201):
+                u = (ru.json() or {}).get("apartments", [])
+                if len(u) > len(units):
+                    units = u
     else:  # marketplace — httpx flaky en algunos proyectos; assets FRESCO 1º + unidades del navegador
         acli = httpx.AsyncClient(base_url=JB_API_BASE, cookies=jar, timeout=30.0,
             headers={**JB_HEADERS, "jet-brokers-version": "7.43.1",
