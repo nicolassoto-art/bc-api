@@ -43,10 +43,10 @@ def main():
         disp = sum(1 for u in unidades if u.get("disponible"))
         mnames = {m.get("nombre") for m in modelos}
         huer = sum(1 for u in unidades if u.get("modelo") not in mnames)
-        # stock
-        nest = len(extra.get("estacionamientos_dom") or [])
-        nbod = len(extra.get("bodegas_dom") or [])
-        npck = len(extra.get("packs_dom") or [])
+        # stock — buscar en *_dom (recién importado) Y en arrays planos (post-edit)
+        nest = len(extra.get("estacionamientos_dom") or extra.get("estacionamientos") or [])
+        nbod = len(extra.get("bodegas_dom") or extra.get("bodegas") or [])
+        npck = len(extra.get("packs_dom") or extra.get("packs") or [])
         # enums
         enum_vals = [
             gp(extra,"comercial","tipo_pie"), gp(extra,"comercial","tipo_descuento"),
