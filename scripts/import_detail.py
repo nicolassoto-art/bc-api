@@ -147,11 +147,18 @@ async def main():
         detail = await jb_get(cli, f"/marketplace/{PID}/workview") or {}
         ss = await jb_get(cli, f"/marketplace/stock-selectors/{PID}") or {}
         models = ss.get("models", []) if isinstance(ss, dict) else []
-        uts = int(time.time() * 1000)
-        ubody = {"tipologies": [], "type": None, "order": "ASC", "models": [], "facings": [],
-                 "projectId": PID, "availability": None, "number": None, "element": 0, "elements": 9999}
-        ru = await cli.post(f"/marketplace/units-search/{uts}", json=ubody)
-        units = (ru.json() or {}).get("apartments", []) if ru.status_code in (200, 201) else []
+        # units-search: probar availability None y "available" (algunos proyectos solo
+        # responden con uno); quedarse con el que traiga más unidades.
+        units = []
+        for av in (None, "available"):
+            uts = int(time.time() * 1000)
+            ubody = {"tipologies": [], "type": None, "order": "ASC", "models": [], "facings": [],
+                     "projectId": PID, "availability": av, "number": None, "element": 0, "elements": 9999}
+            ru = await cli.post(f"/marketplace/units-search/{uts}", json=ubody)
+            if ru.status_code in (200, 201):
+                u = (ru.json() or {}).get("apartments", [])
+                if len(u) > len(units):
+                    units = u
     # notas (intentar en ambos modos)
     notes = None
     rn = await cli.get(f"/project/{PID}/notes")
