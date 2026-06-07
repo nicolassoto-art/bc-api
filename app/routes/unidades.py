@@ -153,6 +153,9 @@ def _parse_jb_excel(wb) -> tuple[list[dict], list[str]]:
                 d["tipologia"] = f"{int(d['_dormitorios'])}D - {int(d['_banos'])}B"
             except Exception:
                 pass
+        elif (d.get("modelo") or "").strip().lower().startswith("studio"):
+            # Studio: PlanOk no da dormitorios → tipología "Estudio" (español)
+            d["tipologia"] = "Estudio"
         # Disponible: JB no lo trae explícito → asumir True
         d.setdefault("disponible", True)
         # tipo: deducir
