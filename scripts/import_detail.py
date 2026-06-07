@@ -304,10 +304,13 @@ async def main():
         "entorno": detail.get("perksNearby") or [],
         "notas_html": notes,
         "fisicos": {
-            "pisos": detail.get("floors"), "unidades_totales": detail.get("apartmentsTotal"),
+            "pisos": detail.get("floors"),
+            # Totales: si JB no los declara, fallback al conteo REAL de los arrays.
+            "unidades_totales": detail.get("apartmentsTotal") or (len(units) if units else None),
             "unidades_por_piso": detail.get("apartmentsByFloor"),
-            "estacionamientos_totales": detail.get("parkingsTotal"),
-            "bodegas_totales": detail.get("storesTotal"), "ascensores": detail.get("elevatorsTotal"),
+            "estacionamientos_totales": detail.get("parkingsTotal") or (len(parkings) if parkings else None),
+            "bodegas_totales": detail.get("storesTotal") or (len(stores) if stores else None),
+            "ascensores": detail.get("elevatorsTotal"),
             "constructora": detail.get("buildingCompany"),
             "permiso_construccion": emap(PERMISO_T, detail.get("buildingPermit")),
             "numero_permiso": detail.get("buildingPermitNumber"),
