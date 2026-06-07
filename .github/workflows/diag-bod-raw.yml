@@ -1,0 +1,13 @@
+name: Diag bod raw
+on: { workflow_dispatch: { inputs: { id: { required: false, default: 'LKubKmn0' } } } }
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11', cache: 'pip' }
+      - run: pip install --upgrade pip && pip install -r requirements.txt && python -m playwright install chromium --with-deps
+      - env: { JETBROKERS_EMAIL: "${{ secrets.JETBROKERS_EMAIL }}", JETBROKERS_PASS: "${{ secrets.JETBROKERS_PASS }}", DIAG_ID: "${{ inputs.id || 'LKubKmn0' }}" }
+        run: python3 scripts/diag_bod_raw.py
