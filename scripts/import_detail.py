@@ -30,9 +30,9 @@ import httpx  # noqa: E402
 OUT = Path("imports/_detail"); OUT.mkdir(parents=True, exist_ok=True)
 DRY = os.environ.get("DRY_RUN", "1") != "0"
 LINK = os.environ.get("DIAG_LINK", "")
-_m = re.search(r"(?:detail|workview)/([A-Za-z0-9]+)", LINK)
+_m = re.search(r"(?:detail|workview|edit)/([A-Za-z0-9]+)", LINK)
 PID = (_m.group(1) if _m else None) or os.environ.get("DIAG_ID", "").strip() or "exrBr6Tp"
-# Tipo de proyecto: 'own' (BigCapital, /projects/detail) o 'mkt' (reventa, /marketplace/workview)
+# Tipo de proyecto: 'own' (BigCapital, /projects/detail|edit) o 'mkt' (reventa, /marketplace/workview)
 MODE = "mkt" if ("workview" in LINK or os.environ.get("MODE") == "mkt") else "own"
 REF_PATH = f"projects/detail/{PID}" if MODE == "own" else f"marketplace/workview/{PID}"
 
