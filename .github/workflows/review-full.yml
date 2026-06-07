@@ -1,0 +1,26 @@
+name: Review full
+on:
+  workflow_dispatch:
+    inputs:
+      pid: { description: 'bc-api id', required: false, default: 'vespucio-capital' }
+jobs:
+  r:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install httpx
+      - env: { BC_API_PASSWORD: "${{ secrets.BC_API_PASSWORD }}" }
+        run: |
+          JWT=$(python3 -c "import os,httpx,time
+          for i in range(8):
+            try:
+              r=httpx.post('https://bc-api.178-105-91-29.nip.io/auth/login',json={'email':'nicolas.soto@bigcapital.cl','password':os.environ['BC_API_PASSWORD']},timeout=15)
+              if r.status_code==200: print(r.json()['access_token']); break
+            except: pass
+            time.sleep(4)")
+          echo "::add-mask::$JWT"; echo "BC_API_JWT=$JWT" >> "$GITHUB_ENV"
+      - env: { PID_BC: "${{ inputs.pid || 'vespucio-capital' }}" }
+        run: python3 scripts/review_full.py
