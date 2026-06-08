@@ -49,6 +49,20 @@ class Settings(BaseSettings):
     # — esos quedaron silenciados). Pamela y Álvaro reciben SOLO el resumen diario L-V 10am.
     daily_report_cc: str = "pamela.scheel@bigcapital.cl,alvaro.meneses@bigcapital.cl"
 
+    # ── Inbox processor · 2026-06-08 ─────────────────────────────────────────
+    # Lee adjuntos Excel reenviados desde nicolas.soto@bigcapital.cl al buzón
+    # sistema@bigcapital.cl, identifica el proyecto destino y aplica el stock
+    # automáticamente, respondiendo por email con confirmación.
+    imap_host: str = "imap.gmail.com"
+    imap_port: int = 993
+    imap_user: str = ""  # vacío → usa smtp_user (sistema@bigcapital.cl)
+    imap_pass: str = ""  # vacío → usa smtp_pass (mismo App Password de Gmail)
+    inbox_processor_enabled: bool = True
+    inbox_allowed_senders: str = "nicolas.soto@bigcapital.cl"  # coma-separado
+    inbox_poll_minutes: int = 10
+    # El processor usa bc_api_service_token (ya existente arriba) para llamar al
+    # endpoint subir_excel sin JWT — mismo token que usa el worker.
+
     @property
     def upload_path(self) -> Path:
         p = Path(self.upload_dir)
