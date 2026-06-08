@@ -202,7 +202,33 @@ def _parse_jb_bodegas(wb) -> list[dict]:
     return out
 
 
-def _build_jb_extras(jb_estac: list[dict], jb_bodegas: list[dict]) -> dict:
+def _parse_jb_packs(wb) -> list[dict]:
+    """Parsea hoja PACKS opcional del Excel JB (extensión Maestra).
+
+    Cuando está presente, contiene la composición autoritativa de cada pack
+    (numero, estacionamientos CSV, bodegas CSV, precio_uf). Esto reemplaza
+    al método de agrupar por 'Pack Número' de las hojas individuales, que
+    perdía info cuando una unidad debía aparecer en varios packs por
+    declaraciones no recíprocas en el Excel de Maestra.
+    """
+    if "PACKS" not in wb.sheetnames:
+        return []
+    ws = wb["PACKS"]
+    rows = list(ws.iter_rows(values_only=True))
+    if len(rows) < 3:
+        return []
+    labels = [str(c or "").strip() for c in rows[1]]
+    out = []
+    for r in rows[2:]:
+        if not r or all(c is None or c == "" for c in r):
+            continue
+        item = {labels[i]: r[i] for i in range(min(len(labels), len(r))) if labels[i]}
+        if item.get("Pack Número"):
+            out.append(item)
+    return out
+
+
+def _build_jb_extras(jb_estac: list[dict], jb_bodegas: list[dict], jb_packs: list[dict] | None = None) -> dict:
     """Construye los campos de extra que el frontend lee: estacionamientos, bodegas, packs.
 
     Reglas (alineadas con el scraper Maestra):
@@ -273,16 +299,73 @@ def _build_jb_extras(jb_estac: list[dict], jb_bodegas: list[dict]) -> dict:
             grp["precio_uf"] += item["precio_uf"] or 0
         bodegas_out.append(item)
 
+    # Construcción de packs: si el Excel trae hoja PACKS (extensión Maestra),
+    # usar esa composición autoritativa. Si no, fallback a agrupar por Pack Número
+    # de las hojas individuales (formato JB clásico, que pierde info en packs
+    # no recíprocos).
     packs_out = []
-    for i, (pn, grp) in enumerate(sorted(packs_by_num.items())):
-        packs_out.append({
-            "id": f"jb-pack-{i}",
-            "numero": pn,
-            "estacionamientos": grp["estacionamientos"],
-            "bodegas": grp["bodegas"],
-            "precio_uf": grp["precio_uf"] or None,
-            "disponible": True,
-        })
+    if jb_packs:
+        for i, pk in enumerate(jb_packs):
+            pn = _str(pk.get("Pack Número"))
+            if not pn:
+                continue
+            estacs_raw = _str(pk.get("Estacionamientos"))
+            bodegas_raw = _str(pk.get("Bodegas"))
+            estacs_list = [s.strip() for s in estacs_raw.split(",") if s.strip()]
+            bodegas_list = [s.strip() for s in bodegas_raw.split(",") if s.strip()]
+            packs_out.append({
+                "id": f"jb-pack-{i}",
+                "numero": pn,
+                "estacionamientos": estacs_list,
+                "bodegas": bodegas_list,
+                "precio_uf": _num(pk.get("PrecioUF")),
+                "disponible": True,
+            })
+    else:
+        for i, (pn, grp) in enumerate(sorted(packs_by_num.items())):
+            packs_out.append({
+                "id": f"jb-pack-{i}",
+                "numero": pn,
+                "estacionamientos": grp["estacionamientos"],
+                "bodegas": grp["bodegas"],
+                "precio_uf": grp["precio_uf"] or None,
+                "disponible": True,
+            })
+
+    # Re-calcular disponibilidad de estac/bodegas basado en los packs reales:
+    # una unidad solo queda disponible=false si aparece en algún pack VÁLIDO
+    # (≥2 miembros). Si solo está en un pack huérfano (raro pero posible si
+    # los datos están inconsistentes), la dejamos disponible.
+    en_pack_estac = set()
+    en_pack_bodega = set()
+    for pk in packs_out:
+        n_total = len(pk.get("estacionamientos") or []) + len(pk.get("bodegas") or [])
+        if n_total < 2:
+            continue  # pack huérfano, no marca a sus miembros como "solo en pack"
+        for n in pk.get("estacionamientos") or []:
+            en_pack_estac.add(n)
+        for n in pk.get("bodegas") or []:
+            en_pack_bodega.add(n)
+    for it in estacs_out:
+        it["disponible"] = it["numero"] not in en_pack_estac
+        if it["numero"] in en_pack_estac:
+            # Si no tenía pack_numero del fallback, busquemos al primer pack que lo incluya
+            if not it.get("pack_numero"):
+                for pk in packs_out:
+                    if it["numero"] in (pk.get("estacionamientos") or []):
+                        it["pack_numero"] = pk["numero"]
+                        break
+    for it in bodegas_out:
+        it["disponible"] = it["numero"] not in en_pack_bodega
+        if it["numero"] in en_pack_bodega:
+            if not it.get("pack_numero"):
+                for pk in packs_out:
+                    if it["numero"] in (pk.get("bodegas") or []):
+                        it["pack_numero"] = pk["numero"]
+                        break
+
+    # Filtrar packs huérfanos al final (no llegan al frontend)
+    packs_out = [p for p in packs_out if (len(p.get("estacionamientos") or []) + len(p.get("bodegas") or [])) >= 2]
 
     return {
         "_excel_format": "jb_v2.4",
@@ -711,12 +794,14 @@ async def subir_excel(
             except Exception as _e:
                 detail = f"Sheet UNIDAD vacío o sin filas válidas (err diag: {_e})"
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=detail)
-        # Estacionamientos + Bodegas → extra (todavía no entidades separadas)
+        # Estacionamientos + Bodegas + Packs → extra (todavía no entidades separadas)
         jb_estac = _parse_jb_estacionamientos(wb)
         jb_bodegas = _parse_jb_bodegas(wb)
+        jb_packs = _parse_jb_packs(wb)  # opcional (ext. Maestra)
         # Construir shape final que el frontend lee (extra.estacionamientos / .bodegas / .packs).
-        # Ext. Maestra: las hojas pueden traer columna "Tenencia" (Dominio / Uso y goce).
-        jb_extras = _build_jb_extras(jb_estac, jb_bodegas)
+        # Si hay hoja PACKS, se usa como fuente autoritativa; si no, se cae al fallback
+        # de agrupar por Pack Número de las hojas individuales.
+        jb_extras = _build_jb_extras(jb_estac, jb_bodegas, jb_packs)
         rows_iter = [(i + 3, r) for i, r in enumerate(unidad_rows)]
     else:
         # Parser legado bc-api
