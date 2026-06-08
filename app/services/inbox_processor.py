@@ -90,6 +90,66 @@ def _norm(s: str) -> str:
     return s.strip()
 
 
+def _extract_from_original(body: str) -> Optional[str]:
+    """Extrae el From original de un email reenviado. Busca patrones tipo
+    'From: xxx@yyy.com' o 'De: xxx@yyy.com' que aparecen en el header del Fwd:."""
+    if not body:
+        return None
+    # Match 'From: Nombre <email@dom>' o 'De: email@dom' (ES + EN)
+    patterns = [
+        r"(?:^|\n)\s*(?:From|De|FROM|DE)\s*[:>]\s*(?:[^<\n]*<)?([\w._%+-]+@[\w.-]+\.[a-zA-Z]{2,})",
+        r"<\s*([\w._%+-]+@[\w.-]+\.[a-zA-Z]{2,})\s*>",
+    ]
+    for pat in patterns:
+        m = re.search(pat, body)
+        if m:
+            return m.group(1).strip().lower()
+    return None
+
+
+def _dominio_de(email_addr: str) -> Optional[str]:
+    """Extrae el dominio de un email (ej. 'juan@vallatrix.cl' → 'vallatrix.cl').
+    Filtra dominios genéricos (@gmail.com, @hotmail.com, etc.) porque no identifican."""
+    if not email_addr or "@" not in email_addr:
+        return None
+    dom = email_addr.split("@", 1)[1].strip().lower()
+    # Filtrar dominios genéricos personales
+    GENERICOS = {
+        "gmail.com", "googlemail.com", "hotmail.com", "outlook.com",
+        "yahoo.com", "yahoo.es", "live.com", "icloud.com", "me.com",
+        "bigcapital.cl",  # del propio Nicolás
+    }
+    if dom in GENERICOS:
+        return None
+    return dom
+
+
+def _extraer_nombre_proyecto_del_excel(body: bytes) -> str:
+    """Abre el Excel y devuelve un string concatenado con TODO el contenido de las
+    primeras ~15 filas × 10 cols de cada hoja. Útil para hacer fuzzy match con
+    nombre de proyecto/inmobiliaria. Devuelve '' si el archivo es inválido."""
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(body), data_only=True, read_only=True)
+        parts = []
+        for sheet_name in wb.sheetnames:
+            try:
+                ws = wb[sheet_name]
+                parts.append(sheet_name)
+                for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
+                    if row_idx >= 15:  # primeras 15 filas suelen tener header/título
+                        break
+                    for cell in row[:10]:
+                        if cell and isinstance(cell, str) and len(cell) >= 3:
+                            parts.append(cell)
+            except Exception:
+                continue
+        return " ".join(parts)
+    except Exception as e:
+        log.info("inbox: no se pudo leer contenido del Excel para match: %s", e)
+        return ""
+
+
 def _extract_body_text(msg) -> str:
     """Extrae texto plano del body del email (incluye el contenido del Fwd: original)."""
     if not msg:
@@ -111,7 +171,13 @@ def _extract_body_text(msg) -> str:
     return " ".join(out)
 
 
-def _match_proyecto(db: Session, subject: str, filename: str, body: str = "") -> tuple[Optional[Proyecto], str]:
+def _match_proyecto(
+    db: Session,
+    subject: str,
+    filename: str,
+    body: str = "",
+    excel_bytes: bytes = b"",
+) -> tuple[Optional[Proyecto], str]:
     """Identifica el proyecto destino con cascada de heurísticas.
 
     Las inmobiliarias generalmente mandan sin el nombre del proyecto en el subject
@@ -147,10 +213,14 @@ def _match_proyecto(db: Session, subject: str, filename: str, body: str = "") ->
 
     # Limitar el body a primeros 4000 chars (suficiente para el header del Fwd:)
     body_short = (body or "")[:4000]
+    # Contenido del Excel (primeras 15 filas × 10 cols de cada hoja) — captura el
+    # nombre del proyecto cuando aparece dentro del archivo mismo.
+    excel_content = _extraer_nombre_proyecto_del_excel(excel_bytes) if excel_bytes else ""
     haystacks = [
         ("subject", _norm(subject)),
         ("filename", _norm(filename)),
         ("body", _norm(body_short)),
+        ("excel", _norm(excel_content)),
     ]
 
     # 2) Match por nombre o id en subject/filename/body, exigiendo UNICIDAD
@@ -174,9 +244,9 @@ def _match_proyecto(db: Session, subject: str, filename: str, body: str = "") ->
             # Ambiguo en esta fuente — seguimos al siguiente nivel, podría desambiguar
             log.info("inbox: %s ambiguo con %d candidatos %s — sigo", source, len(candidatos), [p.id for p in candidatos[:5]])
 
-    # 3) Match por INMOBILIARIA: buscar el nombre de la inmobiliaria en subject+body.
+    # 3) Match por INMOBILIARIA: buscar el nombre de la inmobiliaria en subject+body+excel.
     #    Si solo tiene 1 proyecto activo, match único.
-    full_hay = _norm(f"{subject} {filename} {body_short}")
+    full_hay = _norm(f"{subject} {filename} {body_short} {excel_content}")
     inmob_by_name: dict[str, list[Proyecto]] = {}
     for p in activos:
         inmob = _norm(p.inmobiliaria or "")
@@ -195,7 +265,36 @@ def _match_proyecto(db: Session, subject: str, filename: str, body: str = "") ->
     if len(inmob_matches) > 1:
         log.info("inbox: inmobiliaria matchea con varios proyectos: %s", [p.id for p in inmob_matches[:5]])
 
-    return None, "no se identificó el proyecto"
+    # 4) Match por DOMINIO del remitente original (extraído del Fwd:) contra
+    #    p.inmobiliaria_web (sitio de la inmobiliaria, ej. https://vallatrix.cl)
+    from_orig = _extract_from_original(body or "")
+    dominio = _dominio_de(from_orig) if from_orig else None
+    if dominio:
+        candidatos_dom = []
+        for p in activos:
+            web = (p.extra or {}).get("inmobiliaria", {})
+            if isinstance(web, dict):
+                web = web.get("web", "")
+            web_str = (p.inmobiliaria_web if hasattr(p, "inmobiliaria_web") else "") or (web or "")
+            if not web_str:
+                # Fallback: buscar en extra.inmobiliaria.web (estructura nested)
+                inm = (p.extra or {}).get("inmobiliaria") or {}
+                if isinstance(inm, dict):
+                    web_str = inm.get("web") or ""
+            if not web_str:
+                continue
+            web_norm = web_str.lower().replace("https://", "").replace("http://", "").replace("www.", "").rstrip("/")
+            if dominio in web_norm or web_norm.split("/")[0].endswith(dominio):
+                candidatos_dom.append(p)
+        seen = set()
+        candidatos_dom = [p for p in candidatos_dom if not (p.id in seen or seen.add(p.id))]
+        if len(candidatos_dom) == 1:
+            p = candidatos_dom[0]
+            return p, f"dominio del remitente '{dominio}' matchea con la inmobiliaria de este proyecto"
+        if len(candidatos_dom) > 1:
+            log.info("inbox: dominio %s matchea con varios proyectos: %s", dominio, [p.id for p in candidatos_dom[:5]])
+
+    return None, f"no se identificó el proyecto (subject='{subject[:40]}', filename='{filename}', dominio_origen='{dominio or '?'}')"
 
 
 # ── Lectura del inbox ────────────────────────────────────────────────────
@@ -447,7 +546,7 @@ def process_inbox() -> dict:
             continue
         filename, body = xlsx
         with SessionLocal() as db:
-            proy, motivo = _match_proyecto(db, item.subject, filename, item.body)
+            proy, motivo = _match_proyecto(db, item.subject, filename, item.body, excel_bytes=body)
             if not proy:
                 log.warning(
                     "inbox: no pude identificar proyecto · subject=%r filename=%r motivo=%s",
