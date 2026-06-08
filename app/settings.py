@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     # Chile, L-V. Si algo falla, sí se envía email aparte.
     emails_per_change: bool = False  # False → notify_change es no-op silencioso
     daily_report_enabled: bool = True  # Informe diario L-V 10:00 AM America/Santiago
+    # Cc del INFORME DIARIO (distinto de notify_stock_cc, que es de los emails por cambio
+    # — esos quedaron silenciados). Pamela y Álvaro reciben SOLO el resumen diario L-V 10am.
+    daily_report_cc: str = "pamela.scheel@bigcapital.cl,alvaro.meneses@bigcapital.cl"
 
     @property
     def upload_path(self) -> Path:
