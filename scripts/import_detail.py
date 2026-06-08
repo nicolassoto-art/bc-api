@@ -425,10 +425,13 @@ async def main():
     tipc = Counter(); plset = set()
     for md in modelos:
         t = f"{md['dormitorios']}D{md['banos']}B"
-        tipc[t] += 1; plset.add(md["_blueprint"])
+        tipc[t] += 1
+        if md.get("_blueprint"):  # ignorar None (modelos sin planta en JB)
+            plset.add(md["_blueprint"])
         print(f"   {md['nombre']!r:8} {t}  planta={md['_blueprint']!r}  cotiza(bod/est/pack)="
               f"{md['cotiza_bodega']}/{md['cotiza_estac']}/{md['cotiza_pack']}", flush=True)
-    print(f"   → {len(modelos)} modelos · {len(plset)} plantas distintas · {dict(tipc)}", flush=True)
+    con_planta = sum(1 for md in modelos if md.get("_blueprint"))
+    print(f"   → {len(modelos)} modelos · {con_planta} con planta · {len(plset)} plantas DISTINTAS · {dict(tipc)}", flush=True)
     print(f"\n--- UNIDADES ({len(unidades)}) ---", flush=True)
     mset = {md["nombre"] for md in modelos}
     huer = sum(1 for u in unidades if u["modelo"] not in mset)
