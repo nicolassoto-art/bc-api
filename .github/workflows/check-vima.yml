@@ -18,4 +18,4 @@ jobs:
             except: pass
             time.sleep(4)")
           echo "::add-mask::$JWT"; echo "BC_API_JWT=$JWT" >> "$GITHUB_ENV"
-      - run: python3 scripts/check_vima.py
+      - run: python3 scripts/check_vima2.py
