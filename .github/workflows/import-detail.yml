@@ -5,6 +5,7 @@ on:
       id:    { description: 'jb id nuevo (o usa link)', required: false, default: 'exrBr6Tp' }
       link:  { description: 'link /projects/detail/{id}', required: false, default: '' }
       dry:   { description: 'DRY_RUN (1=no escribe, 0=importa)', required: false, default: '1' }
+      sample_pct: { description: 'SAMPLE_PCT (1-100, default 100 = todas; 10 = primer 10% para validar)', required: false, default: '100' }
 concurrency: { group: import-detail, cancel-in-progress: false }
 jobs:
   imp:
@@ -36,6 +37,7 @@ jobs:
           DIAG_ID:          ${{ inputs.id }}
           DIAG_LINK:        ${{ inputs.link }}
           DRY_RUN:          ${{ inputs.dry }}
+          SAMPLE_PCT:       ${{ inputs.sample_pct }}
         run: python3 scripts/import_detail.py
       - if: always()
         uses: actions/upload-artifact@v4

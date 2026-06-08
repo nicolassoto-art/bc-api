@@ -29,6 +29,12 @@ import httpx  # noqa: E402
 
 OUT = Path("imports/_detail"); OUT.mkdir(parents=True, exist_ok=True)
 DRY = os.environ.get("DRY_RUN", "1") != "0"
+# SAMPLE_PCT (1-100, default 100): solo importa el primer N% de unidades.
+# Ficha + modelos + plantas + estac/bodegas/packs + fotos = SIEMPRE 100%.
+try:
+    SAMPLE_PCT = max(1, min(100, int(os.environ.get("SAMPLE_PCT", "100"))))
+except Exception:
+    SAMPLE_PCT = 100
 LINK = os.environ.get("DIAG_LINK", "")
 _m = re.search(r"(?:detail|workview|edit)/([A-Za-z0-9]+)", LINK)
 PID = (_m.group(1) if _m else None) or os.environ.get("DIAG_ID", "").strip() or "exrBr6Tp"
@@ -538,13 +544,19 @@ async def main():
     }
     r = await imp._bc_client.put(f"/proyectos/{pid_bc}", json=body)
     print(f"   PUT proyecto → {r.status_code}", flush=True)
-    # unidades
+    # unidades — aplicar modo muestra si SAMPLE_PCT < 100
+    unidades_a_insertar = unidades
+    if SAMPLE_PCT < 100:
+        n = max(1, len(unidades) * SAMPLE_PCT // 100)
+        unidades_a_insertar = unidades[:n]
+        print(f"   🎯 MODO MUESTRA {SAMPLE_PCT}%: {n}/{len(unidades)} unidades", flush=True)
     ok = 0
-    for u in unidades:
+    for u in unidades_a_insertar:
         rr = await imp._bc_client.post(f"/proyectos/{pid_bc}/unidades", json=u)
         if rr.status_code in (200, 201):
             ok += 1
-    print(f"   unidades insertadas: {ok}/{len(unidades)}", flush=True)
+    print(f"   unidades insertadas: {ok}/{len(unidades_a_insertar)}"
+          + (f" (de {len(unidades)} totales)" if SAMPLE_PCT < 100 else ""), flush=True)
     print(f"\n✓ IMPORT REAL completo: {pid_bc}", flush=True)
     print(f"   vista: https://herramientas.bigcapital.cl/src/stock-interno/proyecto-vista.html?id={pid_bc}", flush=True)
     await imp.close()
