@@ -49,7 +49,7 @@ app.include_router(inmobiliarias.router)
 app.include_router(tickets.router)
 
 
-# ── Scheduler · informe diario L-V 10am Chile ─────────────────────────────
+# ── Scheduler · informe diario L-V 09am Chile ─────────────────────────────
 # Reemplaza los emails por cada cambio (notify_change quedó silenciado).
 # Si daily_report_enabled=False, no se registra el job → cero overhead.
 _scheduler = None
@@ -66,7 +66,7 @@ def _start_scheduler():
         _scheduler = BackgroundScheduler(timezone="America/Santiago")
         _scheduler.add_job(
             send_daily_report,
-            CronTrigger(day_of_week="mon-fri", hour=10, minute=0, timezone="America/Santiago"),
+            CronTrigger(day_of_week="mon-fri", hour=9, minute=0, timezone="America/Santiago"),
             id="daily_stock_report",
             replace_existing=True,
             max_instances=1,
@@ -85,7 +85,7 @@ def _start_scheduler():
             )
             log.info("Scheduler · inbox_processor cada %d min", settings.inbox_poll_minutes)
         _scheduler.start()
-        log.info("Scheduler iniciado · daily_stock_report L-V 10:00 America/Santiago")
+        log.info("Scheduler iniciado · daily_stock_report L-V 09:00 America/Santiago")
     except Exception as e:
         log.error("No se pudo iniciar scheduler: %s", e, exc_info=True)
 
@@ -100,7 +100,7 @@ def _stop_scheduler():
 @app.post("/admin/daily-report/test", tags=["meta"])
 def trigger_daily_report(_: Usuario = Depends(super_admin)):
     """Dispara el informe diario manualmente (solo super_admin). Para probar el contenido
-    y subject del email sin esperar al cron de las 10am. Útil tras cambios en daily_report.py."""
+    y subject del email sin esperar al cron de las 09am. Útil tras cambios en daily_report.py."""
     send_daily_report()
     return {"ok": True, "sent_to": settings.notify_to}
 

@@ -1,6 +1,6 @@
 """Informe diario de stock — bc-api · 2026-06-08
 
-Disparado por APScheduler L-V 10:00 AM America/Santiago (configurado en main.py).
+Disparado por APScheduler L-V 09:00 AM America/Santiago (configurado en main.py).
 
 REEMPLAZA los emails individuales por cada cambio de stock (notify_change quedó
 silenciado vía settings.emails_per_change=False). El usuario recibe UN solo email
@@ -524,7 +524,7 @@ def _build_html(data: dict) -> str:
           {errores_html}
           {proyectos_html}
           <div style="margin:28px 0 0;padding:12px 14px;background:#f9fafb;border-radius:8px;text-align:center;font-size:12px;color:#6b7280">
-            Sistema automático · L-V 10:00 AM Chile<br>
+            Sistema automático · L-V 09:00 AM Chile<br>
             <a href="https://herramientas.bigcapital.cl/src/stock-interno/" style="color:#1f7a3d;font-weight:700;text-decoration:none">→ Abrir listado completo</a>
           </div>
         </div>
@@ -534,7 +534,7 @@ def _build_html(data: dict) -> str:
 
 
 def send_daily_report() -> None:
-    """Disparado por APScheduler L-V 10am. No-op si SMTP no configurado."""
+    """Disparado por APScheduler L-V 09am. No-op si SMTP no configurado."""
     if not _configured():
         log.info("daily_report: SMTP no configurado — informe NO enviado.")
         return

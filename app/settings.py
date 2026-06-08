@@ -44,10 +44,10 @@ class Settings(BaseSettings):
     # (crear · publicar · subir Excel). En su lugar, un INFORME ÚNICO diario a las 10:00 AM
     # Chile, L-V. Si algo falla, sí se envía email aparte.
     emails_per_change: bool = False  # False → notify_change es no-op silencioso
-    daily_report_enabled: bool = True  # Informe diario L-V 10:00 AM America/Santiago
-    # Cc del INFORME DIARIO (distinto de notify_stock_cc, que es de los emails por cambio
-    # — esos quedaron silenciados). Pamela y Álvaro reciben SOLO el resumen diario L-V 10am.
-    daily_report_cc: str = "pamela.scheel@bigcapital.cl,alvaro.meneses@bigcapital.cl"
+    daily_report_enabled: bool = True  # Informe diario L-V 09:00 AM America/Santiago
+    # Cc del INFORME DIARIO. Pedido del usuario (2026-06-08): vacío → solo nicolas.soto.
+    # Override por DAILY_REPORT_CC si en el futuro se quiere reactivar.
+    daily_report_cc: str = ""
 
     # ── Inbox processor · 2026-06-08 ─────────────────────────────────────────
     # Lee adjuntos Excel reenviados desde nicolas.soto@bigcapital.cl al buzón
