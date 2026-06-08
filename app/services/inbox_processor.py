@@ -55,6 +55,7 @@ class InboxEmail:
     from_addr: str
     from_name: str
     subject: str
+    body: str  # texto plano del cuerpo (incluye Fwd: con info del remitente original)
     date: Optional[datetime]
     attachments: list  # [(filename, bytes)]
 
@@ -89,63 +90,112 @@ def _norm(s: str) -> str:
     return s.strip()
 
 
-def _match_proyecto(db: Session, subject: str, filename: str) -> Optional[Proyecto]:
+def _extract_body_text(msg) -> str:
+    """Extrae texto plano del body del email (incluye el contenido del Fwd: original)."""
+    if not msg:
+        return ""
+    out = []
+    for part in msg.walk():
+        ctype = part.get_content_type()
+        if ctype in ("text/plain", "text/html") and part.get_content_disposition() != "attachment":
+            try:
+                payload = part.get_payload(decode=True) or b""
+                charset = part.get_content_charset() or "utf-8"
+                txt = payload.decode(charset, errors="replace")
+                # Strip HTML rudimentario si vino en text/html
+                if ctype == "text/html":
+                    txt = re.sub(r"<[^>]+>", " ", txt)
+                out.append(txt)
+            except Exception:
+                continue
+    return " ".join(out)
+
+
+def _match_proyecto(db: Session, subject: str, filename: str, body: str = "") -> tuple[Optional[Proyecto], str]:
     """Identifica el proyecto destino con cascada de heurísticas.
 
+    Las inmobiliarias generalmente mandan sin el nombre del proyecto en el subject
+    ('Stock actualizado', 'Stock semana 23'). Cuando Nicolás reenvía, el cuerpo
+    del email contiene el Fwd con info del remitente original (inmobiliaria).
+    Por eso buscamos en SUBJECT + FILENAME + BODY, y como último recurso usamos
+    la inmobiliaria (si tiene 1 solo proyecto activo, match único).
+
+    Devuelve (proyecto, motivo). El motivo es para logging/email de error.
+
     Orden:
-    1. id:<xxx> en subject → match exacto
-    2. Nombre del proyecto en subject (incluido como substring) → match único
-    3. Nombre en filename (ej. "stock-pinar.xlsx") → match único
+    1. id:<xxx> explícito en subject/body
+    2. Nombre del proyecto en subject/filename/body (fuzzy, single match)
+    3. Inmobiliaria en subject/body → si tiene 1 solo proyecto activo, match
     4. None si nada matchea de forma inequívoca
     """
     # 1) ID explícito
-    m = re.search(r"id\s*[:=]\s*([a-z0-9\-_]{4,})", subject or "", re.IGNORECASE)
-    if m:
-        pid = m.group(1).strip()
-        p = db.get(Proyecto, pid)
-        if p:
-            return p
+    for src in (subject or "", body or ""):
+        m = re.search(r"id\s*[:=]\s*([a-z0-9\-_]{4,})", src, re.IGNORECASE)
+        if m:
+            pid = m.group(1).strip()
+            p = db.get(Proyecto, pid)
+            if p:
+                return p, f"id explícito en email ({pid})"
 
-    # Cargar proyectos activos para fuzzy match
     activos = (
         db.query(Proyecto)
         .filter(Proyecto.activo == True, Proyecto.deleted_at.is_(None))  # noqa
         .all()
     )
     if not activos:
-        return None
+        return None, "no hay proyectos activos en bc-api"
 
-    haystacks = {
-        "subject": _norm(subject),
-        "filename": _norm(filename),
-    }
+    # Limitar el body a primeros 4000 chars (suficiente para el header del Fwd:)
+    body_short = (body or "")[:4000]
+    haystacks = [
+        ("subject", _norm(subject)),
+        ("filename", _norm(filename)),
+        ("body", _norm(body_short)),
+    ]
 
-    # 2 + 3) Match por nombre o id en subject/filename, exigiendo UNICIDAD
-    for source in ["subject", "filename"]:
-        hay = haystacks[source]
+    # 2) Match por nombre o id en subject/filename/body, exigiendo UNICIDAD
+    for source, hay in haystacks:
         if not hay:
             continue
         candidatos = []
         for p in activos:
             nombre_norm = _norm(p.nombre or "")
             id_norm = _norm(p.id or "")
-            # Ambos lados ≥ 3 chars y nombre debe aparecer como substring
             if nombre_norm and len(nombre_norm) >= 4 and nombre_norm in hay:
                 candidatos.append(p)
-            elif id_norm and id_norm in hay:
+            elif id_norm and len(id_norm) >= 4 and id_norm in hay:
                 candidatos.append(p)
         # Dedup
         seen = set()
         candidatos = [p for p in candidatos if not (p.id in seen or seen.add(p.id))]
         if len(candidatos) == 1:
-            return candidatos[0]
+            return candidatos[0], f"nombre del proyecto en {source}"
         if len(candidatos) > 1:
-            log.warning(
-                "inbox: subject/filename '%s' matchea con varios proyectos: %s — no aplico",
-                hay[:60], [p.id for p in candidatos[:5]],
-            )
-            return None
-    return None
+            # Ambiguo en esta fuente — seguimos al siguiente nivel, podría desambiguar
+            log.info("inbox: %s ambiguo con %d candidatos %s — sigo", source, len(candidatos), [p.id for p in candidatos[:5]])
+
+    # 3) Match por INMOBILIARIA: buscar el nombre de la inmobiliaria en subject+body.
+    #    Si solo tiene 1 proyecto activo, match único.
+    full_hay = _norm(f"{subject} {filename} {body_short}")
+    inmob_by_name: dict[str, list[Proyecto]] = {}
+    for p in activos:
+        inmob = _norm(p.inmobiliaria or "")
+        if inmob and len(inmob) >= 3:
+            inmob_by_name.setdefault(inmob, []).append(p)
+    inmob_matches: list[Proyecto] = []
+    for inmob_norm, proyectos in inmob_by_name.items():
+        if inmob_norm in full_hay:
+            inmob_matches.extend(proyectos)
+    # Dedup
+    seen = set()
+    inmob_matches = [p for p in inmob_matches if not (p.id in seen or seen.add(p.id))]
+    if len(inmob_matches) == 1:
+        p = inmob_matches[0]
+        return p, f"inmobiliaria '{p.inmobiliaria}' tiene solo este proyecto"
+    if len(inmob_matches) > 1:
+        log.info("inbox: inmobiliaria matchea con varios proyectos: %s", [p.id for p in inmob_matches[:5]])
+
+    return None, "no se identificó el proyecto"
 
 
 # ── Lectura del inbox ────────────────────────────────────────────────────
@@ -182,11 +232,13 @@ def _parse_message(msg) -> InboxEmail:
             payload = part.get_payload(decode=True) or b""
             if fname and payload:
                 attachments.append((fname, payload))
+    body_text = _extract_body_text(msg)
     return InboxEmail(
         uid=b"",  # se setea afuera
         from_addr=(from_addr or "").lower(),
         from_name=from_name or "",
         subject=subj,
+        body=body_text,
         date=dt,
         attachments=attachments,
     )
@@ -395,20 +447,28 @@ def process_inbox() -> dict:
             continue
         filename, body = xlsx
         with SessionLocal() as db:
-            proy = _match_proyecto(db, item.subject, filename)
+            proy, motivo = _match_proyecto(db, item.subject, filename, item.body)
             if not proy:
                 log.warning(
-                    "inbox: no pude identificar proyecto · subject=%r filename=%r",
-                    item.subject[:80], filename,
+                    "inbox: no pude identificar proyecto · subject=%r filename=%r motivo=%s",
+                    item.subject[:80], filename, motivo,
                 )
+                # Listar inmobiliarias detectadas en el email (si las hay) para que el usuario sepa
                 _send_response(
                     item.from_addr,
                     f"⚠ No pude identificar el proyecto · {filename}",
-                    f"No pude identificar a qué proyecto pertenece el Excel.\nSubject: {item.subject}\nArchivo: {filename}\n\nSugerencia: incluye el nombre del proyecto en el subject (ej. 'Stock Portal del Pinar') o el id (ej. 'id:jb-tvfylemz').",
+                    f"No pude identificar a qué proyecto pertenece el Excel.\n"
+                    f"Motivo: {motivo}\n"
+                    f"Subject: {item.subject}\n"
+                    f"Archivo: {filename}\n\n"
+                    f"Sugerencias:\n"
+                    f"• Reenvía agregando el NOMBRE del proyecto al subject (ej. 'Stock Portal del Pinar')\n"
+                    f"• O el id (ej. 'id:jb-tvfylemz')\n"
+                    f"• O cualquier mención del nombre del proyecto/inmobiliaria en el cuerpo del email basta\n",
                     _html_err(
                         filename,
-                        f"No pude identificar a qué proyecto pertenece el Excel.\nSubject recibido: '{item.subject}'",
-                        "Incluye el nombre del proyecto en el subject (ej. 'Stock Portal del Pinar') o el id (ej. 'id:jb-tvfylemz').",
+                        f"No pude identificar el proyecto.\nMotivo: {motivo}\nSubject recibido: '{item.subject}'",
+                        "Reenvía agregando el nombre del proyecto al subject (ej. 'Stock Portal del Pinar') o el id (ej. 'id:jb-tvfylemz'). También vale si mencionás el nombre del proyecto o de la inmobiliaria en el cuerpo del email.",
                     ),
                 )
                 _mark_seen(item.uid)
