@@ -19,7 +19,9 @@ from collections import defaultdict, Counter
 
 BC = "https://bc-api.178-105-91-29.nip.io"
 SEGUROS = ["los-lilenes", "vespucio-capital", "brasil", "edificio-serrano-capital", "vivaceta-864"]
-WARNING_ONLY = ["don-ignacio"]
+# Después de auto-asignar lo posible, los proyectos con huérfanas restantes reciben warning.
+WARNING_ALWAYS = ["don-ignacio"]  # nunca auto-asigna (todos ambiguos)
+WARNING_AFTER_AUTO = ["brasil", "vivaceta-864"]  # warning para las que quedaron sin modelo
 
 
 def parse_db(tip):
@@ -105,8 +107,8 @@ def main():
             print(f"   errores (primeros 3): {errors[:3]}")
         print()
 
-    # ───── B) Don Ignacio: warning en extra (sin asignar modelo) ─────
-    for pid in WARNING_ONLY:
+    # ───── B) Warning en extra para proyectos con huérfanas remanentes ─────
+    for pid in WARNING_ALWAYS + WARNING_AFTER_AUTO:
         try:
             p = cli.get(f"/proyectos/{pid}").json()
         except Exception as e:
