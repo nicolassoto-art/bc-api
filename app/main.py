@@ -13,9 +13,11 @@ from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliari
 from .settings import settings
 from .deps.auth import super_admin
 from .services import email_service
+from .services.daily_report import send_daily_report
 from .models import Usuario
 
 logging.basicConfig(level=settings.log_level)
+log = logging.getLogger(__name__)
 
 app = FastAPI(
     title="BigCapital API",
@@ -44,6 +46,50 @@ app.include_router(unidades.router)
 app.include_router(importador.router)
 app.include_router(inmobiliarias.router)
 app.include_router(tickets.router)
+
+
+# ── Scheduler · informe diario L-V 10am Chile ─────────────────────────────
+# Reemplaza los emails por cada cambio (notify_change quedó silenciado).
+# Si daily_report_enabled=False, no se registra el job → cero overhead.
+_scheduler = None
+
+@app.on_event("startup")
+def _start_scheduler():
+    global _scheduler
+    if not settings.daily_report_enabled:
+        log.info("Scheduler: daily_report deshabilitado, no se inicia.")
+        return
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        _scheduler = BackgroundScheduler(timezone="America/Santiago")
+        _scheduler.add_job(
+            send_daily_report,
+            CronTrigger(day_of_week="mon-fri", hour=10, minute=0, timezone="America/Santiago"),
+            id="daily_stock_report",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        _scheduler.start()
+        log.info("Scheduler iniciado · daily_stock_report L-V 10:00 America/Santiago")
+    except Exception as e:
+        log.error("No se pudo iniciar scheduler: %s", e, exc_info=True)
+
+
+@app.on_event("shutdown")
+def _stop_scheduler():
+    if _scheduler:
+        try: _scheduler.shutdown(wait=False)
+        except Exception: pass
+
+
+@app.post("/admin/daily-report/test", tags=["meta"])
+def trigger_daily_report(_: Usuario = Depends(super_admin)):
+    """Dispara el informe diario manualmente (solo super_admin). Para probar el contenido
+    y subject del email sin esperar al cron de las 10am. Útil tras cambios en daily_report.py."""
+    send_daily_report()
+    return {"ok": True, "sent_to": settings.notify_to}
 
 
 @app.get("/health", tags=["meta"])

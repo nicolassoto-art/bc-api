@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     # coma-separado. Override por NOTIFY_STOCK_CC. (2026-06-08) Vacío: solo nicolas.soto recibe.
     # Pamela y Álvaro fueron retirados a pedido del usuario (recibían demasiados emails de stock).
     notify_stock_cc: str = ""
+    # (2026-06-08) Pedido del usuario: dejar de enviar email por CADA actualización de stock
+    # (crear · publicar · subir Excel). En su lugar, un INFORME ÚNICO diario a las 10:00 AM
+    # Chile, L-V. Si algo falla, sí se envía email aparte.
+    emails_per_change: bool = False  # False → notify_change es no-op silencioso
+    daily_report_enabled: bool = True  # Informe diario L-V 10:00 AM America/Santiago
 
     @property
     def upload_path(self) -> Path:

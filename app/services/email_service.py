@@ -65,8 +65,13 @@ def _stock_cc() -> str:
 def notify_change(titulo: str, proyecto: str, detalle: str, proyecto_id: str) -> None:
     """Notificación de cambio de stock: To = admin (notify_to), Cc = equipo (notify_stock_cc).
 
-    NO-OP si SMTP no está configurado. Traga errores (corre como BackgroundTask).
+    (2026-06-08) NO-OP por defecto: pedido del usuario de no recibir email por cada cambio
+    de stock. En su lugar el sistema envía un INFORME DIARIO L-V 10:00 AM Chile vía
+    daily_report.py. Si quieren reactivar, setear EMAILS_PER_CHANGE=true en el .env.
     """
+    if not settings.emails_per_change:
+        log.debug("notify_change desactivado (EMAILS_PER_CHANGE=false) — '%s' (%s) no se envía.", titulo, proyecto)
+        return
     if not _configured():
         log.info("SMTP no configurado — notificación '%s' (%s) NO enviada.", titulo, proyecto)
         return
