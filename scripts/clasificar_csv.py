@@ -105,20 +105,29 @@ BigCapital|Edificio Borja Plaza|zOHnfOQJ
 """
 
 
+def slugify(s):
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    return s
+
+
 def main():
     jwt = os.environ["BC_API_JWT"]
     cli = httpx.Client(base_url=BC, headers={"Authorization": f"Bearer {jwt}"}, timeout=30)
     lst = cli.get("/proyectos").json()
     print(f"Total proyectos en bc-api: {len(lst)}")
-    # Indexar bc-api por jb_id (extra.jb_id) y por slug
     by_jb_id = {}
     by_slug = {}
+    by_name = {}
     for p in lst:
         jb_id = (p.get("extra") or {}).get("jb_id")
         if jb_id:
             by_jb_id[jb_id] = p
         if p.get("id"):
             by_slug[p["id"]] = p
+        nm = p.get("nombre") or ""
+        if nm:
+            by_name[slugify(nm)] = p
 
     # Parsear CSV
     rows = []
@@ -132,7 +141,7 @@ def main():
     importados = []
     pendientes = []
     for inmob, nombre, jb_id in rows:
-        bc = by_jb_id.get(jb_id)
+        bc = by_jb_id.get(jb_id) or by_name.get(slugify(nombre)) or by_slug.get(slugify(nombre))
         if bc:
             importados.append((inmob, nombre, jb_id, bc.get("id")))
         else:
