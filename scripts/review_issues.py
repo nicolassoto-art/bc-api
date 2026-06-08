@@ -9,8 +9,13 @@ ENUMS_CRUDOS = {"voluntary","required","all","onlyApartment","downPayment","expe
 
 def main():
     jwt = os.environ["BC_API_JWT"]
+    if not jwt:
+        raise SystemExit("BC_API_JWT vacío — login falló")
     cli = httpx.Client(base_url=BC, headers={"Authorization": f"Bearer {jwt}"}, timeout=60)
-    lst = cli.get("/proyectos").json()
+    r = cli.get("/proyectos")
+    if r.status_code != 200:
+        raise SystemExit(f"GET /proyectos → {r.status_code}: {r.text[:200]}")
+    lst = r.json()
 
     rows = []
     for p in lst:
