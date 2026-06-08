@@ -83,6 +83,119 @@ def _antiguedad_color(dt):
     return ("#dc2626", "#fee2e2", "desactualizado")    # rojo
 
 
+def _is_depto(u):
+    """¿La unidad es un departamento (no estac/bodega/pack)?"""
+    t = (u.tipo or "").lower() if u.tipo else ""
+    n = (u.numero or "")
+    if n.startswith("E-") or "estac" in t: return False
+    if n.startswith("B-") or "bodeg" in t or t == "storage": return False
+    if "pack" in t: return False
+    return True
+
+
+def _alertas_de_proyecto(p) -> dict:
+    """Genera TODAS las alertas (críticos + warnings) para un proyecto, con la MISMA
+    lógica que el frontend (_alertasProyecto + _alertasGranulares + _alertasDeProyecto).
+    Devuelve {criticos: [str], warnings: [str]}.
+    """
+    criticos = []
+    warnings = []
+    extra = p.extra or {}
+    pub = bool(extra.get("publicar_en_catalogo"))
+    unidades = list(p.unidades or [])
+    deptos = [u for u in unidades if _is_depto(u)]
+    deptos_disp = [u for u in deptos if u.disponible]
+
+    # ─── CRÍTICAS (datos básicos faltantes que bloquean publicar/cotizar)
+    if not p.nombre or not p.nombre.strip():
+        criticos.append("Sin nombre")
+    if not p.inmobiliaria or not str(p.inmobiliaria).strip():
+        criticos.append("Sin inmobiliaria")
+    if not p.comuna or not str(p.comuna).strip():
+        criticos.append("Sin comuna")
+    if not p.foto_principal_url:
+        criticos.append("Sin foto de fachada")
+    no_tiene_stock = (len(unidades) == 0)
+    if no_tiene_stock:
+        criticos.append("Sin stock cargado")
+
+    # GPS: crítico solo si está publicado (igual que frontend tras fix de jun 8)
+    if extra.get("gps_verificado") is not True:
+        if pub:
+            criticos.append("Sin ubicación verificada (publicado)")
+        else:
+            warnings.append("Sin ubicación verificada")
+    # Publicado sin stock disponible (si tiene unidades pero 0 disp)
+    if pub and len(deptos_disp) == 0 and not no_tiene_stock:
+        criticos.append("Publicado sin stock disponible")
+
+    # ─── WARNINGS (revisar pero no bloquean)
+    if not p.fase:
+        warnings.append("Sin fase definida")
+    if not p.fecha_entrega and not (extra.get("fisicos") or {}).get("ano_entrega") and not p.ano_entrega:
+        warnings.append("Sin fecha de entrega")
+    com = extra.get("comercial") or {}
+    if com.get("pie_pct") in (None, ""):
+        warnings.append("Sin pie %")
+
+    # ─── GRANULARES (modelos / unidades)
+    modelos = extra.get("modelos") or []
+    imagenes = list(p.imagenes or [])
+    norm = lambda s: (s or "").strip().lower()
+
+    # Modelos sin planta (en uso = crítico; resto = warning)
+    plantas_por_modelo = set()
+    for im in imagenes:
+        cat = norm(im.categoria)
+        if cat.startswith("jb-planta-"):
+            plantas_por_modelo.add(cat[len("jb-planta-"):])
+    modelos_en_uso = set()
+    for u in deptos_disp:
+        if u.modelo:
+            modelos_en_uso.add(norm(u.modelo))
+    modelos_sin_planta = []
+    for m in modelos:
+        k = norm(m.get("nombre") or m.get("name"))
+        if not k: continue
+        tiene_planta = k in plantas_por_modelo or bool(m.get("plano_url") or m.get("planta_url"))
+        if not tiene_planta:
+            modelos_sin_planta.append(m.get("nombre") or m.get("name"))
+    en_uso_sin_planta = [n for n in modelos_sin_planta if norm(n) in modelos_en_uso]
+    if en_uso_sin_planta:
+        criticos.append(f"{len(en_uso_sin_planta)} modelo(s) sin planta en uso: {', '.join(en_uso_sin_planta[:5])}")
+    fuera_uso_sin_planta = [n for n in modelos_sin_planta if norm(n) not in modelos_en_uso]
+    if fuera_uso_sin_planta:
+        warnings.append(f"{len(fuera_uso_sin_planta)} modelo(s) sin planta (no en uso): {', '.join(fuera_uso_sin_planta[:5])}")
+
+    # Unidades con modelo huérfano (modelo no existe en extra.modelos)
+    modelos_by_name = {norm(m.get("nombre") or m.get("name")): m for m in modelos if (m.get("nombre") or m.get("name"))}
+    huerfanos = []
+    for u in deptos_disp:
+        m = norm(u.modelo)
+        if m and m not in modelos_by_name:
+            huerfanos.append(f"{u.numero or '?'} (modelo \"{u.modelo}\")")
+    if huerfanos:
+        criticos.append(f"{len(huerfanos)} unidad(es) con modelo que no existe: {', '.join(huerfanos[:5])}")
+
+    # Deptos sin precio
+    deptos_sin_precio = [u.numero or "?" for u in deptos_disp if not (u.precio_final_uf or u.precio_lista_uf)]
+    if deptos_sin_precio:
+        warnings.append(f"{len(deptos_sin_precio)} depto(s) sin precio: {', '.join(deptos_sin_precio[:8])}")
+
+    # Deptos sin tipología
+    deptos_sin_tipo = [u.numero or "?" for u in deptos_disp if not u.tipologia]
+    if deptos_sin_tipo:
+        warnings.append(f"{len(deptos_sin_tipo)} depto(s) sin tipología: {', '.join(deptos_sin_tipo[:8])}")
+
+    # ─── Del scraper: _deptos_con_warning (estado persistente)
+    dw = extra.get("_deptos_con_warning") or []
+    if isinstance(dw, list) and dw:
+        modelos_dw = sorted(set(d.get("modelo") for d in dw if d.get("modelo")))
+        criticos.append(f"{len(dw)} depto(s) con modelo no registrado (scraper): {', '.join(modelos_dw[:5])}")
+
+    return {"criticos": criticos, "warnings": warnings}
+
+
 def _eventos_24h(p):
     """Eventos del timeline en últimas 24h. Devuelve [{tipo,fecha,detalles}]."""
     tl = (p.extra or {}).get("timeline") or []
@@ -121,12 +234,6 @@ def build_daily_report(db: Session) -> dict:
     ]
     cambios_24h.sort(key=lambda x: x.stock_updated_at or datetime.min, reverse=True)
 
-    # Alertas activas (gating del catálogo)
-    sin_foto = [p for p in proyectos if not p.foto_principal_url]
-    sin_stock = [p for p in proyectos if not (p.unidades and len(p.unidades) > 0)]
-    publicados_sin_gps = [p for p in publicados if not (p.extra or {}).get("gps_verificado")]
-    publicados_sin_disp = [p for p in publicados if _disp(p.unidades) == 0]
-
     # Errores del scraper en últimas 24h (eventos tipo 'Alerta')
     errores_24h = []
     for p in proyectos:
@@ -135,9 +242,33 @@ def build_daily_report(db: Session) -> dict:
                 errores_24h.append({"proyecto": p.nombre, **ev})
     errores_24h.sort(key=lambda x: x["fecha"], reverse=True)
 
+    # ─── ALERTAS COMPLETAS por proyecto (críticos + warnings, vía _alertas_de_proyecto).
+    # Misma lógica del frontend para mantener UN SOLO criterio de verdad.
+    alertas_por_proy = {}
+    crit_agg = {}    # mensaje básico → [proyectos]
+    warn_agg = {}    # mensaje básico → [proyectos]
+    n_con_critico, n_con_warning, n_sin_alertas = 0, 0, 0
+    for p in proyectos:
+        a = _alertas_de_proyecto(p)
+        alertas_por_proy[p.id] = a
+        if a["criticos"]:
+            n_con_critico += 1
+            for msg in a["criticos"]:
+                # Agrupar por la PRIMERA parte (antes de ":") para juntar variantes con detalle
+                clave = msg.split(":")[0].strip()
+                crit_agg.setdefault(clave, []).append({"id": p.id, "nombre": p.nombre or p.id})
+        elif a["warnings"]:
+            n_con_warning += 1
+        else:
+            n_sin_alertas += 1
+        for msg in a["warnings"]:
+            clave = msg.split(":")[0].strip()
+            warn_agg.setdefault(clave, []).append({"id": p.id, "nombre": p.nombre or p.id})
+
     # Estado por proyecto (ordenado por más reciente actualización primero)
     proyectos_estado = []
     for p in proyectos:
+        a = alertas_por_proy.get(p.id, {"criticos":[], "warnings":[]})
         proyectos_estado.append({
             "id": p.id,
             "nombre": p.nombre or p.id,
@@ -146,9 +277,15 @@ def build_daily_report(db: Session) -> dict:
             "cargadas": len(p.unidades or []),
             "stock_updated_at": p.stock_updated_at,
             "publicado": bool((p.extra or {}).get("publicar_en_catalogo")),
+            "n_crit": len(a["criticos"]),
+            "n_warn": len(a["warnings"]),
         })
-    # Orden: nunca actualizados al final, resto por antigüedad ASC (más reciente arriba)
-    proyectos_estado.sort(key=lambda x: (x["stock_updated_at"] is None, -(x["stock_updated_at"].timestamp() if x["stock_updated_at"] else 0)))
+    # Orden: críticos primero, luego warnings, luego al día. Dentro del grupo: más reciente arriba.
+    proyectos_estado.sort(key=lambda x: (
+        -1 * (x["n_crit"] * 1000 + x["n_warn"]),
+        x["stock_updated_at"] is None,
+        -(x["stock_updated_at"].timestamp() if x["stock_updated_at"] else 0)
+    ))
 
     # Distribución de salud del stock
     salud = {"al_dia": 0, "atencion": 0, "demorado": 0, "desactualizado": 0, "sin_datos": 0}
@@ -156,6 +293,12 @@ def build_daily_report(db: Session) -> dict:
         _, _, label = _antiguedad_color(pe["stock_updated_at"])
         key = label.replace(" ", "_")
         salud[key] = salud.get(key, 0) + 1
+
+    # Convertir crit_agg y warn_agg a listas ordenadas por cantidad desc
+    def agg_to_list(agg):
+        items = [{"msg": msg, "proyectos": ps, "n": len(ps)} for msg, ps in agg.items()]
+        items.sort(key=lambda x: -x["n"])
+        return items
 
     return {
         "fecha_cl": _fecha_cl(),
@@ -170,16 +313,11 @@ def build_daily_report(db: Session) -> dict:
             for p in cambios_24h[:15]
         ],
         "n_cambios_24h": len(cambios_24h),
-        "alertas": {
-            "sin_foto": [{"id": p.id, "nombre": p.nombre} for p in sin_foto[:10]],
-            "n_sin_foto": len(sin_foto),
-            "sin_stock": [{"id": p.id, "nombre": p.nombre} for p in sin_stock[:10]],
-            "n_sin_stock": len(sin_stock),
-            "publicados_sin_gps": [{"id": p.id, "nombre": p.nombre} for p in publicados_sin_gps[:10]],
-            "n_publicados_sin_gps": len(publicados_sin_gps),
-            "publicados_sin_disp": [{"id": p.id, "nombre": p.nombre} for p in publicados_sin_disp[:10]],
-            "n_publicados_sin_disp": len(publicados_sin_disp),
-        },
+        "criticos_agg": agg_to_list(crit_agg),
+        "warnings_agg": agg_to_list(warn_agg),
+        "n_con_critico": n_con_critico,
+        "n_con_warning": n_con_warning,
+        "n_sin_alertas": n_sin_alertas,
         "errores_24h": errores_24h[:20],
         "n_errores_24h": len(errores_24h),
     }
@@ -246,33 +384,44 @@ def _build_html(data: dict) -> str:
     pe = data.get("proyectos_estado", [])
     if pe:
         rows = []
-        for p in pe[:50]:
+        for p in pe[:60]:
             color, bg, label = _antiguedad_color(p["stock_updated_at"])
             rel = _tiempo_relativo(p["stock_updated_at"])
             disp = p["disp"]
             disp_color = "#16a34a" if disp > 0 else "#dc2626"
             pub_icon = "🌐" if p["publicado"] else ""
             inmob = f'<div style="color:#9ca3af;font-size:11px">{escape(p["inmobiliaria"])}</div>' if p["inmobiliaria"] else ""
+            # Semáforo por proyecto (3 columnas): crítico / warning / ok
+            n_crit = p.get("n_crit", 0)
+            n_warn = p.get("n_warn", 0)
+            if n_crit > 0:
+                sem = f'<span title="{n_crit} críticas + {n_warn} warnings" style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">🔴 {n_crit}</span>'
+            elif n_warn > 0:
+                sem = f'<span title="{n_warn} warnings" style="background:#fef3c7;color:#ca8a04;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">🟡 {n_warn}</span>'
+            else:
+                sem = '<span style="background:#dcfce7;color:#16a34a;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">🟢 OK</span>'
             rows.append(f'''<tr>
               <td style="padding:8px 10px;border-bottom:1px solid #f3f4f6">
                 <div style="font-weight:700;color:#0a0d12;font-size:13px">{_project_link(p)} {pub_icon}</div>
                 {inmob}
               </td>
+              <td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;text-align:center">{sem}</td>
               <td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;text-align:right;color:{disp_color};font-weight:800;font-size:14px">{disp}</td>
               <td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;text-align:right;color:#6b7280;font-size:12px;white-space:nowrap">{rel}</td>
               <td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;text-align:center"><span style="background:{bg};color:{color};font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.3px">{escape(label)}</span></td>
             </tr>''')
         extra = ""
-        if len(pe) > 50:
-            extra = f'<p style="font-size:11px;color:#9ca3af;margin:6px 0 0;text-align:center">… y {len(pe)-50} proyectos más en el listado</p>'
+        if len(pe) > 60:
+            extra = f'<p style="font-size:11px;color:#9ca3af;margin:6px 0 0;text-align:center">… y {len(pe)-60} proyectos más en el listado</p>'
         proyectos_html = f'''
-        <h3 style="margin:28px 0 8px;color:#0a0d12;font-size:15px">🏢 Estado por proyecto</h3>
+        <h3 style="margin:28px 0 8px;color:#0a0d12;font-size:15px">🏢 Estado por proyecto · ordenado por criticidad</h3>
         <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
           <thead><tr style="background:#f9fafb">
             <th style="padding:8px 10px;text-align:left;font-size:11px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Proyecto</th>
+            <th style="padding:8px 10px;text-align:center;font-size:11px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Alertas</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Disp.</th>
             <th style="padding:8px 10px;text-align:right;font-size:11px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Última act.</th>
-            <th style="padding:8px 10px;text-align:center;font-size:11px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Estado</th>
+            <th style="padding:8px 10px;text-align:center;font-size:11px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Salud stock</th>
           </tr></thead>
           <tbody>{"".join(rows)}</tbody>
         </table>
@@ -280,26 +429,59 @@ def _build_html(data: dict) -> str:
     else:
         proyectos_html = ""
 
-    # ─── Alertas (categorizadas, tipo banner) ──────────────────────────────
-    def alert_box(title, items, total, color, bg):
-        if not items: return ""
-        lis = "".join(f'<li style="margin:2px 0;font-size:12.5px">{_project_link(p)}</li>' for p in items[:8])
-        extra = f' <span style="color:#6b7280;font-weight:500">+{total-8} más</span>' if total > 8 else ""
-        return f'''<div style="background:{bg};border-left:3px solid {color};padding:10px 14px;border-radius:6px;margin-bottom:8px">
-          <div style="color:{color};font-weight:800;font-size:13px;margin-bottom:4px">{escape(title)} · {total}{extra}</div>
+    # ─── SEMÁFORO general: distribución de proyectos por estado de alertas ─
+    n_crit = data.get("n_con_critico", 0)
+    n_warn = data.get("n_con_warning", 0)
+    n_ok = data.get("n_sin_alertas", 0)
+    total_p = max(n_crit + n_warn + n_ok, 1)
+    semaforo_html = f'''
+    <h3 style="margin:24px 0 8px;color:#0a0d12;font-size:15px">🚦 Estado general (semáforo)</h3>
+    <table style="width:100%;border-collapse:separate;border-spacing:6px"><tr>
+      <td style="padding:12px;background:#fee2e2;border:2px solid #dc2626;border-radius:8px;text-align:center;width:33%">
+        <div style="font-size:11px;color:#7f1d1d;font-weight:700;text-transform:uppercase;letter-spacing:.5px">🔴 Con críticas</div>
+        <div style="font-size:26px;color:#dc2626;font-weight:800;line-height:1;margin-top:4px">{n_crit}</div>
+        <div style="font-size:11px;color:#7f1d1d;margin-top:2px">{round(100*n_crit/total_p)}% del total</div>
+      </td>
+      <td style="padding:12px;background:#fef3c7;border:2px solid #ca8a04;border-radius:8px;text-align:center;width:33%">
+        <div style="font-size:11px;color:#854d0e;font-weight:700;text-transform:uppercase;letter-spacing:.5px">🟡 Con warnings</div>
+        <div style="font-size:26px;color:#ca8a04;font-weight:800;line-height:1;margin-top:4px">{n_warn}</div>
+        <div style="font-size:11px;color:#854d0e;margin-top:2px">{round(100*n_warn/total_p)}% del total</div>
+      </td>
+      <td style="padding:12px;background:#dcfce7;border:2px solid #16a34a;border-radius:8px;text-align:center;width:33%">
+        <div style="font-size:11px;color:#14532d;font-weight:700;text-transform:uppercase;letter-spacing:.5px">🟢 Todo OK</div>
+        <div style="font-size:26px;color:#16a34a;font-weight:800;line-height:1;margin-top:4px">{n_ok}</div>
+        <div style="font-size:11px;color:#14532d;margin-top:2px">{round(100*n_ok/total_p)}% del total</div>
+      </td>
+    </tr></table>'''
+
+    # ─── Alertas críticas agregadas (rojo) ────────────────────────────────
+    def agg_box(item, sev_color, sev_bg, icon):
+        ps = item["proyectos"]
+        lis = "".join(f'<li style="margin:2px 0;font-size:12.5px">{_project_link(p)}</li>' for p in ps[:8])
+        extra = f' <span style="color:#6b7280;font-weight:500">+{item["n"]-8} más</span>' if item["n"] > 8 else ""
+        return f'''<div style="background:{sev_bg};border-left:4px solid {sev_color};padding:10px 14px;border-radius:6px;margin-bottom:8px">
+          <div style="color:{sev_color};font-weight:800;font-size:13px;margin-bottom:4px">{icon} {escape(item["msg"])} · <span style="font-size:14px">{item["n"]} proyecto(s)</span>{extra}</div>
           <ul style="margin:0;padding-left:18px;color:#374151">{lis}</ul>
         </div>'''
-    alertas_items = [
-        ("🔴 Publicados sin stock disponible", al["publicados_sin_disp"], al["n_publicados_sin_disp"], "#dc2626", "#fee2e2"),
-        ("🔴 Publicados sin GPS verificado",   al["publicados_sin_gps"],  al["n_publicados_sin_gps"],  "#dc2626", "#fee2e2"),
-        ("⚠ Sin foto de fachada",              al["sin_foto"],            al["n_sin_foto"],            "#ea580c", "#ffedd5"),
-        ("⚠ Sin stock cargado",                al["sin_stock"],           al["n_sin_stock"],           "#ea580c", "#ffedd5"),
-    ]
-    alertas_html = "".join(alert_box(*x) for x in alertas_items)
-    if alertas_html:
-        alertas_html = f'<h3 style="margin:28px 0 8px;color:#0a0d12;font-size:15px">⚠️ Alertas que requieren acción</h3>{alertas_html}'
+
+    crit_agg = data.get("criticos_agg", [])
+    warn_agg = data.get("warnings_agg", [])
+
+    crit_html = ""
+    if crit_agg:
+        crit_html = '<h3 style="margin:28px 0 8px;color:#dc2626;font-size:15px">🔴 ALERTAS CRÍTICAS · requieren acción</h3>'
+        for item in crit_agg:
+            crit_html += agg_box(item, "#dc2626", "#fee2e2", "🔴")
     else:
-        alertas_html = '<div style="margin:24px 0 0;padding:12px 14px;background:#dcfce7;border-left:3px solid #16a34a;border-radius:6px;color:#15803d;font-weight:700;font-size:13px">✅ Sin alertas críticas activas.</div>'
+        crit_html = '<div style="margin:24px 0 0;padding:12px 14px;background:#dcfce7;border-left:4px solid #16a34a;border-radius:6px;color:#15803d;font-weight:700;font-size:13px">🟢 Sin alertas críticas activas — todo el portafolio publicable.</div>'
+
+    warn_html = ""
+    if warn_agg:
+        warn_html = '<h3 style="margin:24px 0 8px;color:#ca8a04;font-size:15px">🟡 WARNINGS · revisar cuando puedas</h3>'
+        for item in warn_agg:
+            warn_html += agg_box(item, "#ca8a04", "#fef3c7", "🟡")
+
+    alertas_html = crit_html + warn_html
 
     # ─── Errores del scraper (con resumen + detalles) ──────────────────────
     errores_html = ""
@@ -336,6 +518,7 @@ def _build_html(data: dict) -> str:
         </div>
         <div style="background:#fff;padding:18px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none">
           {kpis}
+          {semaforo_html}
           {salud_html}
           {alertas_html}
           {errores_html}
@@ -363,18 +546,20 @@ def send_daily_report() -> None:
             data = build_daily_report(db)
         html = _build_html(data)
         msg = EmailMessage()
-        # Subject con highlights de la jornada
-        n_alertas = (
-            data["alertas"]["n_publicados_sin_disp"]
-            + data["alertas"]["n_publicados_sin_gps"]
-            + data["alertas"]["n_sin_foto"]
-            + data["alertas"]["n_sin_stock"]
-        )
+        # Subject con highlights de la jornada (semáforo)
+        n_crit = data.get("n_con_critico", 0)
+        n_warn = data.get("n_con_warning", 0)
         warn = ""
         if data["n_errores_24h"] > 0:
             warn = f" · 🚨 {data['n_errores_24h']} error(es)"
-        elif n_alertas > 0:
-            warn = f" · ⚠ {n_alertas} alertas"
+        elif n_crit > 0 and n_warn > 0:
+            warn = f" · 🔴 {n_crit} crit · 🟡 {n_warn} warn"
+        elif n_crit > 0:
+            warn = f" · 🔴 {n_crit} crit"
+        elif n_warn > 0:
+            warn = f" · 🟡 {n_warn} warn"
+        else:
+            warn = " · 🟢 todo OK"
         msg["Subject"] = f"📊 Stock · {data['n_disponibles_total']} disp · {data['n_cambios_24h']} cambios 24h{warn}"
         from_addr = settings.smtp_from or settings.smtp_user
         msg["From"] = formataddr((settings.smtp_from_name, from_addr))
