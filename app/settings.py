@@ -35,10 +35,11 @@ class Settings(BaseSettings):
     smtp_pass: str = ""
     smtp_from: str = ""  # vacío → usa smtp_user (Gmail exige from = cuenta autenticada)
     smtp_from_name: str = "BigCapital · Stock"
-    notify_to: str = "nicolas.soto@bigcapital.cl"  # admin (To): tickets/diagnóstico/test + stock
+    notify_to: str = "nicolas.soto@bigcapital.cl"  # admin (To): TODO (stock + tickets + diag + test)
     # CC ('en copia') de las notificaciones de STOCK (crear · publicar · subir Excel) —
-    # coma-separado. El equipo va EN COPIA; el To es notify_to. Override por NOTIFY_STOCK_CC.
-    notify_stock_cc: str = "pamela.scheel@bigcapital.cl,alvaro.meneses@bigcapital.cl"
+    # coma-separado. Override por NOTIFY_STOCK_CC. (2026-06-08) Vacío: solo nicolas.soto recibe.
+    # Pamela y Álvaro fueron retirados a pedido del usuario (recibían demasiados emails de stock).
+    notify_stock_cc: str = ""
 
     @property
     def upload_path(self) -> Path:
