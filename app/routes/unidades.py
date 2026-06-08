@@ -771,12 +771,52 @@ async def subir_excel(
             legacy_rows.append((i, d))
         rows_iter = legacy_rows
 
+    # ── Auto-asignación de modelo por tipología ──
+    # Excel JB no exporta columna "Modelo" (o viene vacía). Antes de procesar las filas,
+    # construimos un índice {(dormitorios, banos) → nombre del modelo} a partir de
+    # extra.modelos del proyecto, para autoasignar modelo a cada fila que venga sin él.
+    # Si hay AMBIGÜEDAD (varios modelos con misma (D,B)) NO autoasignamos — preferimos
+    # dejar modelo="" antes que mapear mal.
+    _ex_modelos = (proy.extra or {}).get("modelos") or []
+    _by_db: dict[tuple[int, int], str] = {}
+    _ambiguos: set[tuple[int, int]] = set()
+    for _m in _ex_modelos:
+        if not isinstance(_m, dict):
+            continue
+        try:
+            _d = int(_m.get("dormitorios")) if _m.get("dormitorios") is not None else None
+            _b = int(_m.get("banos")) if _m.get("banos") is not None else None
+        except (ValueError, TypeError):
+            _d = _b = None
+        _n = (_m.get("nombre") or "").strip()
+        if _d is None or _b is None or not _n:
+            continue
+        key = (_d, _b)
+        if key in _by_db and _by_db[key] != _n:
+            _ambiguos.add(key)
+        else:
+            _by_db.setdefault(key, _n)
+    # quitar ambiguos del mapa
+    for k in _ambiguos:
+        _by_db.pop(k, None)
+
     # ── Procesar filas (mismo loop para JB o legacy) ──
+    auto_asignados = 0
     for i, d in rows_iter:
         num = str(d.get("numero_depto") or "").strip()
         if not num:
             errors.append(f"Fila {i}: falta 'Unidad Número'")
             continue
+        # auto-asignar modelo si viene vacío y la tipología permite inferir (D,B)
+        _modelo_raw = (d.get("modelo") or "").strip()
+        if not _modelo_raw:
+            _tip = (d.get("tipologia") or "").strip()
+            _dorm, _banos = _parse_dorm_banos(_tip)
+            if _dorm is not None and _banos is not None:
+                _mname = _by_db.get((_dorm, _banos))
+                if _mname:
+                    d["modelo"] = _mname
+                    auto_asignados += 1
         data = dict(
             numero=num,
             modelo=d.get("modelo") or "",
