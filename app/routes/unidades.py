@@ -170,11 +170,12 @@ def _parse_jb_excel(wb) -> tuple[list[dict], list[str]]:
         elif modelo_str.lower().startswith("studio"):
             # Studio: PlanOk no da dormitorios → tipología "Estudio" (español)
             d["tipologia"] = "Estudio"
-        # Disponible: JB no lo trae explícito → dejar en None para que el upsert
-        # PRESERVE el valor actual en BD (antes seteábamos True y se 'resucitaban'
-        # unidades vendidas marcadas a mano cada vez que el broker subía un Excel
-        # de actualización de precios). Para unidades NUEVAS el default sigue True.
-        d.setdefault("disponible", None)
+        # Regla (2026-06-08, pedido del usuario): SI la unidad APARECE en el
+        # Excel, está DISPONIBLE. El Excel del scraper trae solo las unidades
+        # vigentes; el resto se asume vendido/no-disponible. Por eso default
+        # True acá: la columna explícita 'Disponible' del JB rara vez viene y
+        # cuando viene es para marcar excepciones (ej. estac/bodega en pack).
+        d.setdefault("disponible", True)
         # tipo: deducir
         d.setdefault("tipo", "Depto")
         out_rows.append(d)
@@ -845,9 +846,10 @@ async def subir_excel(
                 return transform(r[j]) if j is not None and j < len(r) else None
 
             disp_raw = col("disponible")
-            # Si la celda viene vacía/None → None (preserva BD); explícito → bool.
+            # Si la celda viene vacía → True (regla pedida: aparece en Excel = disponible).
+            # Explícito FALSE/NO/0 → False.
             if disp_raw is None or str(disp_raw).strip() == "":
-                disp = None
+                disp = True
             else:
                 disp = str(disp_raw).strip().lower() in ("true", "1", "sí", "si", "yes", "x", "disponible")
             d = dict(
@@ -937,9 +939,10 @@ async def subir_excel(
             estac_flag=d.get("estac_flag") or "optional",
             bodega_flag=d.get("bodega_flag") or "optional",
             pack_flag=d.get("pack_flag") or "optional",
-            # disponible: None significa "el Excel NO lo trajo explícito".
-            # En unidades existentes preservamos BD; en nuevas asumimos True.
-            disponible=d.get("disponible"),
+            # Regla: aparece en el Excel = disponible. d.get('disponible') ya
+            # viene True por _parse_jb_excel (default) salvo que JB marque FALSE
+            # explícito (caso pack), en cuyo caso respetamos.
+            disponible=bool(d.get("disponible", True)),
         )
 
         if num in by_num:
@@ -947,15 +950,10 @@ async def subir_excel(
             # Upsert parcial: campos manuales que el origen (PlanOk/MNK) NO provee
             # se preservan si vienen vacíos, para no pisar datos cargados a mano.
             # Ej: orientación — PlanOk no la expone, es manual en BC.
-            # Y disponible — si la celda Excel está vacía, mantener BD (evita
-            # 'resucitar' deptos vendidos cuando se sube un Excel de precios).
             PRESERVAR_SI_VACIO = {"orientacion"}
-            PRESERVAR_SI_NONE = {"disponible"}  # vacío/None ≠ False
             cambios_campos = []  # (campo, old, new) de lo que cambió de verdad
             for k, v in data.items():
                 if k in PRESERVAR_SI_VACIO and (v is None or v == ""):
-                    continue
-                if k in PRESERVAR_SI_NONE and v is None:
                     continue
                 old = getattr(u, k, None)
                 if _valor_cambio(old, v):
@@ -965,9 +963,6 @@ async def subir_excel(
             if cambios_campos:
                 modificadas.append((num, cambios_campos))
         else:
-            # Unidad NUEVA: si el Excel no trajo disponible, default True
-            if data.get("disponible") is None:
-                data["disponible"] = True
             u = Unidad(id="u-" + uuid.uuid4().hex[:10], proyecto_id=proyecto_id, **data)
             db.add(u)
             inserted.append(num)
@@ -977,8 +972,9 @@ async def subir_excel(
         if is_jb and str(d.get("_modelo_warning") or "").strip() in ("1", "true", "True"):
             deptos_con_warning.append({"numero": num, "modelo": data.get("modelo") or ""})
 
-    # ── Baja de stock: deptos que YA NO vienen en el Excel → disponible=False ──
-    # El scraper sube el stock disponible completo; lo que falta = vendido/reservado.
+    # ── Baja de stock: lo que NO viene en el Excel → disponible=False ──
+    # El Excel del scraper sube el stock vigente; lo que falta = vendido/reservado.
+    # Aplica a deptos (regla pedida por el usuario: 'aparece en Excel = disponible').
     # NO se borra (preserva registro + datos manuales). Si reaparece → se reactiva.
     seen_nums = {str(d.get("numero_depto") or "").strip() for _i, d in rows_iter}
     dados_de_baja = []
