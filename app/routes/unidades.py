@@ -170,12 +170,16 @@ def _parse_jb_excel(wb) -> tuple[list[dict], list[str]]:
         elif modelo_str.lower().startswith("studio"):
             # Studio: PlanOk no da dormitorios → tipología "Estudio" (español)
             d["tipologia"] = "Estudio"
-        # Regla (2026-06-08, pedido del usuario): SI la unidad APARECE en el
-        # Excel, está DISPONIBLE. El Excel del scraper trae solo las unidades
-        # vigentes; el resto se asume vendido/no-disponible. Por eso default
-        # True acá: la columna explícita 'Disponible' del JB rara vez viene y
-        # cuando viene es para marcar excepciones (ej. estac/bodega en pack).
-        d.setdefault("disponible", True)
+        # Regla (2026-06-08, pedido del usuario): SI la unidad APARECE en la
+        # hoja UNIDAD del Excel, está DISPONIBLE — punto. El Excel del scraper
+        # trae solo las unidades vigentes; el resto se asume vendido/no-disp.
+        # IGNORAMOS la columna 'Disponible' del Excel JB (los humanos a veces
+        # ponen 'FALSE' en una fila para marcar 'vendida', pero la fila ya
+        # NO debería estar en el Excel → eso es un error del Excel, no del
+        # sistema). Forzamos True acá; las bajas reales = ausencia en el Excel.
+        # NOTA: estac/bodega tienen su propia lógica de pack (líneas 272, 297)
+        # — eso queda intacto porque vive en parsers distintos.
+        d["disponible"] = True
         # tipo: deducir
         d.setdefault("tipo", "Depto")
         out_rows.append(d)
@@ -845,13 +849,10 @@ async def subir_excel(
                 j = idx.get(name)
                 return transform(r[j]) if j is not None and j < len(r) else None
 
-            disp_raw = col("disponible")
-            # Si la celda viene vacía → True (regla pedida: aparece en Excel = disponible).
-            # Explícito FALSE/NO/0 → False.
-            if disp_raw is None or str(disp_raw).strip() == "":
-                disp = True
-            else:
-                disp = str(disp_raw).strip().lower() in ("true", "1", "sí", "si", "yes", "x", "disponible")
+            # Regla del usuario: aparece en Excel = disponible. Ignoramos la
+            # columna 'Disponible' (los humanos a veces escriben 'no disp' en
+            # una fila que YA NO debería estar — eso es error del Excel).
+            disp = True
             d = dict(
                 numero_depto=num,
                 modelo=col("modelo") or "",
