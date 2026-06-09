@@ -170,8 +170,11 @@ def _parse_jb_excel(wb) -> tuple[list[dict], list[str]]:
         elif modelo_str.lower().startswith("studio"):
             # Studio: PlanOk no da dormitorios → tipología "Estudio" (español)
             d["tipologia"] = "Estudio"
-        # Disponible: JB no lo trae explícito → asumir True
-        d.setdefault("disponible", True)
+        # Disponible: JB no lo trae explícito → dejar en None para que el upsert
+        # PRESERVE el valor actual en BD (antes seteábamos True y se 'resucitaban'
+        # unidades vendidas marcadas a mano cada vez que el broker subía un Excel
+        # de actualización de precios). Para unidades NUEVAS el default sigue True.
+        d.setdefault("disponible", None)
         # tipo: deducir
         d.setdefault("tipo", "Depto")
         out_rows.append(d)
@@ -842,11 +845,11 @@ async def subir_excel(
                 return transform(r[j]) if j is not None and j < len(r) else None
 
             disp_raw = col("disponible")
-            disp = (
-                str(disp_raw).strip().lower() in ("true", "1", "sí", "si", "yes", "x")
-                if disp_raw is not None
-                else True
-            )
+            # Si la celda viene vacía/None → None (preserva BD); explícito → bool.
+            if disp_raw is None or str(disp_raw).strip() == "":
+                disp = None
+            else:
+                disp = str(disp_raw).strip().lower() in ("true", "1", "sí", "si", "yes", "x", "disponible")
             d = dict(
                 numero_depto=num,
                 modelo=col("modelo") or "",
@@ -934,7 +937,9 @@ async def subir_excel(
             estac_flag=d.get("estac_flag") or "optional",
             bodega_flag=d.get("bodega_flag") or "optional",
             pack_flag=d.get("pack_flag") or "optional",
-            disponible=bool(d.get("disponible", True)),
+            # disponible: None significa "el Excel NO lo trajo explícito".
+            # En unidades existentes preservamos BD; en nuevas asumimos True.
+            disponible=d.get("disponible"),
         )
 
         if num in by_num:
@@ -942,10 +947,15 @@ async def subir_excel(
             # Upsert parcial: campos manuales que el origen (PlanOk/MNK) NO provee
             # se preservan si vienen vacíos, para no pisar datos cargados a mano.
             # Ej: orientación — PlanOk no la expone, es manual en BC.
+            # Y disponible — si la celda Excel está vacía, mantener BD (evita
+            # 'resucitar' deptos vendidos cuando se sube un Excel de precios).
             PRESERVAR_SI_VACIO = {"orientacion"}
+            PRESERVAR_SI_NONE = {"disponible"}  # vacío/None ≠ False
             cambios_campos = []  # (campo, old, new) de lo que cambió de verdad
             for k, v in data.items():
                 if k in PRESERVAR_SI_VACIO and (v is None or v == ""):
+                    continue
+                if k in PRESERVAR_SI_NONE and v is None:
                     continue
                 old = getattr(u, k, None)
                 if _valor_cambio(old, v):
@@ -955,6 +965,9 @@ async def subir_excel(
             if cambios_campos:
                 modificadas.append((num, cambios_campos))
         else:
+            # Unidad NUEVA: si el Excel no trajo disponible, default True
+            if data.get("disponible") is None:
+                data["disponible"] = True
             u = Unidad(id="u-" + uuid.uuid4().hex[:10], proyecto_id=proyecto_id, **data)
             db.add(u)
             inserted.append(num)
