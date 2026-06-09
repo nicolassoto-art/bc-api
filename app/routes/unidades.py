@@ -147,13 +147,27 @@ def _parse_jb_excel(wb) -> tuple[list[dict], list[str]]:
             v = d.get(k)
             if v is not None:
                 d[k] = JB_COTIZA_MAP.get(str(v).strip().lower(), "optional")
-        # Componer tipologia desde Dormitorios + Baños si bc-api la usa
-        if d.get("_dormitorios") is not None and d.get("_banos") is not None:
+        # Componer tipologia. Preferimos derivar del MODELO (preserva sufijos como
+        # "g" de guardarropas o "M" de baño matrimonial), con fallback a
+        # Dormitorios + Baños si el modelo no parsea.
+        modelo_str = (d.get("modelo") or "").strip()
+        tipologia_from_modelo = None
+        if modelo_str:
+            import re as _re_mod
+            # Patrón Maestra: [N]D[g?][N]B[sufijo?]  · ej. 2D1B, 2Dg1B, 2D2BM, 1D1BS
+            m_mod = _re_mod.match(r"^(\d+)D(g?)(\d+)B([A-Z]*)$", modelo_str, _re_mod.IGNORECASE)
+            if m_mod:
+                dorm_part = f"{m_mod.group(1)}D{m_mod.group(2)}"     # "2D" o "2Dg"
+                bano_part = f"{m_mod.group(3)}B{m_mod.group(4)}"     # "1B" / "2BM" / "1BS"
+                tipologia_from_modelo = f"{dorm_part} - {bano_part}"
+        if tipologia_from_modelo:
+            d["tipologia"] = tipologia_from_modelo
+        elif d.get("_dormitorios") is not None and d.get("_banos") is not None:
             try:
                 d["tipologia"] = f"{int(d['_dormitorios'])}D - {int(d['_banos'])}B"
             except Exception:
                 pass
-        elif (d.get("modelo") or "").strip().lower().startswith("studio"):
+        elif modelo_str.lower().startswith("studio"):
             # Studio: PlanOk no da dormitorios → tipología "Estudio" (español)
             d["tipologia"] = "Estudio"
         # Disponible: JB no lo trae explícito → asumir True
