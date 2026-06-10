@@ -109,6 +109,10 @@ def _foto_principal_fallback(p: Proyecto) -> str | None:
     return (no_planta or ordered[0]).url
 
 
+# Tipos de documento que SÍ se exponen en el catálogo público (resto = privado).
+_DOCS_PUBLICOS = {"brochure", "plano", "folleto", "ficha", "ficha técnica", "ficha tecnica"}
+
+
 def _proyecto_public_dict(p: Proyecto) -> dict:
     """Forma que el worker espera: extra aplanado + unidades + relaciones, enmascarado."""
     extra = p.extra or {}
@@ -133,9 +137,15 @@ def _proyecto_public_dict(p: Proyecto) -> dict:
             {"id": im.id, "url": im.url, "categoria": im.categoria, "es_principal": im.es_principal}
             for im in (p.imagenes or [])
         ],
+        # Documentos: SOLO tipos públicos (2026-06-10). Antes se exponían TODOS
+        # — incluyendo SPA, escrituras, pólizas y reglamentos con URL directa en
+        # el endpoint público del catálogo (fuga de documentos privados a
+        # cualquiera). Allow-list de tipos comerciales que sí se muestran al
+        # cliente final. El editor (privado) sigue viendo todos.
         "documentos": [
             {"id": dc.id, "tipo": dc.tipo, "detalles": dc.nombre, "url": dc.url}
             for dc in (p.documentos or [])
+            if str(dc.tipo or "").strip().lower() in _DOCS_PUBLICOS
         ],
     }
     # Aplanar SOLO las claves seguras de extra (allow-list, fail-closed):

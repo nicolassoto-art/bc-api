@@ -947,8 +947,11 @@ async def subir_excel(
             sup_logia=_num_or_none(d.get("sup_logia")),
             sup_jardin=_num_or_none(d.get("sup_jardin")),
             precio_lista_uf=_num_or_none(d.get("precio_lista_uf")),
-            descuento_pct=_num_or_none(d.get("descuento_pct")) or 0,
-            bono_pie_pct=_num_or_none(d.get("bono_pie_pct")) or 0,
+            # descuento/bono: None si la celda vino vacía (se preserva en unidad
+            # existente, ver PRESERVAR_SI_VACIO); 0 explícito si el Excel trae 0.
+            # Antes `or 0` convertía vacío→0 y borraba el descuento cargado a mano.
+            descuento_pct=_num_or_none(d.get("descuento_pct")),
+            bono_pie_pct=_num_or_none(d.get("bono_pie_pct")),
             # precio_final_uf (2026-06-09): el Excel JB NO trae esta columna
             # (solo ValorUF→lista, Descuento, Bonopie). Antes quedaba None y
             # SOBREESCRIBÍA el precio con descuento existente → el catálogo
@@ -974,7 +977,9 @@ async def subir_excel(
             # Upsert parcial: campos manuales que el origen (PlanOk/MNK) NO provee
             # se preservan si vienen vacíos, para no pisar datos cargados a mano.
             # Ej: orientación — PlanOk no la expone, es manual en BC.
-            PRESERVAR_SI_VACIO = {"orientacion"}
+            # descuento_pct/bono_pie_pct (2026-06-10): celda vacía (None) NO debe
+            # pisar el valor cargado a mano; solo un 0 EXPLÍCITO lo cambia.
+            PRESERVAR_SI_VACIO = {"orientacion", "descuento_pct", "bono_pie_pct"}
             cambios_campos = []  # (campo, old, new) de lo que cambió de verdad
             for k, v in data.items():
                 if k in PRESERVAR_SI_VACIO and (v is None or v == ""):
@@ -987,7 +992,11 @@ async def subir_excel(
             if cambios_campos:
                 modificadas.append((num, cambios_campos))
         else:
-            u = Unidad(id="u-" + uuid.uuid4().hex[:10], proyecto_id=proyecto_id, **data)
+            # Unidad NUEVA: descuento/bono None (celda vacía) → 0 (default limpio).
+            data_nueva = dict(data)
+            if data_nueva.get("descuento_pct") is None: data_nueva["descuento_pct"] = 0
+            if data_nueva.get("bono_pie_pct") is None: data_nueva["bono_pie_pct"] = 0
+            u = Unidad(id="u-" + uuid.uuid4().hex[:10], proyecto_id=proyecto_id, **data_nueva)
             db.add(u)
             inserted.append(num)
             nuevos_info[num] = (data.get("modelo") or "", data.get("precio_lista_uf"))
