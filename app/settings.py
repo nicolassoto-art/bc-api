@@ -18,7 +18,10 @@ class Settings(BaseSettings):
     max_upload_mb: int = 10
     cors_origins: str = "http://localhost:8765"
     super_admins: str = "nicolas.soto@bigcapital.cl"
-    legacy_api_url: str = "http://127.0.0.1/backend/api.php"
+    # (2026-06-10) Default al api.php RAÍZ público (mismo del login). El exchange
+    # igual prueba varias rutas como fallback (auth.py), pero el default correcto
+    # evita depender de la copia vieja /backend/api.php (sesiones separadas).
+    legacy_api_url: str = "https://herramientas.bigcapital.cl/api.php"
     # Token de servicio para el Cloudflare Worker (catálogo público).
     # Vacío = endpoint /proyectos/public deshabilitado (devuelve 503).
     bc_api_service_token: str = ""
