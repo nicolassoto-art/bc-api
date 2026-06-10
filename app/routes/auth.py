@@ -54,21 +54,49 @@ def exchange_bc_token(body: ExchangeIn, db: Session = Depends(get_db)):
     if not token_str:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token vacío")
 
-    # Validate against legacy api.php (same VPS, internal request)
-    try:
-        with httpx.Client(timeout=8) as client:
-            r = client.post(
-                settings.legacy_api_url,
-                json={"action": "check-session"},
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {token_str}",
-                },
-            )
-    except Exception as exc:
+    # Validate against legacy api.php (check-session). (2026-06-09) ROBUSTEZ:
+    # probar VARIAS URLs candidatas, no solo legacy_api_url. El login del sitio
+    # usa /api.php (raíz); existe una copia vieja en /backend/api.php con OTRO
+    # almacén de sesiones. Tras un redeploy del api.php raíz, los tokens nuevos
+    # eran válidos para el sitio pero bc-api los rechazaba (validaba contra la
+    # ruta vieja) → el editor de stock-interno no cargaba para NINGÚN
+    # stock_admin. Ahora se prueba la lista en orden y gana la primera que valide.
+    _candidatas = []
+    for _u in [
+        settings.legacy_api_url,
+        "https://herramientas.bigcapital.cl/api.php",      # raíz público (el del login)
+        "https://herramientas.bigcapital.cl/backend/api.php",
+        "http://127.0.0.1/api.php",
+    ]:
+        if _u and _u not in _candidatas:
+            _candidatas.append(_u)
+
+    r = None
+    last_exc = None
+    for _url in _candidatas:
+        try:
+            with httpx.Client(timeout=8) as client:
+                resp = client.post(
+                    _url,
+                    json={"action": "check-session"},
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {token_str}",
+                    },
+                )
+            if resp.is_success:
+                r = resp
+                break
+            # 401/403 = esta URL no tiene la sesión; probar la siguiente.
+            r = resp  # guardar la última por si todas fallan
+        except Exception as exc:
+            last_exc = exc
+            continue
+
+    if r is None:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"No se pudo contactar la API legacy: {exc}",
+            detail=f"No se pudo contactar la API legacy: {last_exc}",
         )
 
     if not r.is_success:
