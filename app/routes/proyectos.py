@@ -77,6 +77,38 @@ def _unidad_dict(u: Unidad) -> dict:
     }
 
 
+def _foto_principal_fallback(p: Proyecto) -> str | None:
+    """foto_principal_url con fallback a las imágenes del proyecto.
+
+    Si el campo plano está vacío (típico en importados JB donde el importador
+    sube imágenes pero no setea la portada), deriva: 1º la marcada es_principal,
+    2º la fachada (categoría jb-foto/fachada/exterior/vacía — nunca plantas
+    jb-planta-*), 3º la primera por id. Misma lógica que el detalle (~L289) y
+    el listado admin — centralizada para que el catálogo público (worker)
+    nunca quede sin cover. Causa raíz de '57 proyectos sin foto' (2026-06-08).
+    """
+    if p.foto_principal_url:
+        return p.foto_principal_url
+    if not p.imagenes:
+        return None
+    ordered = sorted(p.imagenes, key=lambda im: im.id)
+    principal = next((im for im in ordered if im.es_principal), None)
+    if principal:
+        return principal.url
+
+    def _is_facade(im):
+        c = (im.categoria or "").lower()
+        if c.startswith("jb-planta"):
+            return False
+        return c in {"jb-foto", "foto", "fachada", "exterior", ""} or "foto" in c
+
+    facade = next((im for im in ordered if _is_facade(im)), None)
+    if facade:
+        return facade.url
+    no_planta = next((im for im in ordered if not (im.categoria or "").lower().startswith("jb-planta")), None)
+    return (no_planta or ordered[0]).url
+
+
 def _proyecto_public_dict(p: Proyecto) -> dict:
     """Forma que el worker espera: extra aplanado + unidades + relaciones, enmascarado."""
     extra = p.extra or {}
@@ -95,7 +127,7 @@ def _proyecto_public_dict(p: Proyecto) -> dict:
         "modalidad": p.modalidad,
         "fecha_entrega": p.fecha_entrega,
         "ano_entrega": p.ano_entrega,
-        "foto_principal_url": p.foto_principal_url,
+        "foto_principal_url": _foto_principal_fallback(p),
         "unidades": [_unidad_dict(u) for u in (p.unidades or [])],
         "imagenes": [
             {"id": im.id, "url": im.url, "categoria": im.categoria, "es_principal": im.es_principal}
