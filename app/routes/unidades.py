@@ -426,6 +426,19 @@ def _num_or_none(v):
         return None
 
 
+def _precio_final(final, lista, descuento_pct):
+    """Precio final con descuento. Si el Excel trae final explícito, se respeta.
+    Si no (caso JB, que no exporta la columna), se recalcula desde
+    lista × (1 - descuento/100). Sin lista → None. (2026-06-09)
+    """
+    if final is not None:
+        return final
+    if lista is None:
+        return None
+    d = descuento_pct or 0
+    return round(lista * (1 - d / 100.0), 2)
+
+
 @router.get("", response_model=List[UnidadOut])
 def listar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
     _ensure_project(db, proyecto_id)
@@ -936,7 +949,17 @@ async def subir_excel(
             precio_lista_uf=_num_or_none(d.get("precio_lista_uf")),
             descuento_pct=_num_or_none(d.get("descuento_pct")) or 0,
             bono_pie_pct=_num_or_none(d.get("bono_pie_pct")) or 0,
-            precio_final_uf=_num_or_none(d.get("precio_final_uf")),
+            # precio_final_uf (2026-06-09): el Excel JB NO trae esta columna
+            # (solo ValorUF→lista, Descuento, Bonopie). Antes quedaba None y
+            # SOBREESCRIBÍA el precio con descuento existente → el catálogo
+            # mostraba el precio LISTA (más alto). Ahora: si el Excel no lo trae,
+            # se RECALCULA desde lista × (1 - descuento/100). Si el Excel sí lo
+            # trae (legacy bc-api), se respeta.
+            precio_final_uf=_precio_final(
+                _num_or_none(d.get("precio_final_uf")),
+                _num_or_none(d.get("precio_lista_uf")),
+                _num_or_none(d.get("descuento_pct")) or 0,
+            ),
             estac_flag=d.get("estac_flag") or "optional",
             bodega_flag=d.get("bodega_flag") or "optional",
             pack_flag=d.get("pack_flag") or "optional",
