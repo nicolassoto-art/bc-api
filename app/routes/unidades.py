@@ -1114,7 +1114,7 @@ async def subir_excel(
     background_tasks.add_task(
         email_service.notify_change, "Stock actualizado", proy.nombre or proyecto_id,
         f"Subida de Excel: +{len(inserted)} nuevas, {len(updated)} actualizadas"
-        + (f", {dados_de_baja} dadas de baja" if dados_de_baja else "") + ".",
+        + (f", {len(dados_de_baja)} dadas de baja" if dados_de_baja else "") + ".",
         proyecto_id,
     )
     return {
