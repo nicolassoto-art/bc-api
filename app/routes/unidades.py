@@ -980,6 +980,15 @@ async def subir_excel(
             # descuento_pct/bono_pie_pct (2026-06-10): celda vacía (None) NO debe
             # pisar el valor cargado a mano; solo un 0 EXPLÍCITO lo cambia.
             PRESERVAR_SI_VACIO = {"orientacion", "descuento_pct", "bono_pie_pct"}
+            # (2026-06-10) Coherencia precio_final ↔ descuento en upsert: si el Excel
+            # NO trae precio_final NI descuento explícitos, el descuento se PRESERVA
+            # (PRESERVAR_SI_VACIO) → hay que recalcular precio_final con ese descuento
+            # preservado, no con el 0 que se usó al construir `data` (sino quedaba
+            # final=lista con un descuento >0 vigente). Si el Excel trae final o
+            # descuento, `data` ya lo calculó bien y no se toca.
+            if _num_or_none(d.get("precio_final_uf")) is None and _num_or_none(d.get("descuento_pct")) is None:
+                _lista_eff = data["precio_lista_uf"] if data["precio_lista_uf"] is not None else getattr(u, "precio_lista_uf", None)
+                data["precio_final_uf"] = _precio_final(None, _lista_eff, getattr(u, "descuento_pct", None) or 0)
             cambios_campos = []  # (campo, old, new) de lo que cambió de verdad
             for k, v in data.items():
                 if k in PRESERVAR_SI_VACIO and (v is None or v == ""):
