@@ -780,6 +780,7 @@ async def subir_excel(
     proyecto_id: str,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    permitir_sin_unidades: bool = False,
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(stock_access),
 ):
@@ -812,7 +813,7 @@ async def subir_excel(
         # Parser JB
         unidad_rows, parse_errors = _parse_jb_excel(wb)
         errors.extend(parse_errors)
-        if not unidad_rows:
+        if not unidad_rows and not permitir_sin_unidades:
             # Diagnóstico: capturar sheet names + labels detectadas + sample row para debug
             try:
                 ws_dbg = wb["UNIDAD"]
@@ -1018,12 +1019,19 @@ async def subir_excel(
     # El Excel del scraper sube el stock vigente; lo que falta = vendido/reservado.
     # Aplica a deptos (regla pedida por el usuario: 'aparece en Excel = disponible').
     # NO se borra (preserva registro + datos manuales). Si reaparece → se reactiva.
-    seen_nums = {str(d.get("numero_depto") or "").strip() for _i, d in rows_iter}
+    #
+    # SEGURIDAD: si el upload trae UNIDAD vacío a propósito (permitir_sin_unidades,
+    # ej. proyecto agotado de deptos que solo sincroniza estac/bodega), se OMITE
+    # por completo la baja de deptos. Un Excel sin deptos NO debe borrar deptos
+    # existentes — solo actualiza estac/bodega/packs vía extra.
+    _upload_sin_deptos = is_jb and permitir_sin_unidades and not unidad_rows
     dados_de_baja = []
-    for u in db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).all():
-        if _is_depto(u) and u.numero not in seen_nums and u.disponible:
-            u.disponible = False
-            dados_de_baja.append(u.numero)
+    if not _upload_sin_deptos:
+        seen_nums = {str(d.get("numero_depto") or "").strip() for _i, d in rows_iter}
+        for u in db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).all():
+            if _is_depto(u) and u.numero not in seen_nums and u.disponible:
+                u.disponible = False
+                dados_de_baja.append(u.numero)
 
     proy.stock_last_upload = {
         "filename": file.filename,
