@@ -9,7 +9,7 @@ from sqlalchemy import select, func, Integer
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
-from ..deps.auth import service_token, stock_access
+from ..deps.auth import service_token, stock_access, current_user
 from ..models import Proyecto, Unidad, Usuario
 from ..schemas import ProyectoIn, ProyectoOut, ProyectoSummary
 from ..services import email_service
@@ -58,6 +58,17 @@ _PUBLIC_COMERCIAL_KEYS = {
     # paga el pie sobre el precio lista. El catalogo lo usa para prender Maestra solo
     # en el simulador al cotizar este proyecto.
     "bono_infla_tasacion",
+}
+# Claves de `comercial` visibles para CUALQUIER corredor logueado (no solo
+# stock_access) vía GET /{id}/comercial. Es el "Plan de pago" COMPLETO del
+# catálogo. Superset de _PUBLIC_COMERCIAL_KEYS — todas benignas (condiciones
+# comerciales del proyecto). NO incluye promo_broker / comisiones / márgenes (van
+# a nivel top de extra, no en `comercial`) ni la cuenta de reserva (nested aparte).
+_BROKER_COMERCIAL_KEYS = _PUBLIC_COMERCIAL_KEYS | {
+    "tipo_reserva", "destino_reserva", "tipo_pie", "precio_cotizacion",
+    "cuoton_inicial_uf", "cuoton_final_uf",
+    "pago_cuoton_inicial", "pago_pre_entrega", "pago_post_entrega",
+    "valor_cuota_clp", "nota_pago_pie", "cuota_pre_entrega_uf",
 }
 
 
@@ -342,6 +353,28 @@ def detalle(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depend
         facade = next((im for im in ordered if _is_facade(im)), None)
         p.foto_principal_url = (facade.url if facade else ordered[0].url)
     return p
+
+
+@router.get("/{proyecto_id}/comercial")
+def comercial_broker(
+    proyecto_id: str,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(current_user),
+):
+    """Plan de pago (condiciones comerciales) del proyecto para CUALQUIER corredor
+    logueado — no solo stock_access. El catálogo lo usa para pintar el recuadro
+    "Plan de pago" COMPLETO a todos los brokers (el feed público del worker recorta
+    varios de estos campos). Solo expone claves benignas del plan de pago vía
+    _BROKER_COMERCIAL_KEYS; NO sale promo_broker / comisiones / márgenes / cuenta
+    de reserva. Misma fuente para admin y corredor → vista idéntica en el catálogo.
+    """
+    p = db.get(Proyecto, proyecto_id)
+    if not p or p.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
+    com = (p.extra or {}).get("comercial")
+    com = com if isinstance(com, dict) else {}
+    out = {k: v for k, v in com.items() if k in _BROKER_COMERCIAL_KEYS}
+    return {"id": p.id, "comercial": out}
 
 
 @router.post("", response_model=ProyectoOut, status_code=status.HTTP_201_CREATED)

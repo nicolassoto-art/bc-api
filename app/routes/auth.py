@@ -122,11 +122,13 @@ def exchange_bc_token(body: ExchangeIn, db: Session = Depends(get_db)):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Sin email en sesión legacy")
 
     is_super = email in settings.super_admins_list
-    if not stock_admin and not is_super:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            detail="Sin acceso a Stock propio. Pedile a un superadmin que te lo habilite.",
-        )
+    # (2026-06-13) Todo corredor con sesión legacy válida obtiene JWT. El claim
+    # stock_admin (abajo) decide el acceso a Stock propio; los endpoints sensibles
+    # (editor, listado, PUT, papelera) lo exigen vía la dependencia stock_access.
+    # Un corredor SIN stock_admin igual recibe token para leer datos benignos: su
+    # perfil (/auth/me), crear tickets, y el plan de pago del catálogo
+    # (/proyectos/{id}/comercial, solo-lectura). Antes esto daba 403 y dejaba sin
+    # token al corredor normal → el catálogo le mostraba el plan recortado del worker.
 
     # Find or create the user in bc-api DB so /auth/me works after exchange
     user = db.query(Usuario).filter(Usuario.email == email).first()
