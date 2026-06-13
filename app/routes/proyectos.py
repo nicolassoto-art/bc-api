@@ -44,10 +44,16 @@ _PUBLIC_EXTRA_KEYS = {
     "notas_html", "notas_text",
 }
 # Subcampos de `comercial` que el catálogo necesita; el resto (promo_broker,
-# tipo_descuento, márgenes, etc.) NO sale.
+# márgenes, etc.) NO sale.
 _PUBLIC_COMERCIAL_KEYS = {
     "pie_pct", "cuoton_inicial_pct", "cuoton_final_pct",
     "cuotas_pre_entrega", "cuotas_post_entrega", "valor_reserva_clp",
+    # Unidad de los cuotones (% o UF) — el catálogo respeta cómo se cargó.
+    "cuoton_inicial_unit", "cuoton_final_unit",
+    # Tipo de descuento / bono pie (ej. "Todo" / "Solo Unidad" / "No"). Benignos:
+    # el corredor los necesita en el recuadro "Plan de pago" del catálogo (piloto
+    # Vistamar 2026-06-11). NO son márgenes ni comisiones.
+    "tipo_descuento", "tipo_bono_pie",
     # Esquema "Maestra": el bono pie infla la tasacion que ve el banco y el cliente
     # paga el pie sobre el precio lista. El catalogo lo usa para prender Maestra solo
     # en el simulador al cotizar este proyecto.
