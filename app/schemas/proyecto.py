@@ -25,6 +25,8 @@ class UnidadIn(BaseModel):
     estac_flag: str = "optional"
     bodega_flag: str = "optional"
     pack_flag: str = "optional"
+    arriendo_garantizado: Optional[float] = None
+    arriendo_moneda: Optional[str] = None  # "CLP" | "UF"
     disponible: bool = True
 
 

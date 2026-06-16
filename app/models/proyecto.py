@@ -90,6 +90,9 @@ class Unidad(Base):
     bodega_flag: Mapped[str] = mapped_column(String(20), default="optional")
     pack_flag: Mapped[str] = mapped_column(String(20), default="optional")
 
+    arriendo_garantizado: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    arriendo_moneda: Mapped[Optional[str]] = mapped_column(String(4), nullable=True)  # "CLP" | "UF"
+
     disponible: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 
     proyecto: Mapped["Proyecto"] = relationship(back_populates="unidades")

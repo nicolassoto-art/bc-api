@@ -482,6 +482,37 @@ def actualizar(
     return u
 
 
+@router.patch("/arriendos", status_code=status.HTTP_200_OK)
+def actualizar_arriendos(
+    proyecto_id: str,
+    body: List[dict],
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(stock_access),
+):
+    """Actualiza arriendoGarantizado en lote para las unidades de un proyecto.
+
+    Body: [{numero, arriendo_garantizado, arriendo_moneda}, ...]
+    Filtra solo deptos (tipo Depto/departamento). Ignora números no encontrados.
+    """
+    by_numero = {
+        u.numero: u
+        for u in db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).all()
+        if _is_depto(u)
+    }
+    updated, skipped = 0, 0
+    for item in body:
+        numero = str(item.get("numero", "")).strip()
+        u = by_numero.get(numero)
+        if not u:
+            skipped += 1
+            continue
+        u.arriendo_garantizado = item.get("arriendo_garantizado")
+        u.arriendo_moneda = item.get("arriendo_moneda")
+        updated += 1
+    db.commit()
+    return {"updated": updated, "skipped": skipped}
+
+
 @router.delete("/{unidad_id}", status_code=status.HTTP_204_NO_CONTENT)
 def eliminar(
     proyecto_id: str,
@@ -980,7 +1011,8 @@ async def subir_excel(
             # Ej: orientación — PlanOk no la expone, es manual en BC.
             # descuento_pct/bono_pie_pct (2026-06-10): celda vacía (None) NO debe
             # pisar el valor cargado a mano; solo un 0 EXPLÍCITO lo cambia.
-            PRESERVAR_SI_VACIO = {"orientacion", "descuento_pct", "bono_pie_pct"}
+            PRESERVAR_SI_VACIO = {"orientacion", "descuento_pct", "bono_pie_pct",
+                                  "arriendo_garantizado", "arriendo_moneda"}
             # (2026-06-10) Coherencia precio_final ↔ descuento en upsert: si el Excel
             # NO trae precio_final NI descuento explícitos, el descuento se PRESERVA
             # (PRESERVAR_SI_VACIO) → hay que recalcular precio_final con ese descuento
