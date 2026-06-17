@@ -5,6 +5,7 @@ Docs interactivas: GET /docs (Swagger) y /redoc.
 """
 from __future__ import annotations
 import logging
+import os
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -56,12 +57,41 @@ app.include_router(tickets.router)
 # Reemplaza los emails por cada cambio (notify_change quedó silenciado).
 # Si daily_report_enabled=False, no se registra el job → cero overhead.
 _scheduler = None
+_scheduler_lock_fd = None  # se mantiene abierto toda la vida del proceso ganador del lock
+
+
+def _acquire_scheduler_lock() -> bool:
+    """True solo en UN worker. uvicorn con >1 worker = N procesos, cada uno corre el
+    startup → N schedulers → el job dispara N veces (el daily_report salía DUPLICADO y
+    process_inbox corría 2×; max_instances/coalesce solo dedup DENTRO de un scheduler, no
+    entre procesos). Lock de archivo exclusivo no-bloqueante: solo el worker que lo toma
+    arranca el scheduler; si el proceso muere, el SO libera el flock y otro lo toma al
+    reiniciar."""
+    global _scheduler_lock_fd
+    try:
+        import fcntl
+        fd = os.open("/tmp/bc-api-scheduler.lock", os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            return False
+        _scheduler_lock_fd = fd  # NO cerrar: mantener el lock mientras viva el proceso
+        return True
+    except Exception as e:
+        # Si fcntl no está disponible (no-unix), no bloqueamos el arranque.
+        log.warning("Scheduler lock no disponible (%s) · sigo sin guard multi-worker", e)
+        return True
+
 
 @app.on_event("startup")
 def _start_scheduler():
     global _scheduler
     if not settings.daily_report_enabled:
         log.info("Scheduler: daily_report deshabilitado, no se inicia.")
+        return
+    if not _acquire_scheduler_lock():
+        log.info("Scheduler: otro worker ya tiene el lock · este worker NO inicia scheduler.")
         return
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
