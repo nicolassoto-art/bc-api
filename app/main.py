@@ -12,10 +12,12 @@ from fastapi.staticfiles import StaticFiles
 from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias, documentos, tickets
 from .settings import settings
 from .deps.auth import super_admin
+from fastapi.responses import HTMLResponse
 from .services import email_service
-from .services.daily_report import send_daily_report
+from .services.daily_report import send_daily_report, build_daily_report, _build_html
 from .services.inbox_processor import process_inbox
 from .models import Usuario
+from .db import SessionLocal
 
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger(__name__)
@@ -99,10 +101,21 @@ def _stop_scheduler():
 
 @app.post("/admin/daily-report/test", tags=["meta"])
 def trigger_daily_report(_: Usuario = Depends(super_admin)):
-    """Dispara el informe diario manualmente (solo super_admin). Para probar el contenido
-    y subject del email sin esperar al cron de las 09am. Útil tras cambios en daily_report.py."""
+    """Dispara el informe diario manualmente (solo super_admin) y lo ENVÍA a los
+    destinatarios reales (To=daily_report_to, Cc=daily_report_cc). Para revisar el
+    contenido SIN enviar, usar GET /admin/daily-report/preview."""
     send_daily_report()
-    return {"ok": True, "sent_to": settings.notify_to}
+    return {"ok": True, "sent_to": settings.daily_report_to or settings.notify_to,
+            "cc": settings.daily_report_cc}
+
+
+@app.get("/admin/daily-report/preview", response_class=HTMLResponse, tags=["meta"])
+def preview_daily_report(_: Usuario = Depends(super_admin)):
+    """Devuelve el HTML del informe diario con los datos REALES de prod, SIN enviarlo
+    (solo super_admin). Para revisar el formato/agrupación antes de que se mande."""
+    with SessionLocal() as db:
+        data = build_daily_report(db)
+    return HTMLResponse(_build_html(data))
 
 
 @app.post("/admin/inbox/poll", tags=["meta"])

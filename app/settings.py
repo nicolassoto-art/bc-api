@@ -48,9 +48,13 @@ class Settings(BaseSettings):
     # Chile, L-V. Si algo falla, sí se envía email aparte.
     emails_per_change: bool = False  # False → notify_change es no-op silencioso
     daily_report_enabled: bool = True  # Informe diario L-V 09:00 AM America/Santiago
-    # Cc del INFORME DIARIO. Pedido del usuario (2026-06-08): vacío → solo nicolas.soto.
-    # Override por DAILY_REPORT_CC si en el futuro se quiere reactivar.
-    daily_report_cc: str = ""
+    # Destinatarios del INFORME DIARIO (2026-06-17, pedido del usuario):
+    #   To = Cristopher Jaramillo (responsable de la carga de stock SBC).
+    #   Cc = Nicolás Soto.
+    # Override por DAILY_REPORT_TO / DAILY_REPORT_CC en el .env del VPS. Si
+    # daily_report_to queda vacío, cae a notify_to (nicolas.soto) por seguridad.
+    daily_report_to: str = "cristopher.jaramillo@bigcapital.cl"
+    daily_report_cc: str = "nicolas.soto@bigcapital.cl"
 
     # ── Inbox processor · 2026-06-08 ─────────────────────────────────────────
     # Lee adjuntos Excel reenviados desde nicolas.soto@bigcapital.cl al buzón

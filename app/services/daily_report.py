@@ -14,6 +14,7 @@ Adicionalmente expone `send_alert_email_if_critical(...)` para que el scraper
 pueda emitir un email INMEDIATO cuando algo falla durante una importación.
 """
 from __future__ import annotations
+import collections
 import logging
 import smtplib
 from datetime import datetime, timedelta, timezone
@@ -217,22 +218,35 @@ def _eventos_24h(p):
     return out
 
 
+STALE_DAYS = 7  # umbral "mucho tiempo sin actualizar stock" (pedido del usuario 2026-06-17)
+
+
+def _age_hours(dt):
+    """Horas desde dt (naive UTC de bc-api) hasta ahora; None si dt es None."""
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - dt).total_seconds() / 3600
+
+
 def build_daily_report(db: Session) -> dict:
-    """Arma el resumen del estado del stock para enviar por email."""
+    """Arma el resumen del estado del stock AGRUPADO POR INMOBILIARIA.
+
+    Solo proyectos SBC activos (tabla Proyecto de bc-api). Cada proyecto trae el
+    detalle exacto de sus pendientes (mismos críticos/warnings que el editor).
+    Además: lista de proyectos disponibles pero SIN cargar (0 unidades) y lista
+    de proyectos con mucho tiempo sin actualizar stock (> STALE_DAYS días).
+    """
     proyectos = _proyectos_activos(db)
     publicados = [p for p in proyectos if (p.extra or {}).get("publicar_en_catalogo")]
 
-    # Conteos
     total_disp = sum(_disp(p.unidades) for p in proyectos)
     total_cargado = sum(len(p.unidades or []) for p in proyectos)
 
-    # Cambios de stock en las últimas 24h (proyectos cuyo stock_updated_at es reciente)
+    # Cambios de stock en las últimas 24h
     cutoff_24h = datetime.utcnow() - timedelta(hours=24)
-    cambios_24h = [
-        p for p in proyectos
-        if p.stock_updated_at and p.stock_updated_at >= cutoff_24h
-    ]
-    cambios_24h.sort(key=lambda x: x.stock_updated_at or datetime.min, reverse=True)
+    cambios_24h = [p for p in proyectos if p.stock_updated_at and p.stock_updated_at >= cutoff_24h]
 
     # Errores del scraper en últimas 24h (eventos tipo 'Alerta')
     errores_24h = []
@@ -242,63 +256,101 @@ def build_daily_report(db: Session) -> dict:
                 errores_24h.append({"proyecto": p.nombre, **ev})
     errores_24h.sort(key=lambda x: x["fecha"], reverse=True)
 
-    # ─── ALERTAS COMPLETAS por proyecto (críticos + warnings, vía _alertas_de_proyecto).
-    # Misma lógica del frontend para mantener UN SOLO criterio de verdad.
-    alertas_por_proy = {}
-    crit_agg = {}    # mensaje básico → [proyectos]
-    warn_agg = {}    # mensaje básico → [proyectos]
-    n_con_critico, n_con_warning, n_sin_alertas = 0, 0, 0
+    # ─── Estado + alertas por proyecto, agrupado por inmobiliaria.
+    # El nombre se NORMALIZA (trim + casefold) para que variantes de tipeo
+    # ("AJ URBANA" / "AJ Urbana", espacios de más) caigan en UN solo grupo.
+    # El display de cada grupo usa la forma original más frecuente.
+    grupos: dict[str, list] = {}                          # norm_key -> [pe]
+    display_votes: dict[str, "collections.Counter"] = {}  # norm_key -> Counter(original)
+    sin_cargar = []      # activos con 0 unidades (disponibles pero NO cargados)
+    sin_actualizar = []  # con stock pero > STALE_DAYS sin tocar (o sin fecha)
+    n_con_critico = n_con_warning = n_sin_alertas = 0
+
     for p in proyectos:
         a = _alertas_de_proyecto(p)
-        alertas_por_proy[p.id] = a
+        cargadas = len(p.unidades or [])
+        age_h = _age_hours(p.stock_updated_at)
         if a["criticos"]:
             n_con_critico += 1
-            for msg in a["criticos"]:
-                # Agrupar por la PRIMERA parte (antes de ":") para juntar variantes con detalle
-                clave = msg.split(":")[0].strip()
-                crit_agg.setdefault(clave, []).append({"id": p.id, "nombre": p.nombre or p.id})
         elif a["warnings"]:
             n_con_warning += 1
         else:
             n_sin_alertas += 1
-        for msg in a["warnings"]:
-            clave = msg.split(":")[0].strip()
-            warn_agg.setdefault(clave, []).append({"id": p.id, "nombre": p.nombre or p.id})
-
-    # Estado por proyecto (ordenado por más reciente actualización primero)
-    proyectos_estado = []
-    for p in proyectos:
-        a = alertas_por_proy.get(p.id, {"criticos":[], "warnings":[]})
-        proyectos_estado.append({
+        raw_inmob = (p.inmobiliaria or "").strip()
+        norm = raw_inmob.casefold()  # "" = sin inmobiliaria
+        if raw_inmob:
+            display_votes.setdefault(norm, collections.Counter())[raw_inmob] += 1
+        pe = {
             "id": p.id,
             "nombre": p.nombre or p.id,
-            "inmobiliaria": p.inmobiliaria or "",
+            "inmobiliaria": raw_inmob or "Sin inmobiliaria",
+            "_norm": norm,
             "disp": _disp(p.unidades),
-            "cargadas": len(p.unidades or []),
+            "cargadas": cargadas,
             "stock_updated_at": p.stock_updated_at,
             "publicado": bool((p.extra or {}).get("publicar_en_catalogo")),
+            "criticos": a["criticos"],
+            "warnings": a["warnings"],
             "n_crit": len(a["criticos"]),
             "n_warn": len(a["warnings"]),
+        }
+        grupos.setdefault(norm, []).append(pe)
+        if cargadas == 0:
+            sin_cargar.append(pe)
+        elif age_h is None or age_h > STALE_DAYS * 24:
+            sin_actualizar.append(pe)
+
+    def _display(norm: str) -> str:
+        if not norm:
+            return "Sin inmobiliaria"
+        votes = display_votes.get(norm)
+        return votes.most_common(1)[0][0] if votes else "Sin inmobiliaria"
+
+    # Reasignar a cada proyecto el display canónico del grupo (consistencia en
+    # las listas de "sin cargar" / "sin actualizar").
+    for norm, ps in grupos.items():
+        disp = _display(norm)
+        for pe in ps:
+            pe["inmobiliaria"] = disp
+
+    # Orden dentro de cada inmobiliaria: críticos → warnings → ok; reciente arriba.
+    def _psort(x):
+        return (
+            -1 * (x["n_crit"] * 1000 + x["n_warn"]),
+            x["stock_updated_at"] is None,
+            -(x["stock_updated_at"].timestamp() if x["stock_updated_at"] else 0),
+        )
+    for ps in grupos.values():
+        ps.sort(key=_psort)
+
+    # Lista de inmobiliarias ordenada: más críticas primero, luego warnings, luego nombre.
+    inmobiliarias = []
+    for norm, ps in grupos.items():
+        c = sum(x["n_crit"] for x in ps)
+        w = sum(x["n_warn"] for x in ps)
+        inmobiliarias.append({
+            "nombre": _display(norm),
+            "proyectos": ps,
+            "n_proj": len(ps),
+            "n_crit": c,
+            "n_warn": w,
+            "n_crit_proj": sum(1 for x in ps if x["n_crit"] > 0),
         })
-    # Orden: críticos primero, luego warnings, luego al día. Dentro del grupo: más reciente arriba.
-    proyectos_estado.sort(key=lambda x: (
-        -1 * (x["n_crit"] * 1000 + x["n_warn"]),
-        x["stock_updated_at"] is None,
-        -(x["stock_updated_at"].timestamp() if x["stock_updated_at"] else 0)
-    ))
+    inmobiliarias.sort(key=lambda g: (-g["n_crit"], -g["n_warn"], g["nombre"].lower()))
 
     # Distribución de salud del stock
     salud = {"al_dia": 0, "atencion": 0, "demorado": 0, "desactualizado": 0, "sin_datos": 0}
-    for pe in proyectos_estado:
-        _, _, label = _antiguedad_color(pe["stock_updated_at"])
+    for p in proyectos:
+        _, _, label = _antiguedad_color(p.stock_updated_at)
         key = label.replace(" ", "_")
         salud[key] = salud.get(key, 0) + 1
 
-    # Convertir crit_agg y warn_agg a listas ordenadas por cantidad desc
-    def agg_to_list(agg):
-        items = [{"msg": msg, "proyectos": ps, "n": len(ps)} for msg, ps in agg.items()]
-        items.sort(key=lambda x: -x["n"])
-        return items
+    sin_cargar.sort(key=lambda x: x["nombre"].lower())
+    # sin_actualizar: el más viejo (o sin fecha) primero
+    sin_actualizar.sort(key=lambda x: (
+        x["stock_updated_at"] is not None,
+        x["stock_updated_at"].timestamp() if x["stock_updated_at"] else 0,
+    ))
 
     return {
         "fecha_cl": _fecha_cl(),
@@ -306,18 +358,15 @@ def build_daily_report(db: Session) -> dict:
         "n_publicados": len(publicados),
         "n_disponibles_total": total_disp,
         "n_unidades_cargadas": total_cargado,
-        "salud": salud,
-        "proyectos_estado": proyectos_estado,
-        "cambios_24h": [
-            {"id": p.id, "nombre": p.nombre, "disp": _disp(p.unidades), "stock_updated_at": p.stock_updated_at}
-            for p in cambios_24h[:15]
-        ],
         "n_cambios_24h": len(cambios_24h),
-        "criticos_agg": agg_to_list(crit_agg),
-        "warnings_agg": agg_to_list(warn_agg),
         "n_con_critico": n_con_critico,
         "n_con_warning": n_con_warning,
         "n_sin_alertas": n_sin_alertas,
+        "salud": salud,
+        "inmobiliarias": inmobiliarias,
+        "sin_cargar": sin_cargar,
+        "sin_actualizar": sin_actualizar,
+        "stale_days": STALE_DAYS,
         "errores_24h": errores_24h[:20],
         "n_errores_24h": len(errores_24h),
     }
@@ -338,152 +387,104 @@ def _project_link(p: dict, base: str = "https://herramientas.bigcapital.cl") -> 
     return f"<a href='{base}/src/stock-interno/proyecto-vista.html?id={pid}' style='color:#1f7a3d;text-decoration:none'>{nombre}</a>"
 
 
+def _kpi_cell(label, value, color, sub, bg="#f9fafb", lblcolor="#6b7280"):
+    return f'''<td style="background:{bg};border-radius:8px;padding:12px;text-align:center;width:25%">
+      <div style="font-size:11px;color:{lblcolor};font-weight:700;text-transform:uppercase;letter-spacing:.3px">{escape(label)}</div>
+      <div style="font-size:26px;color:{color};font-weight:800;margin-top:2px;line-height:1">{value}</div>
+      <div style="font-size:11px;color:{lblcolor};margin-top:2px">{escape(sub)}</div></td>'''
+
+
+def _proj_inline(p) -> str:
+    """Link al proyecto + inmobiliaria entre paréntesis, para las listas de arriba."""
+    return f'{_project_link(p)} <span style="color:#9ca3af">({escape(p["inmobiliaria"])})</span>'
+
+
 def _build_html(data: dict) -> str:
-    """HTML ejecutivo del informe diario · diseño visual con KPIs + tabla por proyecto."""
-    al = data["alertas"]
+    """HTML del informe diario · KPIs + bloques de pendientes + secciones por inmobiliaria."""
 
-    # ─── KPIs grandes (cuadrícula 2x2 + extras) ───────────────────────────
-    def kpi(label, value, color="#0a0d12", subtitle=""):
-        sub_html = f'<div style="font-size:11px;color:#6b7280;margin-top:2px">{escape(subtitle)}</div>' if subtitle else ''
-        return f'''
-        <td style="padding:14px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;text-align:center;width:50%">
-          <div style="font-size:11px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px">{escape(label)}</div>
-          <div style="font-size:28px;color:{color};font-weight:800;margin-top:4px;line-height:1">{value}</div>
-          {sub_html}
-        </td>'''
-    kpis = f'''
-    <table style="width:100%;border-collapse:separate;border-spacing:8px"><tr>
-      {kpi("Proyectos activos", data["n_activos"], subtitle=f'{data["n_publicados"]} publicados')}
-      {kpi("Stock disponible", data["n_disponibles_total"], color="#16a34a", subtitle=f'de {data["n_unidades_cargadas"]} cargadas')}
-    </tr><tr>
-      {kpi("Cambios 24h", data["n_cambios_24h"], color="#16a34a" if data["n_cambios_24h"] else "#9ca3af", subtitle="actualizaciones de stock")}
-      {kpi("Errores 24h", data["n_errores_24h"], color="#dc2626" if data["n_errores_24h"] else "#16a34a", subtitle="del scraper")}
+    # ─── KPIs (4): proyectos · stock disp · con críticas · sin actualizar +Nd
+    n_stale = len(data["sin_actualizar"])
+    n_crit = data["n_con_critico"]
+    kpis = f'''<table style="width:100%;border-collapse:separate;border-spacing:8px"><tr>
+      {_kpi_cell("Proyectos", data["n_activos"], "#0a0d12", f'{len(data["inmobiliarias"])} inmobiliaria(s)')}
+      {_kpi_cell("Stock disp.", data["n_disponibles_total"], "#16a34a", f'de {data["n_unidades_cargadas"]} cargadas')}
+      {_kpi_cell("Con críticas", n_crit, "#dc2626" if n_crit else "#16a34a", "requieren acción", bg="#fee2e2" if n_crit else "#dcfce7", lblcolor="#7f1d1d" if n_crit else "#14532d")}
+      {_kpi_cell(f'Sin act. +{data["stale_days"]}d', n_stale, "#ea580c" if n_stale else "#16a34a", "stock viejo", bg="#ffedd5" if n_stale else "#dcfce7", lblcolor="#7c2d12" if n_stale else "#14532d")}
     </tr></table>'''
 
-    # ─── Distribución de salud del stock (barras horizontales) ─────────────
-    s = data["salud"]
-    total = sum(s.values()) or 1
-    def bar(label, n, color):
-        pct = round(100 * n / total)
-        return f'''<tr>
-          <td style="padding:2px 0;width:130px;font-size:12px;color:#374151">{escape(label)}</td>
-          <td style="padding:2px 6px;width:36px;font-size:12px;color:#0a0d12;font-weight:700;text-align:right">{n}</td>
-          <td style="padding:2px 0"><div style="background:#f3f4f6;border-radius:4px;height:10px;overflow:hidden"><div style="background:{color};width:{pct}%;height:100%"></div></div></td>
-        </tr>'''
-    salud_html = f'''
-    <h3 style="margin:24px 0 8px;color:#0a0d12;font-size:15px">💚 Salud del stock</h3>
-    <table style="width:100%;border-collapse:collapse">
-      {bar("Al día (< 24h)",     s.get("al_dia",0),         "#16a34a")}
-      {bar("Atención (1-3d)",    s.get("atencion",0),       "#ca8a04")}
-      {bar("Demorado (3-7d)",    s.get("demorado",0),       "#ea580c")}
-      {bar("Desactualizado (>7d)",s.get("desactualizado",0),"#dc2626")}
-      {bar("Sin datos",          s.get("sin_datos",0),      "#9ca3af")}
-    </table>'''
+    # ─── Bloque: disponibles pero SIN cargar (0 unidades)
+    sc = data["sin_cargar"]
+    sin_cargar_html = ""
+    if sc:
+        items = " &nbsp;·&nbsp; ".join(_proj_inline(p) for p in sc[:25])
+        sin_cargar_html = f'''<div style="background:#fef2f2;border-left:4px solid #dc2626;border-radius:0 6px 6px 0;padding:10px 14px;margin:14px 0 6px">
+          <div style="color:#dc2626;font-weight:800;font-size:13px;margin-bottom:4px">▲ Disponibles pero SIN cargar (0 unidades) · {len(sc)}</div>
+          <div style="font-size:12.5px;color:#374151;line-height:1.6">{items}</div></div>'''
 
-    # ─── Tabla por proyecto: nombre · disp · hace tanto · estado ───────────
-    pe = data.get("proyectos_estado", [])
-    if pe:
-        rows = []
-        for p in pe[:60]:
-            color, bg, label = _antiguedad_color(p["stock_updated_at"])
-            rel = _tiempo_relativo(p["stock_updated_at"])
-            disp = p["disp"]
-            disp_color = "#16a34a" if disp > 0 else "#dc2626"
-            pub_icon = "🌐" if p["publicado"] else ""
-            inmob = f'<div style="color:#9ca3af;font-size:11px">{escape(p["inmobiliaria"])}</div>' if p["inmobiliaria"] else ""
-            # Semáforo por proyecto (3 columnas): crítico / warning / ok
-            n_crit = p.get("n_crit", 0)
-            n_warn = p.get("n_warn", 0)
-            if n_crit > 0:
-                sem = f'<span title="{n_crit} críticas + {n_warn} warnings" style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">🔴 {n_crit}</span>'
-            elif n_warn > 0:
-                sem = f'<span title="{n_warn} warnings" style="background:#fef3c7;color:#ca8a04;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">🟡 {n_warn}</span>'
+    # ─── Bloque: mucho tiempo sin actualizar stock (> stale_days)
+    sa = data["sin_actualizar"]
+    sin_act_html = ""
+    if sa:
+        def _sa_item(p):
+            rel = _tiempo_relativo(p["stock_updated_at"]) if p["stock_updated_at"] else "sin fecha"
+            return f'{_proj_inline(p)} — {escape(rel)}'
+        items = " &nbsp;·&nbsp; ".join(_sa_item(p) for p in sa[:25])
+        sin_act_html = f'''<div style="background:#fff7ed;border-left:4px solid #ea580c;border-radius:0 6px 6px 0;padding:10px 14px;margin:6px 0 4px">
+          <div style="color:#c2410c;font-weight:800;font-size:13px;margin-bottom:4px">⧗ Mucho tiempo sin actualizar stock (+{data["stale_days"]}d) · {len(sa)}</div>
+          <div style="font-size:12.5px;color:#374151;line-height:1.6">{items}</div></div>'''
+
+    # ─── Secciones por inmobiliaria, con detalle de pendientes por proyecto
+    inmob_html = ""
+    for g in data["inmobiliarias"]:
+        if g["n_crit"]:
+            chip_bg, chip_col = "#fee2e2", "#7f1d1d"
+            chip_txt = f'{g["n_proj"]} proyecto(s) · {g["n_crit_proj"]} con críticas'
+        elif g["n_warn"]:
+            chip_bg, chip_col = "#fef3c7", "#854d0e"
+            chip_txt = f'{g["n_proj"]} proyecto(s) · {g["n_warn"]} warning(s)'
+        else:
+            chip_bg, chip_col = "#dcfce7", "#14532d"
+            chip_txt = f'{g["n_proj"]} proyecto(s) · al día'
+        rows = ""
+        ps = g["proyectos"]
+        for i, p in enumerate(ps):
+            color, _bg, label = _antiguedad_color(p["stock_updated_at"])
+            rel = _tiempo_relativo(p["stock_updated_at"]) if p["cargadas"] else "sin datos de stock"
+            border = "" if i == len(ps) - 1 else "border-bottom:1px solid #f3f4f6;"
+            pub = ' 🌐' if p["publicado"] else ''
+            if p["n_crit"]:
+                badge = f'<span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">● {p["n_crit"]} crit</span>'
+            elif p["n_warn"]:
+                badge = f'<span style="background:#fef3c7;color:#ca8a04;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">● {p["n_warn"]} warn</span>'
             else:
-                sem = '<span style="background:#dcfce7;color:#16a34a;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">🟢 OK</span>'
-            rows.append(f'''<tr>
-              <td style="padding:8px 10px;border-bottom:1px solid #f3f4f6">
-                <div style="font-weight:700;color:#0a0d12;font-size:13px">{_project_link(p)} {pub_icon}</div>
-                {inmob}
-              </td>
-              <td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;text-align:center">{sem}</td>
-              <td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;text-align:right;color:{disp_color};font-weight:800;font-size:14px">{disp}</td>
-              <td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;text-align:right;color:#6b7280;font-size:12px;white-space:nowrap">{rel}</td>
-              <td style="padding:8px 10px;border-bottom:1px solid #f3f4f6;text-align:center"><span style="background:{bg};color:{color};font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.3px">{escape(label)}</span></td>
-            </tr>''')
-        extra = ""
-        if len(pe) > 60:
-            extra = f'<p style="font-size:11px;color:#9ca3af;margin:6px 0 0;text-align:center">… y {len(pe)-60} proyectos más en el listado</p>'
-        proyectos_html = f'''
-        <h3 style="margin:28px 0 8px;color:#0a0d12;font-size:15px">🏢 Estado por proyecto · ordenado por criticidad</h3>
-        <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
-          <thead><tr style="background:#f9fafb">
-            <th style="padding:8px 10px;text-align:left;font-size:11px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Proyecto</th>
-            <th style="padding:8px 10px;text-align:center;font-size:11px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Alertas</th>
-            <th style="padding:8px 10px;text-align:right;font-size:11px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Disp.</th>
-            <th style="padding:8px 10px;text-align:right;font-size:11px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Última act.</th>
-            <th style="padding:8px 10px;text-align:center;font-size:11px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Salud stock</th>
-          </tr></thead>
-          <tbody>{"".join(rows)}</tbody>
-        </table>
-        {extra}'''
-    else:
-        proyectos_html = ""
+                badge = '<span style="background:#dcfce7;color:#16a34a;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">● OK</span>'
+            detail = ""
+            if p["criticos"]:
+                lis = "".join(f'<li>{escape(c)}</li>' for c in p["criticos"])
+                detail += f'<ul style="margin:4px 0 0;padding-left:16px;color:#dc2626;font-size:12px;line-height:1.5">{lis}</ul>'
+            if p["warnings"]:
+                lis = "".join(f'<li>{escape(w)}</li>' for w in p["warnings"])
+                detail += f'<ul style="margin:2px 0 0;padding-left:16px;color:#ca8a04;font-size:12px;line-height:1.5">{lis}</ul>'
+            if not detail:
+                detail = '<div style="font-size:12px;color:#16a34a;margin-top:3px">Sin pendientes — publicable.</div>'
+            rows += f'''<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;{border}">
+              <div style="padding-right:10px">
+                <div style="font-weight:700;font-size:13.5px;color:#0a0d12">{_project_link(p)}{pub}</div>
+                <div style="font-size:11.5px;color:#6b7280;margin-top:2px">{p["disp"]} disp · {p["cargadas"]} cargadas · {escape(rel)}</div>
+                {detail}
+              </div>
+              <div style="text-align:right;white-space:nowrap">
+                {badge}
+                <div style="font-size:10.5px;color:{color};margin-top:4px;font-weight:700;text-transform:uppercase">{escape(label)}</div>
+              </div></div>'''
+        inmob_html += f'''<div style="margin-top:14px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">
+          <div style="background:#0b1628;color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center">
+            <span style="font-weight:800;font-size:15px">{escape(g["nombre"])}</span>
+            <span style="font-size:11.5px;background:{chip_bg};color:{chip_col};padding:3px 9px;border-radius:11px;font-weight:700">{escape(chip_txt)}</span>
+          </div>
+          <div style="padding:6px 14px 12px">{rows}</div></div>'''
 
-    # ─── SEMÁFORO general: distribución de proyectos por estado de alertas ─
-    n_crit = data.get("n_con_critico", 0)
-    n_warn = data.get("n_con_warning", 0)
-    n_ok = data.get("n_sin_alertas", 0)
-    total_p = max(n_crit + n_warn + n_ok, 1)
-    semaforo_html = f'''
-    <h3 style="margin:24px 0 8px;color:#0a0d12;font-size:15px">🚦 Estado general (semáforo)</h3>
-    <table style="width:100%;border-collapse:separate;border-spacing:6px"><tr>
-      <td style="padding:12px;background:#fee2e2;border:2px solid #dc2626;border-radius:8px;text-align:center;width:33%">
-        <div style="font-size:11px;color:#7f1d1d;font-weight:700;text-transform:uppercase;letter-spacing:.5px">🔴 Con críticas</div>
-        <div style="font-size:26px;color:#dc2626;font-weight:800;line-height:1;margin-top:4px">{n_crit}</div>
-        <div style="font-size:11px;color:#7f1d1d;margin-top:2px">{round(100*n_crit/total_p)}% del total</div>
-      </td>
-      <td style="padding:12px;background:#fef3c7;border:2px solid #ca8a04;border-radius:8px;text-align:center;width:33%">
-        <div style="font-size:11px;color:#854d0e;font-weight:700;text-transform:uppercase;letter-spacing:.5px">🟡 Con warnings</div>
-        <div style="font-size:26px;color:#ca8a04;font-weight:800;line-height:1;margin-top:4px">{n_warn}</div>
-        <div style="font-size:11px;color:#854d0e;margin-top:2px">{round(100*n_warn/total_p)}% del total</div>
-      </td>
-      <td style="padding:12px;background:#dcfce7;border:2px solid #16a34a;border-radius:8px;text-align:center;width:33%">
-        <div style="font-size:11px;color:#14532d;font-weight:700;text-transform:uppercase;letter-spacing:.5px">🟢 Todo OK</div>
-        <div style="font-size:26px;color:#16a34a;font-weight:800;line-height:1;margin-top:4px">{n_ok}</div>
-        <div style="font-size:11px;color:#14532d;margin-top:2px">{round(100*n_ok/total_p)}% del total</div>
-      </td>
-    </tr></table>'''
-
-    # ─── Alertas críticas agregadas (rojo) ────────────────────────────────
-    def agg_box(item, sev_color, sev_bg, icon):
-        ps = item["proyectos"]
-        lis = "".join(f'<li style="margin:2px 0;font-size:12.5px">{_project_link(p)}</li>' for p in ps[:8])
-        extra = f' <span style="color:#6b7280;font-weight:500">+{item["n"]-8} más</span>' if item["n"] > 8 else ""
-        return f'''<div style="background:{sev_bg};border-left:4px solid {sev_color};padding:10px 14px;border-radius:6px;margin-bottom:8px">
-          <div style="color:{sev_color};font-weight:800;font-size:13px;margin-bottom:4px">{icon} {escape(item["msg"])} · <span style="font-size:14px">{item["n"]} proyecto(s)</span>{extra}</div>
-          <ul style="margin:0;padding-left:18px;color:#374151">{lis}</ul>
-        </div>'''
-
-    crit_agg = data.get("criticos_agg", [])
-    warn_agg = data.get("warnings_agg", [])
-
-    crit_html = ""
-    if crit_agg:
-        crit_html = '<h3 style="margin:28px 0 8px;color:#dc2626;font-size:15px">🔴 ALERTAS CRÍTICAS · requieren acción</h3>'
-        for item in crit_agg:
-            crit_html += agg_box(item, "#dc2626", "#fee2e2", "🔴")
-    else:
-        crit_html = '<div style="margin:24px 0 0;padding:12px 14px;background:#dcfce7;border-left:4px solid #16a34a;border-radius:6px;color:#15803d;font-weight:700;font-size:13px">🟢 Sin alertas críticas activas — todo el portafolio publicable.</div>'
-
-    warn_html = ""
-    if warn_agg:
-        warn_html = '<h3 style="margin:24px 0 8px;color:#ca8a04;font-size:15px">🟡 WARNINGS · revisar cuando puedas</h3>'
-        for item in warn_agg:
-            warn_html += agg_box(item, "#ca8a04", "#fef3c7", "🟡")
-
-    alertas_html = crit_html + warn_html
-
-    # ─── Errores del scraper (con resumen + detalles) ──────────────────────
+    # ─── Errores del scraper (si hay)
     errores_html = ""
     if data["errores_24h"]:
         rows_err = []
@@ -494,11 +495,8 @@ def _build_html(data: dict) -> str:
               <td style="padding:8px 10px;border-bottom:1px solid #fecaca;font-weight:700;color:#0a0d12;font-size:12.5px">{escape(e["proyecto"])}</td>
               <td style="padding:8px 10px;border-bottom:1px solid #fecaca;color:#7f1d1d;font-size:12px">{escape((e.get("detalles","") or "")[:160])}</td>
             </tr>''')
-        extra_err = ""
-        if data["n_errores_24h"] > len(data["errores_24h"]):
-            extra_err = f'<p style="font-size:11px;color:#9ca3af;margin:6px 0 0">… y {data["n_errores_24h"]-len(data["errores_24h"])} errores más</p>'
         errores_html = f'''
-        <h3 style="margin:28px 0 8px;color:#dc2626;font-size:15px">🚨 Errores del scraper · {data["n_errores_24h"]} en últimas 24h</h3>
+        <h3 style="margin:24px 0 8px;color:#dc2626;font-size:15px">🚨 Errores del scraper · {data["n_errores_24h"]} en últimas 24h</h3>
         <table style="width:100%;border-collapse:collapse;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;overflow:hidden">
           <thead><tr style="background:#fee2e2">
             <th style="padding:6px 10px;text-align:left;font-size:11px;color:#7f1d1d;font-weight:700">Hora</th>
@@ -506,25 +504,29 @@ def _build_html(data: dict) -> str:
             <th style="padding:6px 10px;text-align:left;font-size:11px;color:#7f1d1d;font-weight:700">Detalle</th>
           </tr></thead>
           <tbody>{"".join(rows_err)}</tbody>
-        </table>
-        {extra_err}'''
+        </table>'''
+
+    # Mensaje cuando NO hay nada que hacer
+    todo_ok_html = ""
+    if not sc and not sa and data["n_con_critico"] == 0:
+        todo_ok_html = '<div style="margin:14px 0 0;padding:12px 14px;background:#dcfce7;border-left:4px solid #16a34a;border-radius:0 6px 6px 0;color:#15803d;font-weight:700;font-size:13px">🟢 Sin pendientes críticos — todo el stock al día.</div>'
 
     return f"""
     <!doctype html><html><body style="margin:0;background:#f3f4f6;padding:0;font-family:-apple-system,'Segoe UI',Roboto,sans-serif">
       <div style="max-width:720px;margin:0 auto;padding:24px 16px">
-        <div style="background:linear-gradient(135deg,#7DC242,#5fa832);color:#0a0d12;padding:18px 22px;border-radius:12px 12px 0 0;font-weight:800;font-size:18px">
-          📊 Informe diario de stock
-          <div style="font-weight:400;font-size:12.5px;color:#0a0d12;opacity:.75;margin-top:3px">{escape(data["fecha_cl"])} · BigCapital</div>
+        <div style="background:#7DC242;color:#0a0d12;padding:16px 20px;border-radius:12px 12px 0 0">
+          <div style="font-weight:800;font-size:18px">📊 Informe diario de stock · SBC</div>
+          <div style="font-weight:400;font-size:12.5px;color:#0a0d12;opacity:.78;margin-top:3px">{escape(data["fecha_cl"])} · BigCapital</div>
         </div>
         <div style="background:#fff;padding:18px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none">
           {kpis}
-          {semaforo_html}
-          {salud_html}
-          {alertas_html}
+          {sin_cargar_html}
+          {sin_act_html}
+          {todo_ok_html}
+          {inmob_html}
           {errores_html}
-          {proyectos_html}
-          <div style="margin:28px 0 0;padding:12px 14px;background:#f9fafb;border-radius:8px;text-align:center;font-size:12px;color:#6b7280">
-            Sistema automático · L-V 09:00 AM Chile<br>
+          <div style="margin:24px 0 0;padding:12px 14px;background:#f9fafb;border-radius:8px;text-align:center;font-size:12px;color:#6b7280">
+            Sistema automático · L-V 09:00 Chile · solo stock propio (SBC)<br>
             <a href="https://herramientas.bigcapital.cl/src/stock-interno/" style="color:#1f7a3d;font-weight:700;text-decoration:none">→ Abrir listado completo</a>
           </div>
         </div>
@@ -563,11 +565,12 @@ def send_daily_report() -> None:
         msg["Subject"] = f"📊 Stock · {data['n_disponibles_total']} disp · {data['n_cambios_24h']} cambios 24h{warn}"
         from_addr = settings.smtp_from or settings.smtp_user
         msg["From"] = formataddr((settings.smtp_from_name, from_addr))
-        msg["To"] = settings.notify_to
-        # Cc del informe diario: Pamela y Álvaro (configurable por DAILY_REPORT_CC).
-        # Distinto de notify_stock_cc (que es de notify_change, ahora silenciado).
+        # Destinatarios (2026-06-17): To = Cristopher (responsable de carga),
+        # Cc = Nicolás. Fallback a notify_to si daily_report_to queda vacío.
+        to_addr = (settings.daily_report_to or settings.notify_to).strip()
+        msg["To"] = to_addr
         cc_raw = (settings.daily_report_cc or "")
-        to_lower = settings.notify_to.strip().lower()
+        to_lower = to_addr.lower()
         cc_list = [e.strip() for e in cc_raw.split(",") if e.strip() and e.strip().lower() != to_lower]
         if cc_list:
             msg["Cc"] = ", ".join(cc_list)
@@ -579,10 +582,11 @@ def send_daily_report() -> None:
             s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))
             s.send_message(msg)
         log.info(
-            "daily_report enviado → To:%s Cc:%s · activos:%d disp:%d cambios24h:%d errores24h:%d alertas:%d",
-            settings.notify_to, ", ".join(cc_list) or "—",
-            data["n_activos"], data["n_disponibles_total"],
-            data["n_cambios_24h"], data["n_errores_24h"], n_alertas,
+            "daily_report enviado → To:%s Cc:%s · activos:%d disp:%d inmob:%d crit:%d warn:%d sinCargar:%d staleStock:%d",
+            to_addr, ", ".join(cc_list) or "—",
+            data["n_activos"], data["n_disponibles_total"], len(data["inmobiliarias"]),
+            data["n_con_critico"], data["n_con_warning"],
+            len(data["sin_cargar"]), len(data["sin_actualizar"]),
         )
     except Exception as e:
         log.error("daily_report falló: %s", e, exc_info=True)
