@@ -1,6 +1,6 @@
 # Eventos anómalos — registro automático
 
-Última actualización: Wed 17/06/2026 09:03 Chile · 136 eventos totales
+Última actualización: Wed 17/06/2026 16:38 Chile · 142 eventos totales
 
 Este archivo se regenera automáticamente desde `eventos_anomalos.jsonl`.
 Los eventos están deduplicados en ventanas de 24h.
@@ -11,10 +11,13 @@ Los eventos están deduplicados en ventanas de 24h.
 |---|---|---|
 | 2026-05-28 21:34:11 | `import-jb.yml#26596794924` | created=Thu 28/05 15:19 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26596794924) |
 
-## ⚠ Proyectos con modelos pero sin unidades (46 en total, mostrando últimos 30)
+## ⚠ Proyectos con modelos pero sin unidades (49 en total, mostrando últimos 30)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-06-17 20:38:31 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
+| 2026-06-17 20:38:30 | `edificio-conexi-n-independencia · _EDIFICIO CONEXIÓN INDEPENDENCI_` | 17 modelos pero 0 unidades — Excel JB vacío |
+| 2026-06-17 20:38:27 | `edificio-missouri-3885 · _EDIFICIO MISSOURI 3885_` | 24 modelos pero 0 unidades — Excel JB vacío |
 | 2026-06-16 18:21:34 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
 | 2026-06-16 18:21:33 | `edificio-conexi-n-independencia · _EDIFICIO CONEXIÓN INDEPENDENCI_` | 17 modelos pero 0 unidades — Excel JB vacío |
 | 2026-06-16 18:21:30 | `edificio-missouri-3885 · _EDIFICIO MISSOURI 3885_` | 24 modelos pero 0 unidades — Excel JB vacío |
@@ -42,9 +45,6 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-06-02 11:54:41 | `jb-vwkzk19n · _Bandera 1060_` | 6 modelos pero 0 unidades — Excel JB vacío |
 | 2026-06-01 19:11:34 | `jb-wwmcny3e · _Los Alerces_` | 25 modelos pero 0 unidades — Excel JB vacío |
 | 2026-06-01 19:11:34 | `jb-48t1iinf · _EDIFICIO CONEXIÓN INDEPENDENCI_` | 17 modelos pero 0 unidades — Excel JB vacío |
-| 2026-06-01 19:11:34 | `jb-sffaxziq · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
-| 2026-05-31 09:49:38 | `jb-sffaxziq · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
-| 2026-05-30 22:33:57 | `jb-1kvflc3m · _Vicuña Mackenna 1796_` | 18 modelos pero 0 unidades — Excel JB vacío |
 
 ## ⚠ Proyectos huérfanos (JB sin data) (28 en total, mostrando últimos 28)
 
@@ -94,10 +94,12 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-05-28 13:49:55 | `jb-osnl3m1c · _Vista San Martin_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
 | 2026-05-28 13:49:55 | `jb-dx4rddfn · _Fuentes de Lomas II_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
 
-## ℹ Workflows cancelados (34 en total, mostrando últimos 30)
+## ℹ Workflows cancelados (36 en total, mostrando últimos 30)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-06-17 20:38:31 | `batch-import-jb.yml#26588554656` | created=Thu 28/05 12:42 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26588554656) |
+| 2026-06-17 20:38:31 | `batch-import-jb.yml#26539837724` | created=Wed 27/05 17:29 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26539837724) |
 | 2026-06-16 18:21:35 | `batch-import-jb.yml#26588554656` | created=Thu 28/05 12:42 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26588554656) |
 | 2026-06-16 18:21:35 | `batch-import-jb.yml#26539837724` | created=Wed 27/05 17:29 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26539837724) |
 | 2026-06-15 16:28:46 | `batch-import-jb.yml#26588554656` | created=Thu 28/05 12:42 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26588554656) |
@@ -126,13 +128,12 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-06-02 22:07:54 | `batch-import-jb.yml#26539837724` | created=Wed 27/05 17:29 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26539837724) |
 | 2026-06-01 19:11:49 | `batch-import-jb.yml#26588554656` | created=Thu 28/05 12:42 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26588554656) |
 | 2026-06-01 19:11:49 | `batch-import-jb.yml#26539837724` | created=Wed 27/05 17:29 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26539837724) |
-| 2026-05-31 09:49:53 | `batch-import-jb.yml#26588554656` | created=Thu 28/05 12:42 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26588554656) |
-| 2026-05-30 22:34:08 | `batch-import-jb.yml#26539837724` | created=Wed 27/05 17:29 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26539837724) |
 
-## ℹ Batches fuera de ventana L-V 10-18 (17 en total, mostrando últimos 17)
+## ℹ Batches fuera de ventana L-V 10-18 (18 en total, mostrando últimos 18)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-06-17 20:38:31 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
 | 2026-06-16 18:21:35 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
 | 2026-06-15 16:28:46 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
 | 2026-06-14 08:57:06 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
