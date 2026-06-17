@@ -1082,8 +1082,15 @@ async def subir_excel(
         _origen = "Actualización automática (scraper MNK · PlanOk)"
     elif _email_usuario.startswith("maestra-scraper"):
         _origen = "Actualización automática (Maestra · Excel)"
+    elif _email_usuario.startswith("jb-scraper") or "jb-importer" in _email_usuario:
+        _origen = "Actualización automática (JetBrokers · scraper)"
+    elif "scraper" in _email_usuario or "importer" in _email_usuario or _email_usuario.startswith("sistema"):
+        # Cualquier otro usuario de sistema/scraper → automático genérico (#93).
+        _origen = "Actualización automática (scraper)"
     else:
         _origen = "Carga de Excel de stock"
+    # Marca para que el frontend distinga import automático (robot) de carga manual.
+    _es_auto = _origen.startswith("Actualización automática")
 
     def _corta(lst):
         return ", ".join(lst[:6]) + ("…" if len(lst) > 6 else "")
@@ -1119,6 +1126,7 @@ async def subir_excel(
         "tipo": "Excel Stock",
         "detalles": _detalles,
         "usuario": getattr(usuario, "email", None) or "sistema",
+        "origen_auto": _es_auto,  # #93: True = import automático del scraper
         "archivo_url": None,
     }
 
