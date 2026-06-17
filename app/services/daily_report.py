@@ -230,6 +230,38 @@ def _age_hours(dt):
     return (datetime.now(timezone.utc) - dt).total_seconds() / 3600
 
 
+def _calidad_score(n_crit: int, n_warn: int, cargadas: int, age_h) -> int:
+    """Índice de calidad del listado de UN proyecto (0-100): qué tan completo y fresco
+    está el dato para publicar/cotizar. Componentes transparentes (se muestran en el mail):
+      · Sin críticas   50 pts  (cada crítica −15 · bloquean publicar/cotizar)
+      · Sin warnings   20 pts  (cada warning −5)
+      · Stock fresco   20 pts  (≤24h=20 · ≤72h=15 · ≤7d=10 · +7d o sin fecha=0)
+      · Stock cargado  10 pts  (tiene unidades)
+    """
+    s = max(0, 50 - 15 * n_crit) + max(0, 20 - 5 * n_warn)
+    if cargadas > 0:
+        s += 10
+        if age_h is not None:
+            if age_h < 24:
+                s += 20
+            elif age_h < 72:
+                s += 15
+            elif age_h < 168:
+                s += 10
+    return int(round(min(100, s)))
+
+
+def _calidad_band(score: int):
+    """(color_texto, color_fondo, etiqueta) según el índice de calidad."""
+    if score >= 85:
+        return ("#16a34a", "#dcfce7", "excelente")
+    if score >= 70:
+        return ("#ca8a04", "#fef9c3", "buena")
+    if score >= 50:
+        return ("#ea580c", "#ffedd5", "regular")
+    return ("#dc2626", "#fee2e2", "deficiente")
+
+
 def build_daily_report(db: Session) -> dict:
     """Arma el resumen del estado del stock AGRUPADO POR INMOBILIARIA.
 
@@ -294,6 +326,7 @@ def build_daily_report(db: Session) -> dict:
             "n_crit": len(a["criticos"]),
             "n_warn": len(a["warnings"]),
         }
+        pe["calidad"] = _calidad_score(pe["n_crit"], pe["n_warn"], cargadas, age_h)
         grupos.setdefault(norm, []).append(pe)
         if cargadas == 0:
             sin_cargar.append(pe)
@@ -328,6 +361,7 @@ def build_daily_report(db: Session) -> dict:
     for norm, ps in grupos.items():
         c = sum(x["n_crit"] for x in ps)
         w = sum(x["n_warn"] for x in ps)
+        cal = round(sum(x["calidad"] for x in ps) / len(ps)) if ps else 0
         inmobiliarias.append({
             "nombre": _display(norm),
             "proyectos": ps,
@@ -335,8 +369,13 @@ def build_daily_report(db: Session) -> dict:
             "n_crit": c,
             "n_warn": w,
             "n_crit_proj": sum(1 for x in ps if x["n_crit"] > 0),
+            "calidad": cal,
         })
     inmobiliarias.sort(key=lambda g: (-g["n_crit"], -g["n_warn"], g["nombre"].lower()))
+
+    # Índice de calidad general = promedio ponderado por proyecto (mean de todos los pe).
+    all_cal = [x["calidad"] for ps in grupos.values() for x in ps]
+    calidad_general = round(sum(all_cal) / len(all_cal)) if all_cal else 0
 
     # Distribución de salud del stock
     salud = {"al_dia": 0, "atencion": 0, "demorado": 0, "desactualizado": 0, "sin_datos": 0}
@@ -362,6 +401,7 @@ def build_daily_report(db: Session) -> dict:
         "n_con_critico": n_con_critico,
         "n_con_warning": n_con_warning,
         "n_sin_alertas": n_sin_alertas,
+        "calidad_general": calidad_general,
         "salud": salud,
         "inmobiliarias": inmobiliarias,
         "sin_cargar": sin_cargar,
@@ -450,6 +490,23 @@ def _build_html(data: dict) -> str:
       {_kpi_cell(f'Sin act. +{data["stale_days"]}d', n_stale, "#ea580c" if n_stale else "#16a34a", "stock viejo", bg="#ffedd5" if n_stale else "#dcfce7", lblcolor="#7c2d12" if n_stale else "#14532d")}
     </tr></table>'''
 
+    # ─── Índice de calidad GENERAL (completitud + frescura del listado · 0-100)
+    cg = data.get("calidad_general", 0)
+    cg_col, cg_bg, cg_lbl = _calidad_band(cg)
+    calidad_html = f'''<table style="width:100%;border-collapse:collapse;margin:8px 0 0"><tr>
+      <td style="background:{cg_bg};border-radius:8px;padding:12px 14px;vertical-align:middle">
+        <table style="width:100%;border-collapse:collapse"><tr>
+          <td style="vertical-align:middle">
+            <div style="font-size:12px;color:{cg_col};font-weight:800;text-transform:uppercase;letter-spacing:.3px">Índice de calidad general</div>
+            <div style="font-size:11px;color:#6b7280;margin-top:2px">Completitud + frescura del listado · sin críticas (50) + sin warnings (20) + stock fresco (20) + cargado (10)</div>
+          </td>
+          <td style="vertical-align:middle;text-align:right;white-space:nowrap">
+            <span style="font-size:30px;font-weight:800;color:{cg_col}">{cg}<span style="font-size:14px;font-weight:700">/100</span></span>
+            <div style="font-size:11px;color:{cg_col};font-weight:700;text-transform:uppercase">{escape(cg_lbl)}</div>
+          </td>
+        </tr></table>
+      </td></tr></table>'''
+
     # ─── Bloque: disponibles pero SIN cargar (0 unidades)
     sc = data["sin_cargar"]
     sin_cargar_html = ""
@@ -519,10 +576,15 @@ def _build_html(data: dict) -> str:
                 {badge}
                 <div style="font-size:10.5px;color:{color};margin-top:4px;font-weight:700;text-transform:uppercase">{escape(label)}</div>
               </div></div>'''
+        cal = g.get("calidad", 0)
+        cal_col, cal_bg, _cal_lbl = _calidad_band(cal)
         inmob_html += f'''<div style="margin-top:14px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">
           <div style="background:#0b1628;color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center">
             <span style="font-weight:800;font-size:15px">{escape(g["nombre"])}</span>
-            <span style="font-size:11.5px;background:{chip_bg};color:{chip_col};padding:3px 9px;border-radius:11px;font-weight:700">{escape(chip_txt)}</span>
+            <span style="white-space:nowrap">
+              <span style="font-size:11.5px;background:{cal_bg};color:{cal_col};padding:3px 9px;border-radius:11px;font-weight:800">calidad {cal}/100</span>
+              <span style="font-size:11.5px;background:{chip_bg};color:{chip_col};padding:3px 9px;border-radius:11px;font-weight:700">{escape(chip_txt)}</span>
+            </span>
           </div>
           <div style="padding:6px 14px 12px">{rows}</div></div>'''
 
@@ -562,6 +624,7 @@ def _build_html(data: dict) -> str:
         </div>
         <div style="background:#fff;padding:18px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none">
           {kpis}
+          {calidad_html}
           {sin_cargar_html}
           {sin_act_html}
           {todo_ok_html}
