@@ -381,10 +381,48 @@ def _row(label: str, value, total: int = 0, color: str = "#0a0d12") -> str:
     """
 
 
-def _project_link(p: dict, base: str = "https://herramientas.bigcapital.cl") -> str:
+_BASE = "https://herramientas.bigcapital.cl"
+
+
+def _editor_url(pid: str, tab: str = "") -> str:
+    """Link al EDITOR del proyecto (donde se corrige), opcionalmente en una pestaña.
+    El editor acepta deep-link por hash: proyecto.html?id=X#tab=fotos."""
+    u = f"{_BASE}/src/stock-interno/proyecto.html?id={escape(pid or '')}"
+    return u + (f"#tab={tab}" if tab else "")
+
+
+# Mapa pendiente → pestaña del editor donde se arregla (orden importa: el primer
+# keyword que aparezca gana). "modelo sin planta" → modelos; "depto sin precio" → unidades.
+_TAB_KEYWORDS = [
+    ("foto", "fotos"),
+    ("planta", "modelos"),
+    ("ubicaci", "local"),
+    ("modelo", "modelos"),
+    ("precio", "unidades"),
+    ("tipolog", "unidades"),
+    ("stock", "unidades"),
+    ("unidad", "unidades"),
+    ("pie", "general"),
+    ("fase", "general"),
+    ("entrega", "general"),
+    ("comuna", "general"),
+    ("inmobiliaria", "general"),
+    ("nombre", "general"),
+]
+
+
+def _tab_for(msg: str) -> str:
+    m = (msg or "").lower()
+    for kw, tab in _TAB_KEYWORDS:
+        if kw in m:
+            return tab
+    return "general"
+
+
+def _project_link(p: dict, tab: str = "") -> str:
+    """Nombre del proyecto como link al editor (pestaña opcional)."""
     nombre = escape(p.get("nombre") or p.get("id") or "")
-    pid = escape(p.get("id") or "")
-    return f"<a href='{base}/src/stock-interno/proyecto-vista.html?id={pid}' style='color:#1f7a3d;text-decoration:none'>{nombre}</a>"
+    return f"<a href='{_editor_url(p.get('id') or '', tab)}' style='color:#1f7a3d;text-decoration:none;font-weight:700'>{nombre}</a>"
 
 
 def _kpi_cell(label, value, color, sub, bg="#f9fafb", lblcolor="#6b7280"):
@@ -394,9 +432,9 @@ def _kpi_cell(label, value, color, sub, bg="#f9fafb", lblcolor="#6b7280"):
       <div style="font-size:11px;color:{lblcolor};margin-top:2px">{escape(sub)}</div></td>'''
 
 
-def _proj_inline(p) -> str:
-    """Link al proyecto + inmobiliaria entre paréntesis, para las listas de arriba."""
-    return f'{_project_link(p)} <span style="color:#9ca3af">({escape(p["inmobiliaria"])})</span>'
+def _proj_inline(p, tab: str = "unidades") -> str:
+    """Link al proyecto (→ editor, pestaña Unidades por defecto) + inmobiliaria."""
+    return f'{_project_link(p, tab)} <span style="color:#9ca3af">({escape(p["inmobiliaria"])})</span>'
 
 
 def _build_html(data: dict) -> str:
@@ -458,13 +496,17 @@ def _build_html(data: dict) -> str:
                 badge = f'<span style="background:#fef3c7;color:#ca8a04;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">● {p["n_warn"]} warn</span>'
             else:
                 badge = '<span style="background:#dcfce7;color:#16a34a;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">● OK</span>'
+            # Cada pendiente es un LINK al editor en la pestaña donde se corrige.
+            def _li(items, color):
+                return "".join(
+                    f'<li><a href="{_editor_url(p["id"], _tab_for(t))}" style="color:{color};text-decoration:underline">{escape(t)}</a></li>'
+                    for t in items
+                )
             detail = ""
             if p["criticos"]:
-                lis = "".join(f'<li>{escape(c)}</li>' for c in p["criticos"])
-                detail += f'<ul style="margin:4px 0 0;padding-left:16px;color:#dc2626;font-size:12px;line-height:1.5">{lis}</ul>'
+                detail += f'<ul style="margin:4px 0 0;padding-left:16px;color:#dc2626;font-size:12px;line-height:1.5">{_li(p["criticos"], "#dc2626")}</ul>'
             if p["warnings"]:
-                lis = "".join(f'<li>{escape(w)}</li>' for w in p["warnings"])
-                detail += f'<ul style="margin:2px 0 0;padding-left:16px;color:#ca8a04;font-size:12px;line-height:1.5">{lis}</ul>'
+                detail += f'<ul style="margin:2px 0 0;padding-left:16px;color:#ca8a04;font-size:12px;line-height:1.5">{_li(p["warnings"], "#ca8a04")}</ul>'
             if not detail:
                 detail = '<div style="font-size:12px;color:#16a34a;margin-top:3px">Sin pendientes — publicable.</div>'
             rows += f'''<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;{border}">

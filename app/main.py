@@ -17,6 +17,7 @@ from .services import email_service
 from .services.daily_report import send_daily_report, build_daily_report, _build_html
 from .services.inbox_processor import process_inbox
 from .models import Usuario
+from .models.proyecto import Proyecto
 from .db import SessionLocal
 
 logging.basicConfig(level=settings.log_level)
@@ -116,6 +117,54 @@ def preview_daily_report(_: Usuario = Depends(super_admin)):
     with SessionLocal() as db:
         data = build_daily_report(db)
     return HTMLResponse(_build_html(data))
+
+
+@app.post("/admin/inmobiliarias/normalize", tags=["meta"])
+def normalize_inmobiliarias(apply: bool = False, _: Usuario = Depends(super_admin)):
+    """Unifica EN EL SISTEMA las inmobiliarias que son la misma con distinto tipeo
+    (case/espacios): p.ej. 'AJ Urbana' → 'AJ URBANA'. Canoniza a la grafía más
+    frecuente. Dry-run por defecto; ?apply=true escribe. Solo super_admin."""
+    from collections import Counter, defaultdict
+    with SessionLocal() as db:
+        proys = db.query(Proyecto).filter(Proyecto.deleted_at.is_(None)).all()
+        grupos = defaultdict(list)
+        for p in proys:
+            raw = (p.inmobiliaria or "").strip()
+            if raw:
+                grupos[raw.casefold()].append(p)
+        cambios = []
+        for _norm, ps in grupos.items():
+            spellings = Counter((p.inmobiliaria or "").strip() for p in ps)
+            if len(spellings) <= 1:
+                continue  # ya uniforme, nada que hacer
+            canonical = spellings.most_common(1)[0][0]
+            for p in ps:
+                cur = (p.inmobiliaria or "").strip()
+                if cur != canonical:
+                    cambios.append({"id": p.id, "de": cur, "a": canonical})
+                    if apply:
+                        p.inmobiliaria = canonical
+        if apply and cambios:
+            db.commit()
+        return {"apply": apply, "n_cambios": len(cambios),
+                "variantes_detectadas": sorted({(c["de"], c["a"]) for c in cambios}),
+                "cambios": cambios}
+
+
+@app.get("/admin/diag/usuario", tags=["meta"])
+def diag_usuario(email: str, _: Usuario = Depends(super_admin)):
+    """Estado de la fila bc-api de un usuario (solo super_admin). Para diagnosticar
+    el caso 'tengo el permiso pero me pide clave': si activo=false, el exchange daba
+    401. Desde 2026-06-17 el exchange reactiva a quien tenga acceso legacy válido."""
+    em = (email or "").strip().lower()
+    with SessionLocal() as db:
+        u = db.query(Usuario).filter(Usuario.email == em).first()
+        if not u:
+            return {"email": em, "existe_en_bcapi": False,
+                    "nota": "No tiene fila en bc-api; se crea (activa) en el próximo exchange."}
+        return {"email": em, "existe_en_bcapi": True, "activo": u.activo,
+                "is_admin": u.is_admin, "nombre": u.nombre,
+                "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None}
 
 
 @app.post("/admin/inbox/poll", tags=["meta"])

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -13,6 +14,7 @@ from ..services.auth import create_token, verify_password
 from ..settings import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+log = logging.getLogger(__name__)
 
 
 class ExchangeIn(BaseModel):
@@ -138,7 +140,18 @@ def exchange_bc_token(body: ExchangeIn, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(user)
     elif not user.activo:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Usuario inactivo en bc-api")
+        # (2026-06-17) La AUTORIDAD del acceso es users.json (legacy), no esta
+        # tabla. Una fila inactiva acá NO debe bloquear a un usuario que tiene
+        # sesión legacy válida y stock_admin (o es super): era el bug "tengo el
+        # permiso en admin pero me pide clave" — el exchange daba 401 y el front
+        # caía al modal de contraseña. Reactivamos el espejo en vez de rechazar.
+        if stock_admin or is_super:
+            user.activo = True
+            db.commit()
+            db.refresh(user)
+            log.info("exchange: reactivado usuario inactivo con acceso legacy: %s", email)
+        else:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Usuario inactivo en bc-api")
 
     # Issue JWT — incluye el claim stock_admin (acceso a Stock propio sin ser super
     # admin). La dependencia stock_access lo lee para autorizar los endpoints de stock.
