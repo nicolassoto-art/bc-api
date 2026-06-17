@@ -368,24 +368,16 @@ def comercial_broker(
     _BROKER_COMERCIAL_KEYS; NO sale promo_broker / comisiones / márgenes / cuenta
     de reserva. Misma fuente para admin y corredor → vista idéntica en el catálogo.
     """
-    p = db.get(
-        Proyecto, proyecto_id,
-        options=[selectinload(Proyecto.unidades)],
-    )
+    p = db.get(Proyecto, proyecto_id)
     if not p or p.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
     com = (p.extra or {}).get("comercial")
     com = com if isinstance(com, dict) else {}
     out = {k: v for k, v in com.items() if k in _BROKER_COMERCIAL_KEYS}
-    # Arriendo garantizado por unidad (dato benigno de Mobysuite). El feed del worker
-    # recorta las unidades y lo borra, así que el catálogo lo trae por acá (mismo patrón
-    # que el plan de pago) y lo cruza por número de depto. Solo deptos con valor cargado.
-    arriendos = {
-        u.numero: {"valor": u.arriendo_garantizado, "moneda": u.arriendo_moneda}
-        for u in (p.unidades or [])
-        if u.numero and u.arriendo_garantizado is not None
-    }
-    return {"id": p.id, "comercial": out, "arriendos": arriendos}
+    # (2026-06-17) NO exponer arriendo garantizado por unidad acá: el usuario lo
+    # marcó como información SENSIBLE → no debe verse en el catálogo (ningún broker).
+    # Se quitó el mapa `arriendos`. El dato sigue en el editor de stock (privado).
+    return {"id": p.id, "comercial": out}
 
 
 @router.post("", response_model=ProyectoOut, status_code=status.HTTP_201_CREATED)
