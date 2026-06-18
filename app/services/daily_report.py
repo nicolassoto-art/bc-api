@@ -197,6 +197,27 @@ def _alertas_de_proyecto(p) -> dict:
     return {"criticos": criticos, "warnings": warnings}
 
 
+def _eventos_ventana(p, cutoff):
+    """Eventos del timeline de un proyecto desde `cutoff` (datetime aware UTC).
+    Devuelve [{tipo,fecha,detalles,usuario}]. Base de _eventos_24h y de la
+    sección 'Actividad desde el informe anterior'."""
+    tl = (p.extra or {}).get("timeline") or []
+    out = []
+    for ev in tl:
+        try:
+            f = ev.get("fecha", "")
+            if not f:
+                continue
+            if not f.endswith("Z") and "+" not in f[-6:] and "-" not in f[-6:]:
+                f = f + "Z"
+            dt = datetime.fromisoformat(f.replace("Z", "+00:00"))
+            if dt >= cutoff:
+                out.append({"tipo": ev.get("tipo", ""), "fecha": dt, "detalles": ev.get("detalles", ""), "usuario": ev.get("usuario", "")})
+        except Exception:
+            continue
+    return out
+
+
 def _eventos_24h(p):
     """Eventos del timeline en últimas 24h. Devuelve [{tipo,fecha,detalles}]."""
     tl = (p.extra or {}).get("timeline") or []
@@ -287,6 +308,23 @@ def build_daily_report(db: Session) -> dict:
             if ev["tipo"] == "Alerta":
                 errores_24h.append({"proyecto": p.nombre, **ev})
     errores_24h.sort(key=lambda x: x["fecha"], reverse=True)
+
+    # ─── Actividad desde el informe anterior (avances del día previo) ──────
+    # El informe corre L-V 09:00. Ventana: 24h normalmente; 72h los lunes (cubre
+    # el fin de semana para no perder lo del viernes). Resume TODO lo que se movió
+    # en el stock (carga de stock, ediciones, publicaciones, notas…) leído del
+    # timeline, con quién y cuándo. Los errores ('Alerta') van en su sección, se excluyen.
+    _now_cl = datetime.now(timezone(timedelta(hours=-4)))  # Chile (≈UTC-4) solo para el weekday
+    _vent_h = 72 if _now_cl.weekday() == 0 else 24         # lunes mira hasta el viernes
+    _cut_act = datetime.now(timezone.utc) - timedelta(hours=_vent_h)
+    actividad = []
+    for p in proyectos:
+        for ev in _eventos_ventana(p, _cut_act):
+            if ev["tipo"] == "Alerta":
+                continue
+            actividad.append({"proyecto": p.nombre or p.id, "id": p.id, **ev})
+    actividad.sort(key=lambda x: x["fecha"], reverse=True)
+    actividad_resumen = dict(collections.Counter(a["tipo"] or "Cambio" for a in actividad))
 
     # ─── Estado + alertas por proyecto, agrupado por inmobiliaria.
     # El nombre se NORMALIZA (trim + casefold) para que variantes de tipeo
@@ -409,6 +447,10 @@ def build_daily_report(db: Session) -> dict:
         "stale_days": STALE_DAYS,
         "errores_24h": errores_24h[:20],
         "n_errores_24h": len(errores_24h),
+        "actividad": actividad[:30],
+        "n_actividad": len(actividad),
+        "actividad_resumen": actividad_resumen,
+        "actividad_horas": _vent_h,
     }
 
 
@@ -475,6 +517,27 @@ def _kpi_cell(label, value, color, sub, bg="#f9fafb", lblcolor="#6b7280"):
 def _proj_inline(p, tab: str = "unidades") -> str:
     """Link al proyecto (→ editor, pestaña Unidades por defecto) + inmobiliaria."""
     return f'{_project_link(p, tab)} <span style="color:#9ca3af">({escape(p["inmobiliaria"])})</span>'
+
+
+_DIAS_ABR = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+
+
+def _hora_cl(dt) -> str:
+    """Hora exacta del evento en Chile (≈UTC-4) con 'hoy/ayer'. Ej: 'ayer 14:32',
+    'hoy 08:10', 'lun 16 · 11:05' para más atrás."""
+    if not dt:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    cl = dt.astimezone(timezone(timedelta(hours=-4)))
+    now = datetime.now(timezone(timedelta(hours=-4)))
+    hm = cl.strftime("%H:%M")
+    dias = (now.date() - cl.date()).days
+    if dias <= 0:
+        return f"hoy {hm}"
+    if dias == 1:
+        return f"ayer {hm}"
+    return f"{_DIAS_ABR[cl.weekday()]} {cl.day} · {hm}"
 
 
 def _build_html(data: dict) -> str:
@@ -610,6 +673,40 @@ def _build_html(data: dict) -> str:
           <tbody>{"".join(rows_err)}</tbody>
         </table>'''
 
+    # ─── Actividad desde el informe anterior (avances del día previo) ──────
+    act = data.get("actividad", [])
+    n_act = data.get("n_actividad", 0)
+    _TIPO_LBL = {
+        "Excel Stock": "Carga de stock", "Creación": "Proyecto nuevo",
+        "Publicación": "Publicación", "Edición": "Edición", "Nota": "Nota",
+        "Importación": "Importación", "Cambio": "Cambio",
+    }
+    if n_act:
+        res = data.get("actividad_resumen", {})
+        chips = " · ".join(
+            f'{_TIPO_LBL.get(k, k)}: {v}' for k, v in sorted(res.items(), key=lambda kv: -kv[1])
+        )
+        rows_act = []
+        for a in act:
+            rel = _hora_cl(a["fecha"])  # hora exacta Chile (ayer/hoy), elegido por el usuario
+            usr = escape((a.get("usuario") or "—").split("@")[0])
+            det = escape((a.get("detalles") or a.get("tipo") or "")[:170])
+            link = _project_link({"id": a.get("id"), "nombre": a.get("proyecto")})
+            rows_act.append(
+                f'<div style="padding:7px 0;border-bottom:1px solid #f3f4f6">'
+                f'<div style="font-size:12.5px"><b>{link}</b> <span style="color:#6b7280">· {usr} · {escape(rel)}</span></div>'
+                f'<div style="font-size:12px;color:#374151;margin-top:1px">{det}</div></div>'
+            )
+        _extra_act = f'<div style="font-size:11px;color:#9ca3af;margin-top:6px">… y {n_act - len(act)} movimiento(s) más</div>' if n_act > len(act) else ''
+        actividad_html = (
+            f'<h3 style="margin:22px 0 6px;color:#0a0d12;font-size:15px">🗓 Actividad desde el informe anterior · {n_act}</h3>'
+            f'<div style="font-size:12px;color:#6b7280;margin-bottom:6px">{escape(chips)}</div>'
+            f'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:4px 14px">{"".join(rows_act)}</div>'
+            f'{_extra_act}'
+        )
+    else:
+        actividad_html = '<div style="margin:20px 0 0;padding:11px 14px;background:#f9fafb;border-radius:8px;color:#6b7280;font-size:12.5px">🗓 <b>Actividad:</b> sin movimientos registrados desde el informe anterior.</div>'
+
     # Mensaje cuando NO hay nada que hacer
     todo_ok_html = ""
     if not sc and not sa and data["n_con_critico"] == 0:
@@ -628,6 +725,7 @@ def _build_html(data: dict) -> str:
           {sin_cargar_html}
           {sin_act_html}
           {todo_ok_html}
+          {actividad_html}
           {inmob_html}
           {errores_html}
           <div style="margin:24px 0 0;padding:12px 14px;background:#f9fafb;border-radius:8px;text-align:center;font-size:12px;color:#6b7280">
