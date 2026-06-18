@@ -323,6 +323,7 @@ def listar(
                     "pie_pct": comercial.get("pie_pct"),
                     "precio_desde_uf": precios_min.get(p.id),
                     "publicar_en_catalogo": bool(extra.get("publicar_en_catalogo")),
+                    "gps_verificado": bool(extra.get("gps_verificado")),
                     "foto_principal_url": foto,
                 }
             )

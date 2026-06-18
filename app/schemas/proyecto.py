@@ -133,3 +133,7 @@ class ProyectoSummary(BaseModel):
     precio_desde_uf: Optional[float] = None
     # Flag extraído de extra.publicar_en_catalogo (toggle del catálogo público)
     publicar_en_catalogo: bool = False
+    # Flag extraído de extra.gps_verificado — el listado lo usa para la alerta
+    # "Sin ubicación verificada". Sin exponerlo, la alerta nunca se borraba aunque
+    # el usuario confirmara la ubicación en el editor (el summary no lo traía).
+    gps_verificado: bool = False
