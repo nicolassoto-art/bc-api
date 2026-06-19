@@ -133,11 +133,11 @@ def main():
     def find_bc(nombre, jb_id):
         return by_jb.get(jb_id) or by_slug.get(_slug(nombre)) or by_slug.get(_slug(jb_id))
 
-    # set de slugs MÍOS (CSV master, sin excluidos)
-    excl_names = {EXCLUIDOS_JB[j] for j in EXCLUIDOS_JB}
+    # set de slugs MÍOS (CSV master, sin excluidos). Excluidos por jb_id.
+    excl_ids = set(EXCLUIDOS_JB)  # {'72GkWnlW','G3jWrRoE','zOHnfOQJ'}
     mine_slugs = set()
     for nombre, jb in CSV_ROWS:
-        if nombre in excl_names or jb == "tvFyLEMz":
+        if jb in excl_ids or jb == "tvFyLEMz":
             continue
         bc = find_bc(nombre, jb)
         if bc:
@@ -146,7 +146,7 @@ def main():
 
     # 2) cross-check presencia (3-vías) + excluidos
     for nombre, jb in CSV_ROWS:
-        if nombre in excl_names:  # excluidos: deben estar AUSENTES
+        if jb in excl_ids:  # excluidos: deben estar AUSENTES (correcto si faltan)
             bc = find_bc(nombre, jb)
             if bc:
                 add("CRITICAL","excluido",nombre,f"EXCLUIDO pero presente (id={bc.get('id')})")

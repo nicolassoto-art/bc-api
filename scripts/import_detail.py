@@ -91,14 +91,40 @@ def yn(v):
 
 
 def facing_es(f):
-    """JB facing (inglés) → orientación chilena abreviada (N/S/O/P y combinaciones)."""
+    """JB facing → orientación chilena abreviada (N/S/O/P y combinaciones).
+
+    JB 7.43.1 devuelve el facing en inglés ('north'), en español ('Norte',
+    'Nor-Oriente') o vía Excel JB (palabra completa). Mapeamos TODOS los casos.
+    En Chile: este='Oriente'=O · oeste='Poniente'=P.
+    """
     if not f:
         return None
     k = str(f).strip().lower().replace("-", "").replace("_", "").replace(" ", "")
-    m = {"north": "N", "south": "S", "east": "O", "west": "P",
-         "northeast": "NO", "northwest": "NP", "southeast": "SO", "southwest": "SP",
-         "eastnorth": "NO", "westnorth": "NP", "eastsouth": "SO", "westsouth": "SP"}
-    return m.get(k, str(f)[:3].upper())
+    m = {
+        # inglés
+        "north": "N", "south": "S", "east": "O", "west": "P",
+        "northeast": "NO", "northwest": "NP", "southeast": "SO", "southwest": "SP",
+        "eastnorth": "NO", "westnorth": "NP", "eastsouth": "SO", "westsouth": "SP",
+        # español completo (JB español / Excel JB)
+        "norte": "N", "sur": "S", "oriente": "O", "poniente": "P", "este": "O", "oeste": "P",
+        "nororiente": "NO", "norponiente": "NP", "suroriente": "SO", "surponiente": "SP",
+        "orientenorte": "NO", "ponientenorte": "NP", "orientesur": "SO", "ponientesur": "SP",
+    }
+    if k in m:
+        return m[k]
+    # combinaciones libres tipo 'NorteOrienteSur' → ordenar a abreviaturas únicas
+    parts = []
+    for full, ab in (("norte","N"),("sur","S"),("oriente","O"),("poniente","P"),
+                     ("este","O"),("oeste","P")):
+        if full in k and ab not in parts:
+            parts.append(ab)
+    if parts:
+        return "".join(parts)
+    # si ya viene abreviado válido, respetar; si es basura (nivel '-1', 'SN'), descartar
+    up = str(f).strip().upper()
+    if re.fullmatch(r"[NSOP]{1,3}", up):
+        return up
+    return None
 
 
 def asset_num(s):
