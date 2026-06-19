@@ -422,7 +422,12 @@ async def main():
     def umodel(u):
         am = u.get("apartmentModel") or {}
         if isinstance(am, dict):
-            return am.get("name") or bp_name.get((am.get("blueprint") or {}).get("id") if isinstance(am.get("blueprint"), dict) else am.get("blueprint")) or id_name.get(am.get("id"))
+            # CANÓNICO primero: nombre del endpoint de modelos por id → garantiza que
+            # unit.modelo ∈ extra.modelos[].nombre (evita 'modelo inválido' que rompe frontend).
+            # El am.name embebido a veces trae nº de unidad o código largo distinto al comercial.
+            return (id_name.get(am.get("id"))
+                    or bp_name.get((am.get("blueprint") or {}).get("id") if isinstance(am.get("blueprint"), dict) else am.get("blueprint"))
+                    or am.get("name"))
         return id_name.get(am)
     def uflags(u):
         am = u.get("apartmentModel") or {}
