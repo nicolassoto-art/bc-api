@@ -86,6 +86,10 @@ def main():
             if target and target != cur:
                 cambios.append((u, target))
             elif not target:
+                # no resoluble: limpiar modelo a '' (huérfana con badge) en vez de dejar
+                # un código basura ('A','D1') que el frontend marca como inválido.
+                if cur:
+                    cambios.append((u, ""))
                 warns.append({"numero": u.get("numero"), "modelo": cur or (u.get("tipologia") or "?")})
 
         ok = 0

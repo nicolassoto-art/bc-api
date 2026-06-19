@@ -13,7 +13,8 @@ Uso (workflow): patch-orientacion.yml -f pids="brasil,tocornal,..."  (vacío = T
 import os, re, httpx
 
 BC = "https://bc-api.178-105-91-29.nip.io"
-VALID = re.compile(r"^[NSOP]{1,3}$")
+# orientación válida = cardinal simple o combo de 2 (N/S + O/P). 'NSO' (3 dirs) = basura.
+VALID = re.compile(r"^(N|S|O|P|NO|NP|SO|SP|NE|SE)$")
 
 
 def facing_es(f):
