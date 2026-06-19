@@ -11,10 +11,23 @@ Reescribe SOLO el campo `modelo` por unidad vía PUT puntual. No wipe, no toca o
 
 Env: BC_API_JWT · PIDS (coma, vacío = todos los proyectos)
 """
-import os, re, httpx
+import os, re, time, httpx
 from collections import defaultdict
 
 BC = "https://bc-api.178-105-91-29.nip.io"
+
+
+def get_json(cli, url, tries=6):
+    """GET con reintentos — bc-api a veces devuelve 502 bajo carga."""
+    for i in range(tries):
+        try:
+            r = cli.get(url)
+            if r.status_code == 200:
+                return r.json()
+        except Exception:
+            pass
+        time.sleep(3)
+    raise RuntimeError(f"GET {url} falló tras {tries} intentos")
 
 
 def parse_db(tip):
@@ -29,12 +42,12 @@ def main():
     cli = httpx.Client(base_url=BC, headers={"Authorization": f"Bearer {jwt}"}, timeout=60)
     pids_env = os.environ.get("PIDS", "").strip()
     pids = [p.strip() for p in pids_env.split(",") if p.strip()] if pids_env \
-        else [p["id"] for p in cli.get("/proyectos").json()]
+        else [p["id"] for p in get_json(cli, "/proyectos")]
 
     g_fix = g_warn = 0
     for pid in pids:
         try:
-            p = cli.get(f"/proyectos/{pid}").json()
+            p = get_json(cli, f"/proyectos/{pid}")
         except Exception as e:
             print(f"❌ {pid}: {e}"); continue
         extra = p.get("extra") or {}
