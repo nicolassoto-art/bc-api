@@ -48,26 +48,58 @@ VOSEO = re.compile(r"\b(ten[ée]s|sos|quer[ée]s|decime|pod[ée]s|and[áa]|hac[�
 # Excluidos: NO deben existir (salvo Pinar E1 que vive como jb-tvfylemz, gestionado aparte)
 EXCLUIDOS_JB = {"72GkWnlW": "Terrazzo", "G3jWrRoE": "Abdón Cifuentes", "zOHnfOQJ": "Borja Plaza"}
 
-# 92 jb_ids del CSV master; 88 deben estar (los 4 excluidos no, pero Pinar E1 sí como jb-tvfylemz)
-CSV_JB_IDS_ESPERADOS = {
-    "IDLyBU4W","GMrPAyQt","NgBHe0jo","atUiRS6M","osnL3M1C","vWkZk19n","nYjXw5kL","hw9SoClo",
-    "dr6uuHkX","FxGIdSga","EZljonhe","PsqVqc03","b7Aniv5k","Dw5PBsEd","uRZc07TE","VgrH6Vg2",
-    "iB3uhp34","Sfp8j2Sq","SUWJ0Rye","C0xMpK4K","Ml02Ecl7","KvRtrtXK","4Kny8VBw","sn2K1WIY",
-    "LPJoCNEb","IDSvEAu8","LKubKmn0","AJBqsIIi","Xm0GuxtO","CGFo7vDQ","hvEkYVJq","is9kmud9",
-    "NeOU0rvU","v8tAVcOG","OwPhi37z","9MubHeQ8","IaIQ9iTH","exrBr6Tp","IgfWZVh2","86YW1rPt",
-    "jfkJBrPQ","1kvflc3m","tvFyLEMz","ksHJwBab","WWMCny3E","W8P6QggB","Vw1zOkV6","ImxDl3nl",
-    "f8VQHYVK","3JcwgGZi","qlkZufJk","Xm0ZQPxk","R5cTUSc8","48t1IInf","75PDpryA","1gaVJbKl",
-    "hSeBHnw1","pkR9sdRb","q8RwqXao","HvNRYfwm","T8UuEf2r","C8R7VcvH","thmz67c6","mshykABZ",
-    "kUYM4Rl8","wHL2AUKl","vWeKp0EM","9YO68rOa","LXXJ9agb","WGfF1Hcm","OHpd4zbx","sFfaXZIQ",
-    "FrOy8Hxr","hKtYFYuQ","Ao8J0BvU","4nyJKnq9","5d7qpMgc","iaEIx5Eo","RNEqQ6dw","UAq8pgxr",
-    "teQxJTnq","zkp4Z7HH","7qF2CCA7","LmVJgz7F","nmLpNNTD","eHxgQsNq","m9zXfNHe","dX4Rddfn",
-    # importados pre-CSV (Maestra propios) — no en CSV pero válidos:
-}
-# huérfanas que el usuario reserva para arreglo MANUAL (no contar como bloqueante auto-fix)
+# CSV master 92: (nombre, jb_id). Para scoping MINE vs OTROS y cross-check de presencia.
+CSV_ROWS = [
+    ("Edificio DownTown San Martín","IDLyBU4W"),("Edificio Vista Morandé","GMrPAyQt"),
+    ("Edificio Vista Amunategui","NgBHe0jo"),("Edificio Teatinos 750","atUiRS6M"),
+    ("Vista San Martin","osnL3M1C"),("Bandera 1060","vWkZk19n"),("Vivo Rengo","nYjXw5kL"),
+    ("Plaza Victoria","hw9SoClo"),("Altos de Collao","dr6uuHkX"),
+    ("Edificio Mapocho 3521 Edificio A","FxGIdSga"),("Santa Elena 1670 MBI","EZljonhe"),
+    ("Vicuña Mackenna 1432","PsqVqc03"),("Rosas 1444","b7Aniv5k"),("Guillermo Mann 1401","Dw5PBsEd"),
+    ("ViMa","uRZc07TE"),("Vespucio Capital","VgrH6Vg2"),("ZAPADORES 1821","iB3uhp34"),
+    ("EDIFICIO ÑUÑOA ZAÑARTU","Sfp8j2Sq"),("EDIFICIO MISSOURI 3885","SUWJ0Rye"),
+    ("Eleuterio Ramírez","C0xMpK4K"),("Las Condes 7039","Ml02Ecl7"),("Novus Torre E","KvRtrtXK"),
+    ("Novus Torre G","4Kny8VBw"),("El Aromo","sn2K1WIY"),("Nueva Esmeralda","LPJoCNEb"),
+    ("Coronel Godoy","IDSvEAu8"),("Los lilenes","LKubKmn0"),("Edificio Serrano Capital","AJBqsIIi"),
+    ("Cordillera Oriente Etapa 1","Xm0GuxtO"),("Matta","CGFo7vDQ"),("Brasil","hvEkYVJq"),
+    ("Don Ignacio","is9kmud9"),("Diagonal Paraguay 240","NeOU0rvU"),
+    ("Vicuña Mackenna 7589 Etapa II","v8tAVcOG"),("Vicuña Mackenna 7589 Etapa I","OwPhi37z"),
+    ("Tocornal","9MubHeQ8"),("Vivaceta 864","IaIQ9iTH"),("ETAPA 2 PORTAL DEL PINAR","exrBr6Tp"),
+    ("Condominio La Rioja","IgfWZVh2"),("Centenario I","86YW1rPt"),("Froilan Roa","jfkJBrPQ"),
+    ("Vicuña Mackenna 1796","1kvflc3m"),("PORTAL DEL PINAR","tvFyLEMz"),("Bulnes 138","ksHJwBab"),
+    ("Los Alerces","WWMCny3E"),("Mirador Chacabuco","W8P6QggB"),("Mirador oceánico","Vw1zOkV6"),
+    ("Parque Huertos","ImxDl3nl"),("Condominio Mallorca","f8VQHYVK"),("Edificio Peumayen","3JcwgGZi"),
+    ("Independencia 4745","qlkZufJk"),("Edificio Vitro","Xm0ZQPxk"),
+    ("Jose Pedro Alessandri 1498","R5cTUSc8"),("EDIFICIO CONEXIÓN INDEPENDENCIA","48t1IInf"),
+    ("Fuentes de Miguel Collao","75PDpryA"),("Fuentes de Lomas IV","1gaVJbKl"),
+    ("Fuentes de Lomas III","hSeBHnw1"),("Edificio B.Come","pkR9sdRb"),("Almanova","q8RwqXao"),
+    ("EDIFICIO SANTA ELENA 236","HvNRYfwm"),("Santa Rosa 250","T8UuEf2r"),("Ferroparque","C8R7VcvH"),
+    ("Bosquemar","thmz67c6"),("Urban La Florida","mshykABZ"),("Terratoltén","kUYM4Rl8"),
+    ("Terratoltén 2","wHL2AUKl"),("Bezanilla","vWeKp0EM"),("Aires La Florida 2","9YO68rOa"),
+    ("Edificio HA","LXXJ9agb"),("Cumbres de Peñuelas","WGfF1Hcm"),("MiraOlas Peñuelas","OHpd4zbx"),
+    ("Vicuña Mackenna 1194","sFfaXZIQ"),("Jardines de Alvarado","FrOy8Hxr"),
+    ("Vista Reloncaví","hKtYFYuQ"),("Pintor Cicarelli I","Ao8J0BvU"),("General Mackenna","4nyJKnq9"),
+    ("Trinidad III","5d7qpMgc"),("Plaza Cervantes torre B","iaEIx5Eo"),("Pintor Cicarelli II","RNEqQ6dw"),
+    ("Cáceres","UAq8pgxr"),("Apóstol Santiago","teQxJTnq"),("Alto Buzeta","zkp4Z7HH"),
+    ("Vista Costanera","7qF2CCA7"),("Serrano Torre A","LmVJgz7F"),("Quinta Park","nmLpNNTD"),
+    ("Rodrigo Araya 1410","eHxgQsNq"),("MiraOlas Peñuelas 2º etapa","3Av5Af58"),
+    ("Pionera Parque Cerrillos","m9zXfNHe"),("Fuentes de Lomas II","dX4Rddfn"),
+    ("Edificio Borja Plaza","zOHnfOQJ"),
+]
+EXCLUIDOS_SLUGS = set()  # se llena en main con slug de los 3 excluidos (Pinar E1 = caso aparte)
 RESERVADO_MANUAL = True
+# orientaciones válidas que produce el importer correcto. Todo lo demás en proyecto MÍO = bug.
+ORIENT_VALID = {"N","S","O","P","NO","NP","SO","SP","NE","SE","NPO","",None}
 
-findings = []  # (sev, categoria, proyecto, msg)
-def add(sev, cat, proy, msg): findings.append({"sev": sev, "cat": cat, "proy": proy, "msg": msg})
+findings = []  # (sev, categoria, proyecto, msg, mine)
+def add(sev, cat, proy, msg, mine=True):
+    findings.append({"sev": sev, "cat": cat, "proy": proy, "msg": msg, "mine": mine})
+
+
+def _slug(s):
+    import unicodedata
+    s = unicodedata.normalize("NFKD", s or "").encode("ascii","ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+","-",s).strip("-")
 
 
 def main():
@@ -90,29 +122,49 @@ def main():
     lst = r.json()
     print(f"bc-api responde · {len(lst)} proyectos en listado\n")
 
-    by_jb = {}
+    # índices 3-vías: jb_id, slug(id), slug(nombre)
+    by_jb, by_slug = {}, {}
     for p in lst:
         jb = (p.get("extra") or {}).get("jb_id")
         if jb: by_jb[jb] = p
+        by_slug[_slug(p.get("id") or "")] = p
+        by_slug[_slug(p.get("nombre") or "")] = p
 
-    # 2) cross-check presencia esperados / excluidos
-    for jb in CSV_JB_IDS_ESPERADOS:
+    def find_bc(nombre, jb_id):
+        return by_jb.get(jb_id) or by_slug.get(_slug(nombre)) or by_slug.get(_slug(jb_id))
+
+    # set de slugs MÍOS (CSV master, sin excluidos)
+    excl_names = {EXCLUIDOS_JB[j] for j in EXCLUIDOS_JB}
+    mine_slugs = set()
+    for nombre, jb in CSV_ROWS:
+        if nombre in excl_names or jb == "tvFyLEMz":
+            continue
+        bc = find_bc(nombre, jb)
+        if bc:
+            mine_slugs.add(_slug(bc.get("id") or ""))
+            mine_slugs.add(_slug(bc.get("nombre") or ""))
+
+    # 2) cross-check presencia (3-vías) + excluidos
+    for nombre, jb in CSV_ROWS:
+        if nombre in excl_names:  # excluidos: deben estar AUSENTES
+            bc = find_bc(nombre, jb)
+            if bc:
+                add("CRITICAL","excluido",nombre,f"EXCLUIDO pero presente (id={bc.get('id')})")
+            continue
         if jb == "tvFyLEMz":
-            continue  # vive como jb-tvfylemz, gestionado aparte
-        if jb not in by_jb:
-            add("CRITICAL","presencia",jb,"esperado en bc-api pero AUSENTE")
-    for jb, nom in EXCLUIDOS_JB.items():
-        if jb in by_jb:
-            add("CRITICAL","excluido",nom,f"EXCLUIDO pero presente en bc-api (jb_id={jb})")
+            continue  # gestionado aparte (jb-tvfylemz)
+        if not find_bc(nombre, jb):
+            add("CRITICAL","presencia",nombre,f"esperado (CSV master) pero AUSENTE en bc-api")
 
-    # 3) deep per-proyecto
+    # 3) deep per-proyecto (solo MÍOS para gating; OTROS = informativo)
     n = 0
     for p in lst:
         pid = p.get("id"); nombre = p.get("nombre") or pid
+        is_mine = _slug(pid) in mine_slugs or _slug(nombre) in mine_slugs
         try:
             full = cli.get(f"/proyectos/{pid}").json()
         except Exception as e:
-            add("CRITICAL","carga",nombre,f"GET /proyectos/{pid} falló {e!r}"); continue
+            add("CRITICAL","carga",nombre,f"GET /proyectos/{pid} falló {e!r}", is_mine); continue
         n += 1
         extra = full.get("extra") or {}
         inmob = (full.get("inmobiliaria") or "").strip()
@@ -123,73 +175,81 @@ def main():
         packs = extra.get("packs") or extra.get("packs_dom") or []
         warns = extra.get("_deptos_con_warning") or []
 
-        # inmobiliaria
+        tag = "" if is_mine else " [proyecto del usuario, no del importador]"
+        # inmobiliaria (solo gating en míos)
         if inmob in ("", "BigCapital", "Sin asignar"):
-            add("CRITICAL","inmob",nombre,f"inmobiliaria inválida='{inmob}'")
+            add("CRITICAL" if is_mine else "LOW","inmob",nombre,f"inmobiliaria inválida='{inmob}'{tag}", is_mine)
         # modelos
         if not modelos:
-            add("CRITICAL","modelos",nombre,"0 modelos")
+            add("CRITICAL" if is_mine else "LOW","modelos",nombre,f"0 modelos{tag}", is_mine)
         nombres_modelos = {(m.get("nombre") or "").strip() for m in modelos if isinstance(m, dict)}
-        # huérfanas
+        # huérfanas / modelo inválido
         huv = [u for u in unidades if not u.get("modelo")]
         hui = [u for u in unidades if u.get("modelo") and u.get("modelo") not in nombres_modelos]
         if hui:
-            add("CRITICAL","modelo-invalido",nombre,
-                f"{len(hui)} uds con modelo que NO existe en extra.modelos (frontend rompe)")
+            ejemplos = sorted({u.get("modelo") for u in hui})[:3]
+            add("CRITICAL" if is_mine else "LOW","modelo-invalido",nombre,
+                f"{len(hui)} uds → modelo inexistente {ejemplos} (frontend rompe){tag}", is_mine)
         if huv:
-            sev = "HIGH"
-            add(sev,"huerfanas",nombre,f"{len(huv)} uds sin modelo (modelo='')"
-                + (" · reservado MANUAL por usuario" if RESERVADO_MANUAL else ""))
-        # sin planta
+            add("HIGH" if is_mine else "LOW","huerfanas",nombre,
+                f"{len(huv)} uds sin modelo (modelo='')"
+                + (" · reservado MANUAL por usuario" if RESERVADO_MANUAL else "") + tag, is_mine)
+        # sin planta (siempre MEDIUM: JB con frecuencia no publica planta — no bloquea)
         sin_planta = [m for m in modelos if isinstance(m, dict) and not (m.get("planta_url") or m.get("plano_url"))]
         if modelos and sin_planta:
             frac = len(sin_planta)/len(modelos)
-            sev = "HIGH" if frac >= 0.6 else "MEDIUM"
-            add(sev,"sin-planta",nombre,f"{len(sin_planta)}/{len(modelos)} modelos sin planta ({frac*100:.0f}%)")
-        # enums crudos
+            add("MEDIUM","sin-planta",nombre,
+                f"{len(sin_planta)}/{len(modelos)} modelos sin planta ({frac*100:.0f}%) — verificar si JB la publica{tag}", is_mine)
+        # enums crudos (solo gating en míos)
         ficha = " ".join(str(full.get(k)) for k in (
             "tipo_pie","tipo_descuento","tipo_bono_pie","tipo_reserva","destino_reserva",
             "acepta_cesion","permiso_construccion","tipo_cuenta","stock_type","solicita_preaprobacion")
             if full.get(k) is not None)
         crudos = [w for w in ENUMS_CRUDOS if re.search(rf"\b{re.escape(w)}\b", ficha)]
         if crudos:
-            add("HIGH","enums",nombre,f"enums crudos sin mapear: {','.join(crudos[:4])}")
-        # orientaciones
-        bad_or = sorted({u.get("orientacion") for u in unidades
-                         if u.get("orientacion") not in ORIENT_OK})
+            add("HIGH" if is_mine else "LOW","enums",nombre,f"enums crudos sin mapear: {','.join(crudos[:4])}{tag}", is_mine)
+        # orientaciones (solo míos: el importador debe producir N/S/O/P abreviado)
+        bad_or = sorted({str(u.get("orientacion")) for u in unidades
+                         if u.get("orientacion") not in ORIENT_VALID}, key=str)
         if bad_or:
-            add("HIGH","orientacion",nombre,f"orientaciones no-ES: {bad_or[:5]}")
+            add("HIGH" if is_mine else "LOW","orientacion",nombre,
+                f"orientaciones no abreviadas ES: {bad_or[:6]}{tag}", is_mine)
         # estac/bod/pack
         if not estac and not bodegas and not packs:
-            add("MEDIUM","assets",nombre,"sin estac/bodegas/packs (verificar si JB realmente 0)")
+            add("MEDIUM","assets",nombre,f"sin estac/bodegas/packs (verificar si JB realmente 0){tag}", is_mine)
         # foto principal
         fp = full.get("foto_principal_url") or extra.get("foto_principal_url")
         imgs = full.get("imagenes") or extra.get("imagenes") or []
         if not fp and not imgs:
-            add("MEDIUM","foto",nombre,"sin foto principal ni imágenes")
+            add("MEDIUM","foto",nombre,f"sin foto principal ni imágenes{tag}", is_mine)
         # voseo en notas
         notas = str(extra.get("notas") or extra.get("notas_html") or full.get("descripcion") or "")
         if VOSEO.search(notas):
-            add("MEDIUM","voseo",nombre,"posible voseo argentino en notas/descripción")
+            add("MEDIUM","voseo",nombre,f"posible voseo argentino en notas/descripción{tag}", is_mine)
 
-    print(f"Auditados {n} proyectos en profundidad.\n")
+    print(f"Auditados {n} proyectos en profundidad ({len([1 for s in mine_slugs])//2} míos aprox).\n")
 
-    # resumen
+    # resumen — gating SOLO sobre proyectos míos (del importador)
     crit = [f for f in findings if f["sev"]=="CRITICAL"]
     high = [f for f in findings if f["sev"]=="HIGH"]
     med  = [f for f in findings if f["sev"]=="MEDIUM"]
     low  = [f for f in findings if f["sev"]=="LOW"]
     icon = {"CRITICAL":"🔴","HIGH":"⚠","MEDIUM":"🟡","LOW":"·"}
-    for grp,name in ((crit,"CRITICAL"),(high,"HIGH"),(med,"MEDIUM"),(low,"LOW")):
+    for grp,name in ((crit,"CRITICAL"),(high,"HIGH"),(med,"MEDIUM")):
         if not grp: continue
         print(f"\n{icon[name]} {name} ({len(grp)})")
-        for f in sorted(grp, key=lambda x: x["cat"]):
+        for f in sorted(grp, key=lambda x: (x["cat"], x["proy"])):
             print(f"   [{f['cat']}] {f['proy']}: {f['msg']}")
+    if low:
+        print(f"\n· LOW ({len(low)}) — proyectos del usuario / no-bloqueante (resumido por categoría):")
+        from collections import Counter
+        for (c,), v in sorted(Counter((f["cat"],) for f in low).items()):
+            print(f"   [{c}] ×{v}")
 
+    gate = len([f for f in crit+high if f.get("mine")])
     print(f"\n{'='*70}")
-    print(f"RESUMEN: {len(crit)} 🔴 · {len(high)} ⚠ · {len(med)} 🟡 · {len(low)} ·")
-    gate = len(crit) + len(high)
-    print(f"GATE (CRITICAL+HIGH): {gate}  →  {'✅ ZERO ERRORS' if gate==0 else '❌ con errores'}")
+    print(f"RESUMEN total: {len(crit)} 🔴 · {len(high)} ⚠ · {len(med)} 🟡 · {len(low)} ·")
+    print(f"GATE (CRITICAL+HIGH en proyectos MÍOS): {gate}  →  {'✅ ZERO ERRORS' if gate==0 else '❌ con errores'}")
     print(f"{'='*70}")
 
     _dump()
