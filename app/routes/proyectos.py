@@ -378,7 +378,15 @@ def comercial_broker(
     # (2026-06-17) NO exponer arriendo garantizado por unidad acá: el usuario lo
     # marcó como información SENSIBLE → no debe verse en el catálogo (ningún broker).
     # Se quitó el mapa `arriendos`. El dato sigue en el editor de stock (privado).
-    return {"id": p.id, "comercial": out}
+    # (2026-06-22) Fecha real de actualización del stock (benigna): el catálogo la
+    # usa para "Última actualización" en vez de la hora de carga. Naive UTC, igual
+    # que en stock-interno → el frontend fuerza UTC y muestra en hora Chile.
+    return {
+        "id": p.id,
+        "comercial": out,
+        "stock_updated_at": p.stock_updated_at,
+        "updated_at": p.updated_at,
+    }
 
 
 @router.post("", response_model=ProyectoOut, status_code=status.HTTP_201_CREATED)
