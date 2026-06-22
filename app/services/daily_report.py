@@ -540,6 +540,44 @@ def _hora_cl(dt) -> str:
     return f"{_DIAS_ABR[cl.weekday()]} {cl.day} · {hm}"
 
 
+# ── Faltantes: proyectos que la inmobiliaria publica en SU plataforma
+# (PlanOk · MobySuite · inverapp · Drive) y que AÚN NO tenemos creados en stock-interno.
+# v1: lista mantenida a mano (cruce 2026-06-19). Actualizar cuando cambie el catálogo de
+# la inmobiliaria. Fuente del cruce: mappings de los scrapers (ingevec/euro) + inverapp (Ecasa)
+# + Excel del Drive (AJ Urbana). JetBrokers NO cuenta como fuente.
+FALTANTES_INMOB = {
+    "Ecasa":     ("inverapp", [
+        "Núcleo Costanera 2", "Terratoltén 3", "Lamara", "Ferroparque 2", "Espacio Victoria",
+        "Lomas de Puyai 3", "Enlace Mackenna", "Alto San Joaquín 3", "Alto San Joaquín 2",
+        "Núcleo Costanera", "Lomas de Puyai", "Wayra", "Alto San Joaquín", "Evaristo Lillo",
+        "Conecta Huechuraba", "Urban Santiago", "Endémico", "Aires La Florida (etapa 1)",
+        "Lomas de Puyai 2"]),
+    "Ingevec":   ("cotizador ecore", [
+        "Abdón Cifuentes", "Bellavista", "Cromo", "PRAT", "Santa Isabel 360", "Santos Ossa", "Terrazo"]),
+    "AJ Urbana": ("Drive (Excel)", [
+        "Morandé 776", "Lía Aguirre", "Vive Santa Isabel"]),
+}
+
+
+def _faltantes_html() -> str:
+    grupos = [(k, v[0], v[1]) for k, v in FALTANTES_INMOB.items() if v[1]]
+    if not grupos:
+        return ""
+    total = sum(len(p) for _, _, p in grupos)
+    filas = ""
+    for nombre, fuente, proyectos in grupos:
+        items = " &nbsp;·&nbsp; ".join(escape(p) for p in proyectos)
+        filas += (
+            f'<div style="margin-top:8px"><span style="font-weight:800;color:#1e3a8a">{escape(nombre)}</span>'
+            f'<span style="color:#6b7280;font-size:11.5px"> · {escape(fuente)} · {len(proyectos)}</span>'
+            f'<div style="font-size:12.5px;color:#374151;line-height:1.6;margin-top:2px">{items}</div></div>')
+    return (
+        '<div style="background:#eff6ff;border-left:4px solid #2563eb;border-radius:0 6px 6px 0;padding:10px 14px;margin:14px 0 6px">'
+        f'<div style="color:#1d4ed8;font-weight:800;font-size:13px;margin-bottom:2px">📥 Disponibles en la inmobiliaria y NO creados en stock-interno · {total}</div>'
+        '<div style="color:#6b7280;font-size:11.5px;margin-bottom:2px">Proyectos que la inmobiliaria publica en su plataforma (PlanOk · MobySuite · inverapp · Drive) y que aún no cargamos en stock propio.</div>'
+        f'{filas}</div>')
+
+
 def _build_html(data: dict) -> str:
     """HTML del informe diario · KPIs + bloques de pendientes + secciones por inmobiliaria."""
 
@@ -708,6 +746,8 @@ def _build_html(data: dict) -> str:
         actividad_html = '<div style="margin:20px 0 0;padding:11px 14px;background:#f9fafb;border-radius:8px;color:#6b7280;font-size:12.5px">🗓 <b>Actividad:</b> sin movimientos registrados desde el informe anterior.</div>'
 
     # Mensaje cuando NO hay nada que hacer
+    faltantes_html = _faltantes_html()
+
     todo_ok_html = ""
     if not sc and not sa and data["n_con_critico"] == 0:
         todo_ok_html = '<div style="margin:14px 0 0;padding:12px 14px;background:#dcfce7;border-left:4px solid #16a34a;border-radius:0 6px 6px 0;color:#15803d;font-weight:700;font-size:13px">🟢 Sin pendientes críticos — todo el stock al día.</div>'
@@ -727,6 +767,7 @@ def _build_html(data: dict) -> str:
           {todo_ok_html}
           {actividad_html}
           {inmob_html}
+          {faltantes_html}
           {errores_html}
           <div style="margin:24px 0 0;padding:12px 14px;background:#f9fafb;border-radius:8px;text-align:center;font-size:12px;color:#6b7280">
             Sistema automático · L-V 09:00 Chile · solo stock propio (SBC)<br>
