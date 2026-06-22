@@ -82,8 +82,8 @@ def _public_extra(extra: dict) -> dict:
     return e
 
 
-def _unidad_dict(u: Unidad) -> dict:
-    return {
+def _unidad_dict(u: Unidad, arriendos: dict | None = None) -> dict:
+    out = {
         "id": u.id, "numero": u.numero, "modelo": u.modelo, "tipologia": u.tipologia,
         "tipo": u.tipo, "orientacion": u.orientacion,
         "sup_total": u.sup_total, "sup_interior": u.sup_interior, "sup_terraza": u.sup_terraza,
@@ -92,6 +92,16 @@ def _unidad_dict(u: Unidad) -> dict:
         "descuento_pct": u.descuento_pct, "bono_pie_pct": u.bono_pie_pct,
         "disponible": u.disponible,
     }
+    # Arriendo garantizado (Euro): vive en extra.arriendos[numero] = {valor, moneda}.
+    # Se adjunta a la unidad SOLO si existe → viaja con la unidad y solo llega al
+    # transform de broker del worker (el transform público NO manda unidades → no
+    # se filtra a anónimos). Sensible: solo lo ve el corredor logueado en el catálogo.
+    if arriendos:
+        ag = arriendos.get(str(u.numero)) or arriendos.get(u.numero)
+        if isinstance(ag, dict) and ag.get("valor"):
+            out["arriendo_garantizado"] = ag.get("valor")
+            out["arriendo_moneda"] = ag.get("moneda")
+    return out
 
 
 def _foto_principal_fallback(p: Proyecto) -> str | None:
@@ -149,7 +159,10 @@ def _proyecto_public_dict(p: Proyecto) -> dict:
         "fecha_entrega": p.fecha_entrega,
         "ano_entrega": p.ano_entrega,
         "foto_principal_url": _foto_principal_fallback(p),
-        "unidades": [_unidad_dict(u) for u in (p.unidades or [])],
+        "unidades": [
+            _unidad_dict(u, extra.get("arriendos") if isinstance(extra.get("arriendos"), dict) else None)
+            for u in (p.unidades or [])
+        ],
         "imagenes": [
             {"id": im.id, "url": im.url, "categoria": im.categoria, "es_principal": im.es_principal}
             for im in (p.imagenes or [])
