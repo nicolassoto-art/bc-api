@@ -58,6 +58,9 @@ _PUBLIC_COMERCIAL_KEYS = {
     # paga el pie sobre el precio lista. El catalogo lo usa para prender Maestra solo
     # en el simulador al cotizar este proyecto.
     "bono_infla_tasacion",
+    # Modo de precio activo (lista|dcto|bono). El Worker lo expone en precioCotizacion
+    # para que el catálogo muestre y cotice con el precio correcto por proyecto.
+    "precio_cotizacion",
 }
 # Claves de `comercial` visibles para CUALQUIER corredor logueado (no solo
 # stock_access) vía GET /{id}/comercial. Es el "Plan de pago" COMPLETO del
