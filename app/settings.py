@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     # daily_report_to queda vacío, cae a notify_to (nicolas.soto) por seguridad.
     daily_report_to: str = "cristopher.jaramillo@bigcapital.cl"
     daily_report_cc: str = "nicolas.soto@bigcapital.cl"
+    # Nombre del operador para la sección "Los avances de X el día anterior".
+    # Si queda vacío se deriva del email (primer segmento, title-case).
+    daily_report_operator_name: str = "Cristofer"
 
     # ── Inbox processor · 2026-06-08 ─────────────────────────────────────────
     # Lee adjuntos Excel reenviados desde nicolas.soto@bigcapital.cl al buzón

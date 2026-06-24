@@ -332,9 +332,10 @@ def build_daily_report(db: Session) -> dict:
     # por proyecto para que en el Cc (Nicolás) se vea qué hizo el día anterior.
     # Mismo origen que la actividad general (timeline), filtrado por su email.
     _op_email = (settings.daily_report_to or "").strip().lower()
-    _op_nombre = ""
-    if _op_email:
-        _op_nombre = _op_email.split("@")[0].replace(".", " ").replace("_", " ").title()
+    # Nombre del operador: del setting explícito, o derivado del email como fallback.
+    _op_nombre = (settings.daily_report_operator_name or "").strip()
+    if not _op_nombre and _op_email:
+        _op_nombre = _op_email.split("@")[0].split(".")[0].title()
     op_actividad: dict[str, dict] = {}  # nombre_proyecto -> {id, nombre, eventos[]}
     n_operador = 0
     if _op_email:
@@ -799,12 +800,12 @@ def _build_html(data: dict) -> str:
                 f'<ul style="margin:3px 0 0;padding-left:18px">{"".join(items)}</ul></div>'
             )
         operador_html = (
-            f'<h3 style="margin:22px 0 6px;color:#0a0d12;font-size:15px">✍️ Cambios de {escape(op_nombre)} · {periodo}</h3>'
+            f'<h3 style="margin:22px 0 6px;color:#0a0d12;font-size:15px">📋 Los avances de {escape(op_nombre)} {periodo}</h3>'
             f'<div style="font-size:12px;color:#6b7280;margin-bottom:6px">{n_op} cambio(s) en {n_op_proj} proyecto(s)</div>'
             f'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:4px 14px">{"".join(bloques_op)}</div>'
         )
     else:
-        operador_html = f'<div style="margin:20px 0 0;padding:11px 14px;background:#f9fafb;border-radius:8px;color:#6b7280;font-size:12.5px">✍️ <b>{escape(op_nombre)}:</b> sin cambios registrados {periodo}.</div>'
+        operador_html = f'<div style="margin:20px 0 0;padding:11px 14px;background:#f9fafb;border-radius:8px;color:#6b7280;font-size:12.5px">📋 <b>Los avances de {escape(op_nombre)} {periodo}:</b> sin cambios registrados.</div>'
 
     # Mensaje cuando NO hay nada que hacer
     faltantes_html = _faltantes_html()
