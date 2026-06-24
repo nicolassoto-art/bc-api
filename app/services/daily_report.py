@@ -255,8 +255,13 @@ def _operador_nombre() -> str:
     return n or "el operador"
 
 
-def _operador_actividad(proyectos, cutoff):
-    """Cambios MANUALES del operador humano (Cristofer) por proyecto desde `cutoff`.
+def _operador_actividad(proyectos, cutoff, end=None):
+    """Cambios MANUALES del operador humano (Cristofer) por proyecto en [cutoff, end).
+
+    `end` (aware UTC) acota por arriba: el informe 09:00 usa día-CALENDARIO exacto
+    [ayer 00:00, hoy 00:00) Chile, así "el día anterior" es realmente el día anterior
+    (no una ventana móvil de 24h que se mete en hoy o pierde temprano de ayer). El
+    informe 13:00 pasa end=None → hasta ahora ("hoy").
 
     Filtro doble anti-scraper: (1) usuario == email exacto del operador (el scraper
     entra como mnk-scraper@/jb-scraper, NUNCA con el email de Cristofer) Y (2) descarta
@@ -273,6 +278,8 @@ def _operador_actividad(proyectos, cutoff):
     if op_email:
         for p in proyectos:
             for ev in _eventos_ventana(p, cutoff):
+                if end is not None and ev["fecha"] >= end:
+                    continue  # fuera del día-calendario (p.ej. acciones de hoy)
                 if ev["tipo"] == "Alerta":
                     continue
                 if ev.get("origen_auto"):  # scraper / importación automática
@@ -549,7 +556,12 @@ def build_daily_report(db: Session) -> dict:
     # scraper: _operador_actividad filtra por email + descarta origen_auto. Misma
     # ventana que la actividad general (24h, o 72h los lunes).
     _op_nombre = _operador_nombre()
-    operador_grupos, n_operador, _ = _operador_actividad(proyectos, _cut_act)
+    # Ventana día-CALENDARIO Chile: [ayer 00:00, hoy 00:00). Lunes = vie+sáb+dom.
+    _tz_cl = timezone(timedelta(hours=-4))
+    _hoy_cl_00 = datetime.now(_tz_cl).replace(hour=0, minute=0, second=0, microsecond=0)
+    _dias_atras = 3 if _now_cl.weekday() == 0 else 1
+    _op_cutoff = _hoy_cl_00 - timedelta(days=_dias_atras)
+    operador_grupos, n_operador, _ = _operador_actividad(proyectos, _op_cutoff, end=_hoy_cl_00)
 
     # ─── Cruce de pendientes vs el informe de la MAÑANA anterior ────────────
     # Compara los críticos de hoy contra el último snapshot 'morning' (informe de
