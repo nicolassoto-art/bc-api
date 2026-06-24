@@ -16,6 +16,7 @@ pueda emitir un email INMEDIATO cuando algo falla durante una importación.
 from __future__ import annotations
 import collections
 import logging
+import re as _re
 import smtplib
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
@@ -138,6 +139,26 @@ def _alertas_de_proyecto(p) -> dict:
     com = extra.get("comercial") or {}
     if com.get("pie_pct") in (None, ""):
         warnings.append("Sin pie %")
+
+    # Plan de pago completo (necesario para cotizar bien). "Completo" = pie % + valor
+    # de reserva + alguna estructura de cuotas del pie (pre/post entrega o cuotones).
+    # En datos reales los proyectos cargados traen los 3; el cuotón inicial suele ser 0
+    # (válido), por eso NO se exige. Es CRÍTICO → entra al cruce de resolución.
+    def _pos(v):
+        try:
+            return float(v) > 0
+        except (TypeError, ValueError):
+            return False
+    falta_pp = []
+    if com.get("pie_pct") in (None, ""):
+        falta_pp.append("pie %")
+    if com.get("valor_reserva_clp") in (None, ""):
+        falta_pp.append("valor de reserva")
+    if not any(_pos(com.get(k)) for k in
+               ("cuotas_pre_entrega", "cuotas_post_entrega", "cuoton_inicial_pct", "cuoton_final_pct")):
+        falta_pp.append("cuotas del pie (pre/post o cuotones)")
+    if falta_pp:
+        criticos.append("Plan de pago incompleto: falta " + ", ".join(falta_pp))
 
     # ─── GRANULARES (modelos / unidades)
     modelos = extra.get("modelos") or []
@@ -310,6 +331,111 @@ def _operador_section_html(op_nombre, op_grupos, n_op, n_op_proj, periodo, titul
     )
 
 
+def _disclaimer_html() -> str:
+    """Aviso fijo: informe automático en desarrollo."""
+    return ('<div style="margin:0 0 14px;padding:10px 12px;background:#fef9c3;border:1px solid #fde68a;'
+            'border-radius:8px;color:#854d0e;font-size:11.5px;line-height:1.5">'
+            '⚙️ <b>Informe automático en desarrollo.</b> Puede contener errores o datos incompletos. '
+            'Si ves algo raro, avísanos para corregirlo.</div>')
+
+
+# ── Cruce de pendientes (errores) entre informes ────────────────────────────
+# Snapshot persistente en upload_path para comparar "qué se solucionó / qué sigue".
+# Los "errores mencionados" = los CRÍTICOS por proyecto (mismo criterio que el editor:
+# _alertas_de_proyecto). Cada uno se identifica por (id_proyecto :: texto del crítico).
+import json as _json
+
+
+def _snap_path():
+    return settings.upload_path / "report_snapshots.json"
+
+
+def _snap_load() -> dict:
+    try:
+        p = _snap_path()
+        if p.exists():
+            return _json.loads(p.read_text("utf-8"))
+    except Exception as e:
+        log.warning("report_snapshots load falló: %s", e)
+    return {}
+
+
+def _snap_set(slot: str, items: dict, ts: str) -> None:
+    """Guarda el set de pendientes actuales en el slot ('morning'|'afternoon')."""
+    try:
+        snap = _snap_load()
+        snap[slot] = {"ts": ts, "items": items}
+        _snap_path().write_text(_json.dumps(snap, ensure_ascii=False), "utf-8")
+    except Exception as e:
+        log.warning("report_snapshots save falló: %s", e)
+
+
+def _critico_key(texto: str) -> str:
+    """Clave ESTABLE de un crítico, ignorando conteos/listados variables. Así
+    '3 modelo(s) sin planta en uso: A, B' y '2 modelo(s) sin planta en uso: A'
+    son el MISMO pendiente (no 'resuelto' + 'nuevo' al bajar el conteo)."""
+    base = (texto or "").split(":")[0]                # corta el listado tras ':'
+    base = _re.sub(r"^\s*\d+\s+", "", base)           # quita el conteo inicial "3 "
+    return base.strip().lower()
+
+
+def _pendientes_actuales(proyectos) -> dict:
+    """Errores/pendientes CRÍTICOS vigentes ahora. key = 'pid::clave_estable'.
+    Guarda el texto vigente (con conteo actual) para mostrar."""
+    out = {}
+    for p in proyectos:
+        a = _alertas_de_proyecto(p)
+        for c in a.get("criticos", []):
+            out[f"{p.id}::{_critico_key(c)}"] = {"proyecto": p.nombre or p.id, "id": p.id, "texto": c}
+    return out
+
+
+def _resolucion_cruce(slot: str, pend_actual: dict) -> dict:
+    """Compara los pendientes de AHORA contra el snapshot guardado en `slot` (el informe
+    previo). Devuelve resueltos (estaban antes y ya no), persisten (siguen) y nuevos."""
+    snap = _snap_load()
+    prev_entry = snap.get(slot) or {}
+    prev = prev_entry.get("items") or {}
+    cur_k, prev_k = set(pend_actual), set(prev)
+    return {
+        "resueltos": [prev[k] for k in sorted(prev_k - cur_k)],
+        "persisten": [pend_actual[k] for k in sorted(cur_k & prev_k)],
+        "nuevos": [pend_actual[k] for k in sorted(cur_k - prev_k)],
+        "prev_ts": prev_entry.get("ts"),
+        "tiene_previo": slot in snap,
+    }
+
+
+def _resolucion_html(cruce: dict, ref_label: str) -> str:
+    """Bloque 'Resolución de pendientes' comparando contra el informe previo."""
+    if not cruce.get("tiene_previo"):
+        return ('<div style="margin:18px 0 0;padding:11px 14px;background:#f9fafb;border-radius:8px;'
+                'color:#6b7280;font-size:12.5px">🔁 <b>Resolución de pendientes:</b> es la primera '
+                f'corrida — todavía no hay un informe previo ({escape(ref_label)}) con qué comparar.</div>')
+    res, per, nue = cruce["resueltos"], cruce["persisten"], cruce["nuevos"]
+
+    def _lista(items, color):
+        filas = "".join(
+            f'<li style="margin:2px 0;font-size:12px;color:{color}"><b style="color:#0a0d12">'
+            f'{escape(it["proyecto"])}</b> — {escape(it["texto"])}</li>' for it in items[:25]
+        )
+        extra = f'<li style="font-size:11px;color:#9ca3af;list-style:none">… y {len(items)-25} más</li>' if len(items) > 25 else ''
+        return f'<ul style="margin:3px 0 8px;padding-left:18px">{filas}{extra}</ul>' if items else ''
+
+    cuerpo = ""
+    cuerpo += f'<div style="font-size:12.5px;color:#16a34a;font-weight:700;margin-top:6px">✅ Solucionados {escape(ref_label)} · {len(res)}</div>'
+    cuerpo += _lista(res, "#15803d") if res else '<div style="font-size:11.5px;color:#9ca3af;margin-bottom:6px">— ninguno —</div>'
+    cuerpo += f'<div style="font-size:12.5px;color:#ea580c;font-weight:700">⏳ Siguen pendientes · {len(per)}</div>'
+    cuerpo += _lista(per, "#9a3412") if per else '<div style="font-size:11.5px;color:#9ca3af;margin-bottom:6px">— ninguno —</div>'
+    if nue:
+        cuerpo += f'<div style="font-size:12.5px;color:#dc2626;font-weight:700">🆕 Nuevos · {len(nue)}</div>'
+        cuerpo += _lista(nue, "#991b1b")
+    return (
+        f'<h3 style="margin:22px 0 6px;color:#0a0d12;font-size:15px">🔁 Resolución de pendientes ({escape(ref_label)})</h3>'
+        f'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 14px">{cuerpo}</div>'
+    )
+
+
 def _eventos_24h(p):
     """Eventos del timeline en últimas 24h. Devuelve [{tipo,fecha,detalles}]."""
     tl = (p.extra or {}).get("timeline") or []
@@ -424,6 +550,13 @@ def build_daily_report(db: Session) -> dict:
     # ventana que la actividad general (24h, o 72h los lunes).
     _op_nombre = _operador_nombre()
     operador_grupos, n_operador, _ = _operador_actividad(proyectos, _cut_act)
+
+    # ─── Cruce de pendientes vs el informe de la MAÑANA anterior ────────────
+    # Compara los críticos de hoy contra el último snapshot 'morning' (informe de
+    # ayer) → qué se solucionó / qué sigue. El snapshot se guarda al ENVIAR (no en
+    # el preview), así la comparación no se corrompe al previsualizar.
+    pend_actual = _pendientes_actuales(proyectos)
+    cruce = _resolucion_cruce("morning", pend_actual)
 
     # ─── Estado + alertas por proyecto, agrupado por inmobiliaria.
     # El nombre se NORMALIZA (trim + casefold) para que variantes de tipeo
@@ -554,6 +687,8 @@ def build_daily_report(db: Session) -> dict:
         "operador_grupos": operador_grupos[:20],
         "n_operador": n_operador,
         "n_operador_proyectos": len(operador_grupos),
+        "cruce": cruce,
+        "pend_actual": pend_actual,
     }
 
 
@@ -843,15 +978,21 @@ def _build_html(data: dict) -> str:
     else:
         actividad_html = '<div style="margin:20px 0 0;padding:11px 14px;background:#f9fafb;border-radius:8px;color:#6b7280;font-size:12.5px">🗓 <b>Actividad:</b> sin movimientos registrados desde el informe anterior.</div>'
 
-    # ─── Cambios del operador HUMANO (Cristofer) — detalle por proyecto ─────
+    # ─── Mejoras (cambios manuales del operador humano) — sin nombres ───────
     _vent = data.get("actividad_horas", 24)
+    _periodo = "el fin de semana" if _vent > 24 else "el día anterior"
+    _periodo_titulo = "del fin de semana" if _vent > 24 else "del día anterior"
     operador_html = _operador_section_html(
         data.get("operador_nombre") or "el operador",
         data.get("operador_grupos", []),
         data.get("n_operador", 0),
         data.get("n_operador_proyectos", 0),
-        "el fin de semana" if _vent > 24 else "el día anterior",
+        _periodo,
+        titulo=f"📋 Mejoras {_periodo_titulo}",
     )
+    # Cruce de pendientes vs informe anterior (qué se solucionó / qué sigue)
+    resolucion_html = _resolucion_html(data.get("cruce", {}), "desde el informe anterior")
+    disclaimer_html = _disclaimer_html()
 
     # Mensaje cuando NO hay nada que hacer
     faltantes_html = _faltantes_html()
@@ -868,12 +1009,14 @@ def _build_html(data: dict) -> str:
           <div style="font-weight:400;font-size:12.5px;color:#0a0d12;opacity:.78;margin-top:3px">{escape(data["fecha_cl"])} · BigCapital</div>
         </div>
         <div style="background:#fff;padding:18px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none">
+          {disclaimer_html}
           {kpis}
           {calidad_html}
           {sin_cargar_html}
           {sin_act_html}
           {todo_ok_html}
           {operador_html}
+          {resolucion_html}
           {actividad_html}
           {inmob_html}
           {faltantes_html}
@@ -934,6 +1077,9 @@ def send_daily_report() -> None:
             s.starttls()
             s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))
             s.send_message(msg)
+        # Guardar el set de pendientes de HOY como snapshot 'morning' → el informe
+        # de mañana compara contra esto para saber qué se solucionó.
+        _snap_set("morning", data.get("pend_actual", {}), datetime.utcnow().isoformat())
         log.info(
             "daily_report enviado → To:%s Cc:%s · activos:%d disp:%d inmob:%d crit:%d warn:%d sinCargar:%d staleStock:%d",
             to_addr, ", ".join(cc_list) or "—",
@@ -957,34 +1103,42 @@ def build_operador_today(db: Session) -> dict:
     tz_cl = timezone(timedelta(hours=-4))  # Chile ≈ UTC-4
     medianoche_cl = datetime.now(tz_cl).replace(hour=0, minute=0, second=0, microsecond=0)
     grupos, n, n_proj = _operador_actividad(proyectos, medianoche_cl)
+    # Cruce: qué de los pendientes de la MAÑANA (informe 09:00 de hoy) se solucionó.
+    pend_actual = _pendientes_actuales(proyectos)
+    cruce = _resolucion_cruce("morning", pend_actual)
     return {
         "fecha_cl": _fecha_cl(),
         "operador_nombre": _operador_nombre(),
         "operador_grupos": grupos[:40],
         "n_operador": n,
         "n_operador_proyectos": n_proj,
+        "cruce": cruce,
+        "pend_actual": pend_actual,
     }
 
 
 def _build_operador_html(data: dict) -> str:
-    """Email compacto: solo la cabecera + la sección de avances de Cristofer hoy."""
-    nombre = data.get("operador_nombre") or "el operador"
+    """Email compacto: cabecera + mejoras de HOY + resolución de pendientes (sin nombres)."""
     seccion = _operador_section_html(
-        nombre, data.get("operador_grupos", []),
+        data.get("operador_nombre") or "el operador",
+        data.get("operador_grupos", []),
         data.get("n_operador", 0), data.get("n_operador_proyectos", 0),
-        "hoy", titulo=f"📋 Lo que hizo {nombre} hoy",
+        "hoy", titulo="📋 Mejoras de hoy",
     )
+    resolucion = _resolucion_html(data.get("cruce", {}), "desde el informe de la mañana")
     return f"""
     <!doctype html><html><body style="margin:0;background:#f3f4f6;padding:0;font-family:-apple-system,'Segoe UI',Roboto,sans-serif">
       <div style="max-width:720px;margin:0 auto;padding:24px 16px">
         <div style="background:#7DC242;color:#0a0d12;padding:16px 20px;border-radius:12px 12px 0 0">
-          <div style="font-weight:800;font-size:18px">📋 Avances de {escape(nombre)} · hoy</div>
+          <div style="font-weight:800;font-size:18px">📋 Mejoras de hoy · stock SBC</div>
           <div style="font-weight:400;font-size:12.5px;color:#0a0d12;opacity:.78;margin-top:3px">{escape(data["fecha_cl"])} · BigCapital · corte 13:00</div>
         </div>
         <div style="background:#fff;padding:18px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none">
+          {_disclaimer_html()}
           {seccion}
+          {resolucion}
           <div style="margin:24px 0 0;padding:12px 14px;background:#f9fafb;border-radius:8px;text-align:center;font-size:12px;color:#6b7280">
-            Solo acciones manuales de {escape(nombre)} hoy (sin scraper) · L-V 13:00 Chile<br>
+            Solo cambios manuales de hoy (sin scraper) · L-V 13:00 Chile<br>
             <a href="https://herramientas.bigcapital.cl/src/stock-interno/" style="color:#1f7a3d;font-weight:700;text-decoration:none">→ Abrir listado completo</a>
           </div>
         </div>
@@ -1006,12 +1160,12 @@ def send_operador_today_report() -> None:
         with SessionLocal() as db:
             data = build_operador_today(db)
         html = _build_operador_html(data)
-        nombre = data.get("operador_nombre") or "el operador"
         msg = EmailMessage()
-        msg["Subject"] = f"📋 Avances de {nombre} hoy · {data['n_operador']} cambio(s) en {data['n_operador_proyectos']} proyecto(s)"
+        msg["Subject"] = f"📋 Mejoras de hoy · {data['n_operador']} cambio(s) en {data['n_operador_proyectos']} proyecto(s)"
         from_addr = settings.smtp_from or settings.smtp_user
         msg["From"] = formataddr((settings.smtp_from_name, from_addr))
-        # Destinatarios del informe de las 13:00 (pedido 2026-06-24): coma-separados.
+        # Destinatarios del informe de las 13:00 (pedido 2026-06-24): los 3 (Cristofer,
+        # Nicolás, Álvaro). Coma-separados.
         dests = [e.strip() for e in (settings.operador_report_to or "").split(",") if e.strip()]
         if not dests:
             log.warning("operador_today: sin destinatarios (operador_report_to vacío).")
@@ -1019,7 +1173,7 @@ def send_operador_today_report() -> None:
         msg["To"] = ", ".join(dests)
         msg["Reply-To"] = from_addr
         msg.set_content(
-            f"Avances de {nombre} hoy · {data['fecha_cl']}\n"
+            f"Mejoras de hoy · {data['fecha_cl']}\n"
             f"{data['n_operador']} cambio(s) en {data['n_operador_proyectos']} proyecto(s)."
         )
         msg.add_alternative(html, subtype="html")
@@ -1027,6 +1181,7 @@ def send_operador_today_report() -> None:
             s.starttls()
             s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))
             s.send_message(msg)
+        _snap_set("afternoon", data.get("pend_actual", {}), datetime.utcnow().isoformat())
         log.info("operador_today enviado → %s · %d cambios / %d proyectos",
                  ", ".join(dests), data["n_operador"], data["n_operador_proyectos"])
     except Exception as e:

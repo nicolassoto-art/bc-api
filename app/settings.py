@@ -54,14 +54,15 @@ class Settings(BaseSettings):
     # Override por DAILY_REPORT_TO / DAILY_REPORT_CC en el .env del VPS. Si
     # daily_report_to queda vacío, cae a notify_to (nicolas.soto) por seguridad.
     daily_report_to: str = "cristopher.jaramillo@bigcapital.cl"
-    daily_report_cc: str = "nicolas.soto@bigcapital.cl"
+    # Cc del informe 09:00: Nicolás + Álvaro (pedido 2026-06-24). Coma-separado.
+    daily_report_cc: str = "nicolas.soto@bigcapital.cl, alvaro.meneses@bigcapital.cl"
     # Nombre del operador para la sección "Los avances de X el día anterior".
     # Si queda vacío se deriva del email (primer segmento, title-case).
     daily_report_operator_name: str = "Cristofer"
     # Informe ADICIONAL de las 13:00 (L-V Chile): SOLO los avances de HOY del operador
     # humano (Cristofer), acciones manuales sin scraper. Destinatarios coma-separados.
     operador_report_enabled: bool = True
-    operador_report_to: str = "nicolas.soto@bigcapital.cl, alvaro.meneses@bigcapital.cl"
+    operador_report_to: str = "cristopher.jaramillo@bigcapital.cl, nicolas.soto@bigcapital.cl, alvaro.meneses@bigcapital.cl"
 
     # ── Inbox processor · 2026-06-08 ─────────────────────────────────────────
     # Lee adjuntos Excel reenviados desde nicolas.soto@bigcapital.cl al buzón
