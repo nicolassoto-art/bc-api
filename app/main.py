@@ -15,7 +15,10 @@ from .settings import settings
 from .deps.auth import super_admin
 from fastapi.responses import HTMLResponse
 from .services import email_service
-from .services.daily_report import send_daily_report, build_daily_report, _build_html
+from .services.daily_report import (
+    send_daily_report, build_daily_report, _build_html,
+    send_operador_today_report, build_operador_today, _build_operador_html,
+)
 from .services.inbox_processor import process_inbox
 from .models import Usuario
 from .models.proyecto import Proyecto
@@ -105,6 +108,17 @@ def _start_scheduler():
             max_instances=1,
             coalesce=True,
         )
+        # Informe de las 13:00 L-V: solo los avances de HOY de Cristofer (manual).
+        if settings.operador_report_enabled:
+            _scheduler.add_job(
+                send_operador_today_report,
+                CronTrigger(day_of_week="mon-fri", hour=13, minute=0, timezone="America/Santiago"),
+                id="operador_today_report",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+            log.info("Scheduler · operador_today_report L-V 13:00 America/Santiago")
         # Inbox processor: cada N minutos lee emails con Excel adjunto y los aplica.
         if settings.inbox_processor_enabled:
             from apscheduler.triggers.interval import IntervalTrigger
@@ -147,6 +161,22 @@ def preview_daily_report(_: Usuario = Depends(super_admin)):
     with SessionLocal() as db:
         data = build_daily_report(db)
     return HTMLResponse(_build_html(data))
+
+
+@app.get("/admin/operador-today/preview", response_class=HTMLResponse, tags=["meta"])
+def preview_operador_today(_: Usuario = Depends(super_admin)):
+    """HTML del informe de las 13:00 (avances de HOY de Cristofer) con datos REALES,
+    SIN enviarlo. Solo super_admin."""
+    with SessionLocal() as db:
+        data = build_operador_today(db)
+    return HTMLResponse(_build_operador_html(data))
+
+
+@app.post("/admin/operador-today/test", tags=["meta"])
+def trigger_operador_today(_: Usuario = Depends(super_admin)):
+    """Dispara y ENVÍA el informe de las 13:00 a operador_report_to (solo super_admin)."""
+    send_operador_today_report()
+    return {"ok": True, "sent_to": settings.operador_report_to}
 
 
 @app.post("/admin/inmobiliarias/normalize", tags=["meta"])

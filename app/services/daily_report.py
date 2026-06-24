@@ -212,10 +212,102 @@ def _eventos_ventana(p, cutoff):
                 f = f + "Z"
             dt = datetime.fromisoformat(f.replace("Z", "+00:00"))
             if dt >= cutoff:
-                out.append({"tipo": ev.get("tipo", ""), "fecha": dt, "detalles": ev.get("detalles", ""), "usuario": ev.get("usuario", "")})
+                out.append({"tipo": ev.get("tipo", ""), "fecha": dt, "detalles": ev.get("detalles", ""),
+                            "usuario": ev.get("usuario", ""), "origen_auto": bool(ev.get("origen_auto"))})
         except Exception:
             continue
     return out
+
+
+def _operador_email() -> str:
+    """Email del operador humano (Cristofer) = destinatario To del informe diario."""
+    return (settings.daily_report_to or "").strip().lower()
+
+
+def _operador_nombre() -> str:
+    """Nombre para mostrar del operador. Del setting explícito o derivado del email."""
+    n = (settings.daily_report_operator_name or "").strip()
+    if not n:
+        e = _operador_email()
+        if e:
+            n = e.split("@")[0].split(".")[0].title()
+    return n or "el operador"
+
+
+def _operador_actividad(proyectos, cutoff):
+    """Cambios MANUALES del operador humano (Cristofer) por proyecto desde `cutoff`.
+
+    Filtro doble anti-scraper: (1) usuario == email exacto del operador (el scraper
+    entra como mnk-scraper@/jb-scraper, NUNCA con el email de Cristofer) Y (2) descarta
+    cualquier evento con origen_auto=True (importación automática). Así el informe SOLO
+    refleja lo que hizo la persona logueada con su usuario y contraseña.
+
+    Devuelve (grupos_ordenados, n_total, n_proyectos). Cada grupo:
+    {id, nombre, eventos:[{tipo,fecha,detalles,usuario,origen_auto}]} con eventos
+    del más reciente al más antiguo.
+    """
+    op_email = _operador_email()
+    grupos: dict[str, dict] = {}
+    n = 0
+    if op_email:
+        for p in proyectos:
+            for ev in _eventos_ventana(p, cutoff):
+                if ev["tipo"] == "Alerta":
+                    continue
+                if ev.get("origen_auto"):  # scraper / importación automática
+                    continue
+                if (ev.get("usuario") or "").strip().lower() != op_email:
+                    continue  # solo el usuario humano de Cristofer
+                key = p.nombre or p.id
+                g = grupos.setdefault(key, {"id": p.id, "nombre": key, "eventos": []})
+                g["eventos"].append(ev)
+                n += 1
+    orden = sorted(grupos.values(), key=lambda g: -len(g["eventos"]))
+    for g in orden:
+        g["eventos"].sort(key=lambda e: e["fecha"], reverse=True)
+    return orden, n, len(orden)
+
+
+_TIPO_LBL = {
+    "Excel Stock": "Carga de stock", "Creación": "Proyecto nuevo",
+    "Publicación": "Publicación", "Edición": "Edición", "Nota": "Nota",
+    "Importación": "Importación", "Cambio": "Cambio", "Foto": "Foto",
+    "Modelo": "Modelo", "Unidad": "Unidad", "Documento": "Documento",
+}
+
+
+def _operador_section_html(op_nombre, op_grupos, n_op, n_op_proj, periodo, titulo=None) -> str:
+    """Bloque HTML "Los avances de X …" agrupado por proyecto, detallando cada acción
+    (tipo · hora Chile · detalle). Reutilizado por el informe de las 09:00 y el de 13:00."""
+    head = titulo or f"📋 Los avances de {escape(op_nombre)} {periodo}"
+    if not n_op:
+        return (f'<div style="margin:18px 0 0;padding:11px 14px;background:#f9fafb;border-radius:8px;'
+                f'color:#6b7280;font-size:12.5px">📋 <b>{escape(head)}:</b> sin cambios registrados.</div>')
+    bloques = []
+    for g in op_grupos:
+        link = _project_link({"id": g.get("id"), "nombre": g.get("nombre")})
+        items = []
+        for ev in g["eventos"]:
+            rel = _hora_cl(ev["fecha"])
+            tipo = _TIPO_LBL.get(ev.get("tipo", ""), ev.get("tipo") or "Cambio")
+            det = escape((ev.get("detalles") or "")[:200])
+            items.append(
+                f'<li style="margin:3px 0;font-size:12px;color:#374151">'
+                f'<b style="color:#0a0d12">{escape(tipo)}</b> '
+                f'<span style="color:#9ca3af">· {escape(rel)}</span>'
+                f'{("<br>" + det) if det else ""}</li>'
+            )
+        bloques.append(
+            f'<div style="padding:9px 0;border-bottom:1px solid #eef2f7">'
+            f'<div style="font-size:13px;font-weight:700;color:#0a0d12;margin-bottom:1px">{link} '
+            f'<span style="color:#6b7280;font-weight:500">· {len(g["eventos"])} cambio(s)</span></div>'
+            f'<ul style="margin:3px 0 0;padding-left:18px">{"".join(items)}</ul></div>'
+        )
+    return (
+        f'<h3 style="margin:22px 0 6px;color:#0a0d12;font-size:15px">{escape(head)}</h3>'
+        f'<div style="font-size:12px;color:#6b7280;margin-bottom:6px">{n_op} cambio(s) en {n_op_proj} proyecto(s)</div>'
+        f'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:4px 14px">{"".join(bloques)}</div>'
+    )
 
 
 def _eventos_24h(p):
@@ -326,27 +418,12 @@ def build_daily_report(db: Session) -> dict:
     actividad.sort(key=lambda x: x["fecha"], reverse=True)
     actividad_resumen = dict(collections.Counter(a["tipo"] or "Cambio" for a in actividad))
 
-    # ─── Cambios del operador (Cristofer) — detalle por proyecto ───────────
-    # El "operador" = destinatario To del informe (settings.daily_report_to):
-    # quien carga el stock a mano día a día. Detallamos SUS cambios agrupados
-    # por proyecto para que en el Cc (Nicolás) se vea qué hizo el día anterior.
-    # Mismo origen que la actividad general (timeline), filtrado por su email.
-    _op_email = (settings.daily_report_to or "").strip().lower()
-    # Nombre del operador: del setting explícito, o derivado del email como fallback.
-    _op_nombre = (settings.daily_report_operator_name or "").strip()
-    if not _op_nombre and _op_email:
-        _op_nombre = _op_email.split("@")[0].split(".")[0].title()
-    op_actividad: dict[str, dict] = {}  # nombre_proyecto -> {id, nombre, eventos[]}
-    n_operador = 0
-    if _op_email:
-        for a in actividad:  # ya excluye 'Alerta' y está dentro de la ventana
-            if (a.get("usuario") or "").strip().lower() == _op_email:
-                g = op_actividad.setdefault(
-                    a["proyecto"], {"id": a.get("id"), "nombre": a["proyecto"], "eventos": []}
-                )
-                g["eventos"].append(a)
-                n_operador += 1
-    operador_grupos = sorted(op_actividad.values(), key=lambda g: -len(g["eventos"]))
+    # ─── Cambios del operador HUMANO (Cristofer) — detalle por proyecto ─────
+    # SOLO acciones del usuario logueado de Cristofer (email exacto) y NUNCA del
+    # scraper: _operador_actividad filtra por email + descarta origen_auto. Misma
+    # ventana que la actividad general (24h, o 72h los lunes).
+    _op_nombre = _operador_nombre()
+    operador_grupos, n_operador, _ = _operador_actividad(proyectos, _cut_act)
 
     # ─── Estado + alertas por proyecto, agrupado por inmobiliaria.
     # El nombre se NORMALIZA (trim + casefold) para que variantes de tipeo
@@ -740,11 +817,6 @@ def _build_html(data: dict) -> str:
     # ─── Actividad desde el informe anterior (avances del día previo) ──────
     act = data.get("actividad", [])
     n_act = data.get("n_actividad", 0)
-    _TIPO_LBL = {
-        "Excel Stock": "Carga de stock", "Creación": "Proyecto nuevo",
-        "Publicación": "Publicación", "Edición": "Edición", "Nota": "Nota",
-        "Importación": "Importación", "Cambio": "Cambio",
-    }
     if n_act:
         res = data.get("actividad_resumen", {})
         chips = " · ".join(
@@ -771,41 +843,15 @@ def _build_html(data: dict) -> str:
     else:
         actividad_html = '<div style="margin:20px 0 0;padding:11px 14px;background:#f9fafb;border-radius:8px;color:#6b7280;font-size:12.5px">🗓 <b>Actividad:</b> sin movimientos registrados desde el informe anterior.</div>'
 
-    # ─── Cambios del operador (Cristofer) — detalle por proyecto ───────────
-    op_nombre = data.get("operador_nombre") or "el operador"
-    op_grupos = data.get("operador_grupos", [])
-    n_op = data.get("n_operador", 0)
-    n_op_proj = data.get("n_operador_proyectos", 0)
+    # ─── Cambios del operador HUMANO (Cristofer) — detalle por proyecto ─────
     _vent = data.get("actividad_horas", 24)
-    periodo = "el fin de semana" if _vent > 24 else "el día anterior"
-    if n_op:
-        bloques_op = []
-        for g in op_grupos:
-            link = _project_link({"id": g.get("id"), "nombre": g.get("nombre")})
-            items = []
-            for ev in g["eventos"]:
-                rel = _hora_cl(ev["fecha"])
-                tipo = _TIPO_LBL.get(ev.get("tipo", ""), ev.get("tipo") or "Cambio")
-                det = escape((ev.get("detalles") or "")[:200])
-                items.append(
-                    f'<li style="margin:3px 0;font-size:12px;color:#374151">'
-                    f'<b style="color:#0a0d12">{escape(tipo)}</b> '
-                    f'<span style="color:#9ca3af">· {escape(rel)}</span>'
-                    f'{("<br>" + det) if det else ""}</li>'
-                )
-            bloques_op.append(
-                f'<div style="padding:9px 0;border-bottom:1px solid #eef2f7">'
-                f'<div style="font-size:13px;font-weight:700;color:#0a0d12;margin-bottom:1px">{link} '
-                f'<span style="color:#6b7280;font-weight:500">· {len(g["eventos"])} cambio(s)</span></div>'
-                f'<ul style="margin:3px 0 0;padding-left:18px">{"".join(items)}</ul></div>'
-            )
-        operador_html = (
-            f'<h3 style="margin:22px 0 6px;color:#0a0d12;font-size:15px">📋 Los avances de {escape(op_nombre)} {periodo}</h3>'
-            f'<div style="font-size:12px;color:#6b7280;margin-bottom:6px">{n_op} cambio(s) en {n_op_proj} proyecto(s)</div>'
-            f'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:4px 14px">{"".join(bloques_op)}</div>'
-        )
-    else:
-        operador_html = f'<div style="margin:20px 0 0;padding:11px 14px;background:#f9fafb;border-radius:8px;color:#6b7280;font-size:12.5px">📋 <b>Los avances de {escape(op_nombre)} {periodo}:</b> sin cambios registrados.</div>'
+    operador_html = _operador_section_html(
+        data.get("operador_nombre") or "el operador",
+        data.get("operador_grupos", []),
+        data.get("n_operador", 0),
+        data.get("n_operador_proyectos", 0),
+        "el fin de semana" if _vent > 24 else "el día anterior",
+    )
 
     # Mensaje cuando NO hay nada que hacer
     faltantes_html = _faltantes_html()
@@ -897,6 +943,94 @@ def send_daily_report() -> None:
         )
     except Exception as e:
         log.error("daily_report falló: %s", e, exc_info=True)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Informe de las 13:00 · SOLO los avances de Cristofer HOY (acciones manuales)
+# ════════════════════════════════════════════════════════════════════════════
+
+def build_operador_today(db: Session) -> dict:
+    """Cambios MANUALES del operador humano (Cristofer) HOY: desde la medianoche de
+    Chile hasta el momento de correr. SOLO su usuario (email exacto), sin scraper
+    (mismo filtro doble que _operador_actividad: email + descarta origen_auto)."""
+    proyectos = _proyectos_activos(db)
+    tz_cl = timezone(timedelta(hours=-4))  # Chile ≈ UTC-4
+    medianoche_cl = datetime.now(tz_cl).replace(hour=0, minute=0, second=0, microsecond=0)
+    grupos, n, n_proj = _operador_actividad(proyectos, medianoche_cl)
+    return {
+        "fecha_cl": _fecha_cl(),
+        "operador_nombre": _operador_nombre(),
+        "operador_grupos": grupos[:40],
+        "n_operador": n,
+        "n_operador_proyectos": n_proj,
+    }
+
+
+def _build_operador_html(data: dict) -> str:
+    """Email compacto: solo la cabecera + la sección de avances de Cristofer hoy."""
+    nombre = data.get("operador_nombre") or "el operador"
+    seccion = _operador_section_html(
+        nombre, data.get("operador_grupos", []),
+        data.get("n_operador", 0), data.get("n_operador_proyectos", 0),
+        "hoy", titulo=f"📋 Lo que hizo {nombre} hoy",
+    )
+    return f"""
+    <!doctype html><html><body style="margin:0;background:#f3f4f6;padding:0;font-family:-apple-system,'Segoe UI',Roboto,sans-serif">
+      <div style="max-width:720px;margin:0 auto;padding:24px 16px">
+        <div style="background:#7DC242;color:#0a0d12;padding:16px 20px;border-radius:12px 12px 0 0">
+          <div style="font-weight:800;font-size:18px">📋 Avances de {escape(nombre)} · hoy</div>
+          <div style="font-weight:400;font-size:12.5px;color:#0a0d12;opacity:.78;margin-top:3px">{escape(data["fecha_cl"])} · BigCapital · corte 13:00</div>
+        </div>
+        <div style="background:#fff;padding:18px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none">
+          {seccion}
+          <div style="margin:24px 0 0;padding:12px 14px;background:#f9fafb;border-radius:8px;text-align:center;font-size:12px;color:#6b7280">
+            Solo acciones manuales de {escape(nombre)} hoy (sin scraper) · L-V 13:00 Chile<br>
+            <a href="https://herramientas.bigcapital.cl/src/stock-interno/" style="color:#1f7a3d;font-weight:700;text-decoration:none">→ Abrir listado completo</a>
+          </div>
+        </div>
+      </div>
+    </body></html>
+    """
+
+
+def send_operador_today_report() -> None:
+    """Disparado por APScheduler L-V 13:00 Chile. Envía SOLO los avances de hoy de
+    Cristofer a operador_report_to. No-op si SMTP no configurado o si está deshabilitado."""
+    if not _configured():
+        log.info("operador_today: SMTP no configurado — informe NO enviado.")
+        return
+    if not settings.operador_report_enabled:
+        log.info("operador_today: deshabilitado (OPERADOR_REPORT_ENABLED=false).")
+        return
+    try:
+        with SessionLocal() as db:
+            data = build_operador_today(db)
+        html = _build_operador_html(data)
+        nombre = data.get("operador_nombre") or "el operador"
+        msg = EmailMessage()
+        msg["Subject"] = f"📋 Avances de {nombre} hoy · {data['n_operador']} cambio(s) en {data['n_operador_proyectos']} proyecto(s)"
+        from_addr = settings.smtp_from or settings.smtp_user
+        msg["From"] = formataddr((settings.smtp_from_name, from_addr))
+        # Destinatarios del informe de las 13:00 (pedido 2026-06-24): coma-separados.
+        dests = [e.strip() for e in (settings.operador_report_to or "").split(",") if e.strip()]
+        if not dests:
+            log.warning("operador_today: sin destinatarios (operador_report_to vacío).")
+            return
+        msg["To"] = ", ".join(dests)
+        msg["Reply-To"] = from_addr
+        msg.set_content(
+            f"Avances de {nombre} hoy · {data['fecha_cl']}\n"
+            f"{data['n_operador']} cambio(s) en {data['n_operador_proyectos']} proyecto(s)."
+        )
+        msg.add_alternative(html, subtype="html")
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as s:
+            s.starttls()
+            s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))
+            s.send_message(msg)
+        log.info("operador_today enviado → %s · %d cambios / %d proyectos",
+                 ", ".join(dests), data["n_operador"], data["n_operador_proyectos"])
+    except Exception as e:
+        log.error("operador_today falló: %s", e, exc_info=True)
 
 
 def send_error_alert(titulo: str, detalle: str, proyecto: str = "") -> None:
