@@ -326,6 +326,27 @@ def build_daily_report(db: Session) -> dict:
     actividad.sort(key=lambda x: x["fecha"], reverse=True)
     actividad_resumen = dict(collections.Counter(a["tipo"] or "Cambio" for a in actividad))
 
+    # ─── Cambios del operador (Cristofer) — detalle por proyecto ───────────
+    # El "operador" = destinatario To del informe (settings.daily_report_to):
+    # quien carga el stock a mano día a día. Detallamos SUS cambios agrupados
+    # por proyecto para que en el Cc (Nicolás) se vea qué hizo el día anterior.
+    # Mismo origen que la actividad general (timeline), filtrado por su email.
+    _op_email = (settings.daily_report_to or "").strip().lower()
+    _op_nombre = ""
+    if _op_email:
+        _op_nombre = _op_email.split("@")[0].replace(".", " ").replace("_", " ").title()
+    op_actividad: dict[str, dict] = {}  # nombre_proyecto -> {id, nombre, eventos[]}
+    n_operador = 0
+    if _op_email:
+        for a in actividad:  # ya excluye 'Alerta' y está dentro de la ventana
+            if (a.get("usuario") or "").strip().lower() == _op_email:
+                g = op_actividad.setdefault(
+                    a["proyecto"], {"id": a.get("id"), "nombre": a["proyecto"], "eventos": []}
+                )
+                g["eventos"].append(a)
+                n_operador += 1
+    operador_grupos = sorted(op_actividad.values(), key=lambda g: -len(g["eventos"]))
+
     # ─── Estado + alertas por proyecto, agrupado por inmobiliaria.
     # El nombre se NORMALIZA (trim + casefold) para que variantes de tipeo
     # ("AJ URBANA" / "AJ Urbana", espacios de más) caigan en UN solo grupo.
@@ -451,6 +472,10 @@ def build_daily_report(db: Session) -> dict:
         "n_actividad": len(actividad),
         "actividad_resumen": actividad_resumen,
         "actividad_horas": _vent_h,
+        "operador_nombre": _op_nombre,
+        "operador_grupos": operador_grupos[:20],
+        "n_operador": n_operador,
+        "n_operador_proyectos": len(operador_grupos),
     }
 
 
@@ -745,6 +770,42 @@ def _build_html(data: dict) -> str:
     else:
         actividad_html = '<div style="margin:20px 0 0;padding:11px 14px;background:#f9fafb;border-radius:8px;color:#6b7280;font-size:12.5px">🗓 <b>Actividad:</b> sin movimientos registrados desde el informe anterior.</div>'
 
+    # ─── Cambios del operador (Cristofer) — detalle por proyecto ───────────
+    op_nombre = data.get("operador_nombre") or "el operador"
+    op_grupos = data.get("operador_grupos", [])
+    n_op = data.get("n_operador", 0)
+    n_op_proj = data.get("n_operador_proyectos", 0)
+    _vent = data.get("actividad_horas", 24)
+    periodo = "el fin de semana" if _vent > 24 else "el día anterior"
+    if n_op:
+        bloques_op = []
+        for g in op_grupos:
+            link = _project_link({"id": g.get("id"), "nombre": g.get("nombre")})
+            items = []
+            for ev in g["eventos"]:
+                rel = _hora_cl(ev["fecha"])
+                tipo = _TIPO_LBL.get(ev.get("tipo", ""), ev.get("tipo") or "Cambio")
+                det = escape((ev.get("detalles") or "")[:200])
+                items.append(
+                    f'<li style="margin:3px 0;font-size:12px;color:#374151">'
+                    f'<b style="color:#0a0d12">{escape(tipo)}</b> '
+                    f'<span style="color:#9ca3af">· {escape(rel)}</span>'
+                    f'{("<br>" + det) if det else ""}</li>'
+                )
+            bloques_op.append(
+                f'<div style="padding:9px 0;border-bottom:1px solid #eef2f7">'
+                f'<div style="font-size:13px;font-weight:700;color:#0a0d12;margin-bottom:1px">{link} '
+                f'<span style="color:#6b7280;font-weight:500">· {len(g["eventos"])} cambio(s)</span></div>'
+                f'<ul style="margin:3px 0 0;padding-left:18px">{"".join(items)}</ul></div>'
+            )
+        operador_html = (
+            f'<h3 style="margin:22px 0 6px;color:#0a0d12;font-size:15px">✍️ Cambios de {escape(op_nombre)} · {periodo}</h3>'
+            f'<div style="font-size:12px;color:#6b7280;margin-bottom:6px">{n_op} cambio(s) en {n_op_proj} proyecto(s)</div>'
+            f'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:4px 14px">{"".join(bloques_op)}</div>'
+        )
+    else:
+        operador_html = f'<div style="margin:20px 0 0;padding:11px 14px;background:#f9fafb;border-radius:8px;color:#6b7280;font-size:12.5px">✍️ <b>{escape(op_nombre)}:</b> sin cambios registrados {periodo}.</div>'
+
     # Mensaje cuando NO hay nada que hacer
     faltantes_html = _faltantes_html()
 
@@ -765,6 +826,7 @@ def _build_html(data: dict) -> str:
           {sin_cargar_html}
           {sin_act_html}
           {todo_ok_html}
+          {operador_html}
           {actividad_html}
           {inmob_html}
           {faltantes_html}
