@@ -319,17 +319,22 @@ def _operador_section_html(op_nombre, op_grupos, n_op, n_op_proj, periodo, titul
             rel = _hora_cl(ev["fecha"])
             tipo = _TIPO_LBL.get(ev.get("tipo", ""), ev.get("tipo") or "Cambio")
             det = escape((ev.get("detalles") or "")[:200])
+            # Email-safe: <div> en vez de <ul><li> (Gmail/Outlook recortan listas
+            # anidadas → por eso el detalle "desaparecía" en el correo). La hora chilena
+            # de cada movimiento va SIEMPRE en la misma línea del tipo.
+            det_html = (f'<br><span style="color:#6b7280;padding-left:14px">{det}</span>') if det else ''
             items.append(
-                f'<li style="margin:3px 0;font-size:12px;color:#374151">'
+                f'<div style="margin:0;padding:4px 0;font-size:12px;color:#374151">'
+                f'<span style="color:#9ca3af">&bull;</span> '
                 f'<b style="color:#0a0d12">{escape(tipo)}</b> '
                 f'<span style="color:#9ca3af">· {escape(rel)}</span>'
-                f'{("<br>" + det) if det else ""}</li>'
+                f'{det_html}</div>'
             )
         bloques.append(
             f'<div style="padding:9px 0;border-bottom:1px solid #eef2f7">'
-            f'<div style="font-size:13px;font-weight:700;color:#0a0d12;margin-bottom:1px">{link} '
+            f'<div style="font-size:13px;font-weight:700;color:#0a0d12;margin-bottom:3px">{link} '
             f'<span style="color:#6b7280;font-weight:500">· {len(g["eventos"])} cambio(s)</span></div>'
-            f'<ul style="margin:3px 0 0;padding-left:18px">{"".join(items)}</ul></div>'
+            f'{"".join(items)}</div>'
         )
     return (
         f'<h3 style="margin:22px 0 6px;color:#0a0d12;font-size:15px">{escape(head)}</h3>'
