@@ -427,12 +427,14 @@ def _resolucion_html(cruce: dict, ref_label: str) -> str:
     res, per, nue = cruce["resueltos"], cruce["persisten"], cruce["nuevos"]
 
     def _lista(items, color):
+        # Email-safe: <div> con bullet (no <ul><li>, que Gmail/Outlook recortan).
         filas = "".join(
-            f'<li style="margin:2px 0;font-size:12px;color:{color}"><b style="color:#0a0d12">'
-            f'{escape(it["proyecto"])}</b> — {escape(it["texto"])}</li>' for it in items[:25]
+            f'<div style="margin:2px 0;font-size:12px;color:{color}">'
+            f'<span style="color:#9ca3af">&bull;</span> <b style="color:#0a0d12">'
+            f'{escape(it["proyecto"])}</b> — {escape(it["texto"])}</div>' for it in items[:25]
         )
-        extra = f'<li style="font-size:11px;color:#9ca3af;list-style:none">… y {len(items)-25} más</li>' if len(items) > 25 else ''
-        return f'<ul style="margin:3px 0 8px;padding-left:18px">{filas}{extra}</ul>' if items else ''
+        extra = f'<div style="font-size:11px;color:#9ca3af;margin:2px 0">… y {len(items)-25} más</div>' if len(items) > 25 else ''
+        return f'<div style="margin:3px 0 8px">{filas}{extra}</div>' if items else ''
 
     cuerpo = ""
     cuerpo += f'<div style="font-size:12.5px;color:#16a34a;font-weight:700;margin-top:6px">✅ Solucionados {escape(ref_label)} · {len(res)}</div>'
