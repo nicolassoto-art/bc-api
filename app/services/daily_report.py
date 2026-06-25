@@ -290,9 +290,11 @@ def _operador_actividad(proyectos, cutoff, end=None):
                 g = grupos.setdefault(key, {"id": p.id, "nombre": key, "eventos": []})
                 g["eventos"].append(ev)
                 n += 1
-    orden = sorted(grupos.values(), key=lambda g: -len(g["eventos"]))
-    for g in orden:
-        g["eventos"].sort(key=lambda e: e["fecha"], reverse=True)
+    # Orden CRONOLÓGICO ascendente: eventos del más antiguo al más reciente dentro de
+    # cada proyecto, y los proyectos ordenados por su primer cambio del día.
+    for g in grupos.values():
+        g["eventos"].sort(key=lambda e: e["fecha"])
+    orden = sorted(grupos.values(), key=lambda g: g["eventos"][0]["fecha"])
     return orden, n, len(orden)
 
 
