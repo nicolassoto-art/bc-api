@@ -600,7 +600,7 @@ def _calidad_band(score: int):
     return ("#dc2626", "#fee2e2", "deficiente")
 
 
-def build_daily_report(db: Session) -> dict:
+def build_daily_report(db: Session, forzar_semana: bool = False) -> dict:
     """Arma el resumen del estado del stock AGRUPADO POR INMOBILIARIA.
 
     Solo proyectos SBC activos (tabla Proyecto de bc-api). Cada proyecto trae el
@@ -657,7 +657,7 @@ def build_daily_report(db: Session) -> dict:
 
     # Los LUNES: resumen día a día de la SEMANA ANTERIOR (lun-dom previo), en horario.
     semana_anterior = None
-    if _now_cl.weekday() == 0:
+    if _now_cl.weekday() == 0 or forzar_semana:
         _sem_ini = _hoy_cl_00 - timedelta(days=7)   # lunes pasado 00:00
         semana_anterior = _operador_eventos_planos(proyectos, _sem_ini, _hoy_cl_00)
 
@@ -1146,7 +1146,7 @@ def _build_html(data: dict) -> str:
     """
 
 
-def send_daily_report() -> None:
+def send_daily_report(forzar_semana: bool = False) -> None:
     """Disparado por APScheduler L-V 09am. No-op si SMTP no configurado."""
     if not _configured():
         log.info("daily_report: SMTP no configurado — informe NO enviado.")
@@ -1156,7 +1156,7 @@ def send_daily_report() -> None:
         return
     try:
         with SessionLocal() as db:
-            data = build_daily_report(db)
+            data = build_daily_report(db, forzar_semana=forzar_semana)
         html = _build_html(data)
         msg = EmailMessage()
         # Subject con highlights de la jornada (semáforo)

@@ -145,21 +145,22 @@ def _stop_scheduler():
 
 
 @app.post("/admin/daily-report/test", tags=["meta"])
-def trigger_daily_report(_: Usuario = Depends(super_admin)):
+def trigger_daily_report(semana: bool = False, _: Usuario = Depends(super_admin)):
     """Dispara el informe diario manualmente (solo super_admin) y lo ENVÍA a los
     destinatarios reales (To=daily_report_to, Cc=daily_report_cc). Para revisar el
-    contenido SIN enviar, usar GET /admin/daily-report/preview."""
-    send_daily_report()
+    contenido SIN enviar, usar GET /admin/daily-report/preview.
+    semana=true fuerza la sección 'Resumen de la semana anterior' (normalmente solo lunes)."""
+    send_daily_report(forzar_semana=semana)
     return {"ok": True, "sent_to": settings.daily_report_to or settings.notify_to,
-            "cc": settings.daily_report_cc}
+            "cc": settings.daily_report_cc, "forzar_semana": semana}
 
 
 @app.get("/admin/daily-report/preview", response_class=HTMLResponse, tags=["meta"])
-def preview_daily_report(_: Usuario = Depends(super_admin)):
+def preview_daily_report(semana: bool = False, _: Usuario = Depends(super_admin)):
     """Devuelve el HTML del informe diario con los datos REALES de prod, SIN enviarlo
-    (solo super_admin). Para revisar el formato/agrupación antes de que se mande."""
+    (solo super_admin). semana=true fuerza el resumen semanal (normalmente solo lunes)."""
     with SessionLocal() as db:
-        data = build_daily_report(db)
+        data = build_daily_report(db, forzar_semana=semana)
     return HTMLResponse(_build_html(data))
 
 
