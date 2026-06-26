@@ -307,41 +307,36 @@ _TIPO_LBL = {
 
 
 def _operador_section_html(op_nombre, op_grupos, n_op, n_op_proj, periodo, titulo=None) -> str:
-    """Bloque HTML "Los avances de X …" agrupado por proyecto, detallando cada acción
-    (tipo · hora Chile · detalle). Reutilizado por el informe de las 09:00 y el de 13:00."""
+    """Bloque HTML "Mejoras …" como LÍNEA DE TIEMPO: una fila por movimiento ordenada
+    por hora (todas mezcladas, NO agrupadas por proyecto). Cada fila:
+    HH:MM · Proyecto — detalle. Reutilizado por el informe de las 09:00 y el de 13:00."""
     head = titulo or f"📋 Los avances de {escape(op_nombre)} {periodo}"
     if not n_op:
         return (f'<div style="margin:18px 0 0;padding:11px 14px;background:#f9fafb;border-radius:8px;'
                 f'color:#6b7280;font-size:12.5px">📋 <b>{escape(head)}:</b> sin cambios registrados.</div>')
-    bloques = []
+    # Aplanar todos los eventos de todos los proyectos en una sola línea de tiempo
+    flat = []
     for g in op_grupos:
-        link = _project_link({"id": g.get("id"), "nombre": g.get("nombre")})
-        items = []
         for ev in g["eventos"]:
-            rel = _hora_cl(ev["fecha"])
-            tipo = _TIPO_LBL.get(ev.get("tipo", ""), ev.get("tipo") or "Cambio")
-            det = escape((ev.get("detalles") or "")[:200])
-            # Email-safe: <div> en vez de <ul><li> (Gmail/Outlook recortan listas
-            # anidadas → por eso el detalle "desaparecía" en el correo). La hora chilena
-            # de cada movimiento va SIEMPRE en la misma línea del tipo.
-            det_html = (f'<br><span style="color:#6b7280;padding-left:14px">{det}</span>') if det else ''
-            items.append(
-                f'<div style="margin:0;padding:4px 0;font-size:12px;color:#374151">'
-                f'<span style="color:#9ca3af">&bull;</span> '
-                f'<b style="color:#0a0d12">{escape(tipo)}</b> '
-                f'<span style="color:#9ca3af">· {escape(rel)}</span>'
-                f'{det_html}</div>'
-            )
-        bloques.append(
-            f'<div style="padding:9px 0;border-bottom:1px solid #eef2f7">'
-            f'<div style="font-size:13px;font-weight:700;color:#0a0d12;margin-bottom:3px">{link} '
-            f'<span style="color:#6b7280;font-weight:500">· {len(g["eventos"])} cambio(s)</span></div>'
-            f'{"".join(items)}</div>'
+            flat.append((ev, g.get("nombre") or g.get("id")))
+    flat.sort(key=lambda x: x[0]["fecha"])  # cronológico ascendente
+    filas = []
+    for ev, proy in flat:
+        # solo la hora HH:MM (Chile), sin "hoy/ayer" — la fecha ya está en la cabecera
+        hhmm = _hora_cl(ev["fecha"]).split(" ")[-1]
+        tipo = _TIPO_LBL.get(ev.get("tipo", ""), ev.get("tipo") or "Cambio")
+        det = escape((ev.get("detalles") or "").strip()[:200]) or escape(tipo)
+        filas.append(
+            f'<div style="margin:0;padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:12.5px;color:#374151">'
+            f'<b style="color:#0a0d12">{escape(hhmm)}</b> '
+            f'<span style="color:#9ca3af">·</span> '
+            f'<b style="color:#1f7a3d">{escape(proy)}</b> '
+            f'<span style="color:#9ca3af">—</span> {det}</div>'
         )
     return (
         f'<h3 style="margin:22px 0 6px;color:#0a0d12;font-size:15px">{escape(head)}</h3>'
-        f'<div style="font-size:12px;color:#6b7280;margin-bottom:6px">{n_op} cambio(s) en {n_op_proj} proyecto(s)</div>'
-        f'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:4px 14px">{"".join(bloques)}</div>'
+        f'<div style="font-size:12px;color:#6b7280;margin-bottom:6px">{n_op} cambio(s) en {n_op_proj} proyecto(s) · en orden cronológico</div>'
+        f'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:4px 14px">{"".join(filas)}</div>'
     )
 
 
