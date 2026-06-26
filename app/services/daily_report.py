@@ -340,6 +340,67 @@ def _operador_section_html(op_nombre, op_grupos, n_op, n_op_proj, periodo, titul
     )
 
 
+_DIAS_FULL = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+_MES_FULL = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+             "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+def _operador_eventos_planos(proyectos, cutoff, end):
+    """Todos los movimientos MANUALES del operador en [cutoff, end), aplanados con su
+    proyecto y ordenados por hora ascendente (sin agrupar por proyecto)."""
+    op_email = _operador_email()
+    out = []
+    if op_email:
+        for p in proyectos:
+            for ev in _eventos_ventana(p, cutoff):
+                if end is not None and ev["fecha"] >= end:
+                    continue
+                if ev["tipo"] == "Alerta" or ev.get("origen_auto"):
+                    continue
+                if (ev.get("usuario") or "").strip().lower() != op_email:
+                    continue
+                out.append({**ev, "proyecto": p.nombre or p.id})
+    out.sort(key=lambda e: e["fecha"])
+    return out
+
+
+def _resumen_semana_html(eventos) -> str:
+    """Resumen día a día de la semana anterior (informe del lunes): por cada día con
+    actividad, sus movimientos en orden de horario (HH:MM · Proyecto — detalle)."""
+    titulo = '<h3 style="margin:24px 0 6px;color:#0a0d12;font-size:15px">📅 Resumen de la semana anterior</h3>'
+    if not eventos:
+        return (titulo + '<div style="padding:11px 14px;background:#f9fafb;border-radius:8px;'
+                'color:#6b7280;font-size:12.5px">Sin actividad manual registrada la semana anterior.</div>')
+    tz_cl = timezone(timedelta(hours=-4))
+    dias = {}  # iso -> [(cl_dt, ev)]
+    for ev in eventos:
+        cl = ev["fecha"].astimezone(tz_cl)
+        dias.setdefault(cl.date().isoformat(), []).append((cl, ev))
+    bloques = []
+    for iso in sorted(dias):
+        lst = sorted(dias[iso], key=lambda x: x[0])  # orden horario ascendente
+        d0 = lst[0][0]
+        cab = f'{_DIAS_FULL[d0.weekday()]} {d0.day} {_MES_FULL[d0.month - 1]}'
+        filas = []
+        for cl, ev in lst:
+            tipo = _TIPO_LBL.get(ev.get("tipo", ""), ev.get("tipo") or "Cambio")
+            det = escape((ev.get("detalles") or "").strip()[:200]) or escape(tipo)
+            filas.append(
+                f'<div style="margin:0;padding:4px 0;border-bottom:1px solid #f3f4f6;font-size:12.5px;color:#374151">'
+                f'<b style="color:#0a0d12">{cl.strftime("%H:%M")}</b> '
+                f'<span style="color:#9ca3af">·</span> '
+                f'<b style="color:#1f7a3d">{escape(ev["proyecto"])}</b> '
+                f'<span style="color:#9ca3af">—</span> {det}</div>'
+            )
+        bloques.append(
+            f'<div style="margin-top:10px"><div style="font-size:13px;font-weight:700;color:#0a0d12;'
+            f'background:#f3f4f6;padding:6px 10px;border-radius:6px">{escape(cab)} '
+            f'<span style="color:#6b7280;font-weight:500">· {len(lst)} cambio(s)</span></div>'
+            f'<div style="background:#fff;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;padding:2px 12px">{"".join(filas)}</div></div>'
+        )
+    return titulo + "".join(bloques)
+
+
 def _disclaimer_html() -> str:
     """Aviso fijo: informe automático en desarrollo."""
     return ('<div style="margin:0 0 14px;padding:10px 12px;background:#fef9c3;border:1px solid #fde68a;'
@@ -594,6 +655,12 @@ def build_daily_report(db: Session) -> dict:
     _op_cutoff = _hoy_cl_00 - timedelta(days=_dias_atras)
     operador_grupos, n_operador, _ = _operador_actividad(proyectos, _op_cutoff, end=_hoy_cl_00)
 
+    # Los LUNES: resumen día a día de la SEMANA ANTERIOR (lun-dom previo), en horario.
+    semana_anterior = None
+    if _now_cl.weekday() == 0:
+        _sem_ini = _hoy_cl_00 - timedelta(days=7)   # lunes pasado 00:00
+        semana_anterior = _operador_eventos_planos(proyectos, _sem_ini, _hoy_cl_00)
+
     # ─── Cruce de pendientes vs el informe de la MAÑANA anterior ────────────
     # Compara los críticos de hoy contra el último snapshot 'morning' (informe de
     # ayer) → qué se solucionó / qué sigue. El snapshot se guarda al ENVIAR (no en
@@ -733,6 +800,7 @@ def build_daily_report(db: Session) -> dict:
         "n_operador_proyectos": len(operador_grupos),
         "cruce": cruce,
         "pend_actual": pend_actual,
+        "semana_anterior": semana_anterior,
     }
 
 
@@ -1037,6 +1105,8 @@ def _build_html(data: dict) -> str:
     # Cruce de pendientes vs informe anterior (qué se solucionó / qué sigue)
     resolucion_html = _resolucion_html(data.get("cruce", {}), "desde el informe anterior")
     disclaimer_html = _disclaimer_html()
+    # Lunes: resumen día a día de la semana anterior (None los demás días).
+    semana_html = _resumen_semana_html(data["semana_anterior"]) if data.get("semana_anterior") is not None else ""
 
     # Mensaje cuando NO hay nada que hacer
     faltantes_html = _faltantes_html()
@@ -1060,6 +1130,7 @@ def _build_html(data: dict) -> str:
           {sin_act_html}
           {todo_ok_html}
           {operador_html}
+          {semana_html}
           {resolucion_html}
           {actividad_html}
           {inmob_html}
