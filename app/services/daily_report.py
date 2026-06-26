@@ -664,11 +664,13 @@ def build_daily_report(db: Session, forzar_semana: bool = False) -> dict:
     _op_cutoff = _hoy_cl_00 - timedelta(days=_dias_atras)
     operador_grupos, n_operador, _ = _operador_actividad(proyectos, _op_cutoff, end=_hoy_cl_00)
 
-    # Los LUNES: resumen día a día de la SEMANA ANTERIOR (lun-dom previo), en horario.
+    # Los LUNES: resumen día a día de la SEMANA CALENDARIO anterior (lunes→domingo),
+    # SIEMPRE empezando en lunes (aunque se fuerce otro día con ?semana=true).
     semana_anterior = None
     if _now_cl.weekday() == 0 or forzar_semana:
-        _sem_ini = _hoy_cl_00 - timedelta(days=7)   # lunes pasado 00:00
-        semana_anterior = _operador_eventos_planos(proyectos, _sem_ini, _hoy_cl_00)
+        _este_lunes = _hoy_cl_00 - timedelta(days=_now_cl.weekday())  # lunes de ESTA semana 00:00
+        _sem_ini = _este_lunes - timedelta(days=7)                    # lunes pasado 00:00
+        semana_anterior = _operador_eventos_planos(proyectos, _sem_ini, _este_lunes)
 
     # ─── Cruce de pendientes vs el informe de la MAÑANA anterior ────────────
     # Compara los críticos de hoy contra el último snapshot 'morning' (informe de
