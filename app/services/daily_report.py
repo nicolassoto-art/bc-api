@@ -1102,10 +1102,13 @@ def _build_html(data: dict) -> str:
         actividad_html = '<div style="margin:20px 0 0;padding:11px 14px;background:#f9fafb;border-radius:8px;color:#6b7280;font-size:12.5px">🗓 <b>Actividad:</b> sin movimientos registrados desde el informe anterior.</div>'
 
     # ─── Mejoras (cambios manuales del operador humano) — sin nombres ───────
+    # LUNES (o ?semana=true): el "día anterior" es domingo (sin trabajo) → NO va la
+    # sección diaria; en su lugar va el "Resumen de la semana anterior". Otros días: al revés.
+    es_lunes = data.get("semana_anterior") is not None
     _vent = data.get("actividad_horas", 24)
     _periodo = "el fin de semana" if _vent > 24 else "el día anterior"
     _periodo_titulo = "del fin de semana" if _vent > 24 else "del día anterior"
-    operador_html = _operador_section_html(
+    operador_html = "" if es_lunes else _operador_section_html(
         data.get("operador_nombre") or "el operador",
         data.get("operador_grupos", []),
         data.get("n_operador", 0),
@@ -1117,7 +1120,7 @@ def _build_html(data: dict) -> str:
     resolucion_html = _resolucion_html(data.get("cruce", {}), "desde el informe anterior")
     disclaimer_html = _disclaimer_html()
     # Lunes: resumen día a día de la semana anterior (None los demás días).
-    semana_html = _resumen_semana_html(data["semana_anterior"]) if data.get("semana_anterior") is not None else ""
+    semana_html = _resumen_semana_html(data["semana_anterior"]) if es_lunes else ""
 
     # Mensaje cuando NO hay nada que hacer
     faltantes_html = _faltantes_html()
