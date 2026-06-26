@@ -509,14 +509,23 @@ def _resolucion_html(cruce: dict, ref_label: str) -> str:
                 f'corrida — todavía no hay un informe previo ({escape(ref_label)}) con qué comparar.</div>')
     res, per, nue = cruce["resueltos"], cruce["persisten"], cruce["nuevos"]
 
-    def _lista(items, color):
+    def _lista(items, color, con_link=False):
         # Email-safe: <div> con bullet (no <ul><li>, que Gmail/Outlook recortan).
+        # con_link=True: el error es un LINK al editor en la pestaña donde se arregla.
         def _fila(it):
             hora = it.get("hora")
             hora_html = f' <b style="color:#0a0d12">{escape(hora)}</b>' if hora else ''
+            proy = escape(it["proyecto"])
+            txt = escape(it["texto"])
+            if con_link and it.get("id"):
+                url = _editor_url(it["id"], _tab_for(it["texto"]))
+                cuerpo = (f'<a href="{url}" style="color:{color};text-decoration:underline">'
+                          f'<b>{proy}</b> — {txt}</a> '
+                          f'<span style="color:#9ca3af;font-size:11px">→ arreglar</span>')
+            else:
+                cuerpo = f'<b style="color:#0a0d12">{proy}</b> — {txt}'
             return (f'<div style="margin:2px 0;font-size:12px;color:{color}">'
-                    f'<span style="color:#9ca3af">&bull;</span>{hora_html} '
-                    f'<b style="color:#0a0d12">{escape(it["proyecto"])}</b> — {escape(it["texto"])}</div>')
+                    f'<span style="color:#9ca3af">&bull;</span>{hora_html} {cuerpo}</div>')
         filas = "".join(_fila(it) for it in items[:25])
         extra = f'<div style="font-size:11px;color:#9ca3af;margin:2px 0">… y {len(items)-25} más</div>' if len(items) > 25 else ''
         return f'<div style="margin:3px 0 8px">{filas}{extra}</div>' if items else ''
@@ -525,10 +534,10 @@ def _resolucion_html(cruce: dict, ref_label: str) -> str:
     cuerpo += f'<div style="font-size:12.5px;color:#16a34a;font-weight:700;margin-top:6px">✅ Solucionados {escape(ref_label)} · {len(res)}</div>'
     cuerpo += _lista(res, "#15803d") if res else '<div style="font-size:11.5px;color:#9ca3af;margin-bottom:6px">— ninguno —</div>'
     cuerpo += f'<div style="font-size:12.5px;color:#ea580c;font-weight:700">⏳ Siguen pendientes · {len(per)}</div>'
-    cuerpo += _lista(per, "#9a3412") if per else '<div style="font-size:11.5px;color:#9ca3af;margin-bottom:6px">— ninguno —</div>'
+    cuerpo += _lista(per, "#9a3412", con_link=True) if per else '<div style="font-size:11.5px;color:#9ca3af;margin-bottom:6px">— ninguno —</div>'
     if nue:
         cuerpo += f'<div style="font-size:12.5px;color:#dc2626;font-weight:700">🆕 Nuevos · {len(nue)}</div>'
-        cuerpo += _lista(nue, "#991b1b")
+        cuerpo += _lista(nue, "#991b1b", con_link=True)
     return (
         f'<h3 style="margin:22px 0 6px;color:#0a0d12;font-size:15px">🔁 Resolución de pendientes ({escape(ref_label)})</h3>'
         f'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 14px">{cuerpo}</div>'
