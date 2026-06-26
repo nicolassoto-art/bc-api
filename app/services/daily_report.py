@@ -415,6 +415,31 @@ def _resolucion_cruce(slot: str, pend_actual: dict) -> dict:
     }
 
 
+def _enriquecer_resueltos(cruce: dict, proyectos) -> None:
+    """Agrega a cada pendiente 'resuelto' la HORA en que se solucionó: el último cambio
+    en ese proyecto desde el informe previo (prev_ts del snapshot)."""
+    prev_ts = cruce.get("prev_ts")
+    since = None
+    if prev_ts:
+        try:
+            since = datetime.fromisoformat(prev_ts)
+            if since.tzinfo is None:
+                since = since.replace(tzinfo=timezone.utc)
+        except Exception:
+            since = None
+    if since is None:
+        since = datetime.now(timezone.utc) - timedelta(hours=48)
+    by_id = {p.id: p for p in proyectos}
+    for it in cruce.get("resueltos", []):
+        p = by_id.get(it.get("id"))
+        if not p:
+            continue
+        evs = _eventos_ventana(p, since)
+        if evs:
+            ult = max(evs, key=lambda e: e["fecha"])
+            it["hora"] = _hora_cl(ult["fecha"]).split(" ")[-1]  # solo HH:MM
+
+
 def _resolucion_html(cruce: dict, ref_label: str) -> str:
     """Bloque 'Resolución de pendientes' comparando contra el informe previo."""
     if not cruce.get("tiene_previo"):
@@ -425,11 +450,13 @@ def _resolucion_html(cruce: dict, ref_label: str) -> str:
 
     def _lista(items, color):
         # Email-safe: <div> con bullet (no <ul><li>, que Gmail/Outlook recortan).
-        filas = "".join(
-            f'<div style="margin:2px 0;font-size:12px;color:{color}">'
-            f'<span style="color:#9ca3af">&bull;</span> <b style="color:#0a0d12">'
-            f'{escape(it["proyecto"])}</b> — {escape(it["texto"])}</div>' for it in items[:25]
-        )
+        def _fila(it):
+            hora = it.get("hora")
+            hora_html = f' <b style="color:#0a0d12">{escape(hora)}</b>' if hora else ''
+            return (f'<div style="margin:2px 0;font-size:12px;color:{color}">'
+                    f'<span style="color:#9ca3af">&bull;</span>{hora_html} '
+                    f'<b style="color:#0a0d12">{escape(it["proyecto"])}</b> — {escape(it["texto"])}</div>')
+        filas = "".join(_fila(it) for it in items[:25])
         extra = f'<div style="font-size:11px;color:#9ca3af;margin:2px 0">… y {len(items)-25} más</div>' if len(items) > 25 else ''
         return f'<div style="margin:3px 0 8px">{filas}{extra}</div>' if items else ''
 
@@ -573,6 +600,7 @@ def build_daily_report(db: Session) -> dict:
     # el preview), así la comparación no se corrompe al previsualizar.
     pend_actual = _pendientes_actuales(proyectos)
     cruce = _resolucion_cruce("morning", pend_actual)
+    _enriquecer_resueltos(cruce, proyectos)
 
     # ─── Estado + alertas por proyecto, agrupado por inmobiliaria.
     # El nombre se NORMALIZA (trim + casefold) para que variantes de tipeo
@@ -1122,6 +1150,7 @@ def build_operador_today(db: Session) -> dict:
     # Cruce: qué de los pendientes de la MAÑANA (informe 09:00 de hoy) se solucionó.
     pend_actual = _pendientes_actuales(proyectos)
     cruce = _resolucion_cruce("morning", pend_actual)
+    _enriquecer_resueltos(cruce, proyectos)
     return {
         "fecha_cl": _fecha_cl(),
         "operador_nombre": _operador_nombre(),
@@ -1153,10 +1182,6 @@ def _build_operador_html(data: dict) -> str:
           {_disclaimer_html()}
           {seccion}
           {resolucion}
-          <div style="margin:24px 0 0;padding:12px 14px;background:#f9fafb;border-radius:8px;text-align:center;font-size:12px;color:#6b7280">
-            Solo cambios manuales de hoy (sin scraper) · L-V 13:00 Chile<br>
-            <a href="https://herramientas.bigcapital.cl/src/stock-interno/" style="color:#1f7a3d;font-weight:700;text-decoration:none">→ Abrir listado completo</a>
-          </div>
         </div>
       </div>
     </body></html>
