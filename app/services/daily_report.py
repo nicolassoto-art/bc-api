@@ -115,7 +115,12 @@ def _alertas_de_proyecto(p) -> dict:
         criticos.append("Sin inmobiliaria")
     if not p.comuna or not str(p.comuna).strip():
         criticos.append("Sin comuna")
-    if not p.foto_principal_url:
+    # Foto de fachada: vale el foto_principal_url O cualquier imagen en la sección
+    # Fachada/Exterior (si el corredor cargó la foto pero no la marcó como principal,
+    # NO es "sin foto"). Evita el falso positivo "dice que no hay foto y sí la tienen".
+    _cats_img = [(im.categoria or "").strip().lower() for im in (p.imagenes or [])]
+    _tiene_fachada = bool(p.foto_principal_url) or any(c in ("fachada", "exterior") for c in _cats_img)
+    if not _tiene_fachada:
         criticos.append("Sin foto de fachada")
     no_tiene_stock = (len(unidades) == 0)
     if no_tiene_stock:
@@ -165,23 +170,46 @@ def _alertas_de_proyecto(p) -> dict:
     imagenes = list(p.imagenes or [])
     norm = lambda s: (s or "").strip().lower()
 
-    # Modelos sin planta (en uso = crítico; resto = warning)
-    plantas_por_modelo = set()
+    # Modelos sin planta (en uso = crítico; resto = warning).
+    # Las plantas JB se guardan como imágenes categoría "jb-planta-<blueprintId>".
+    # Un modelo TIENE planta si: su _blueprint (id, case-sensitive) está entre esas
+    # imágenes, O trae planta_thumb_src/planta_url/plano_url, O (legacy) su nombre
+    # coincide con un id de planta. Antes solo miraba el NOMBRE → falso "sin planta"
+    # en proyectos JB (las plantas existen pero referenciadas por blueprintId).
+    plantas_ids = set()       # blueprintIds tal cual (case-sensitive)
+    plantas_norm = set()      # mismos, normalizados (fallback por nombre legacy)
     for im in imagenes:
-        cat = norm(im.categoria)
-        if cat.startswith("jb-planta-"):
-            plantas_por_modelo.add(cat[len("jb-planta-"):])
+        cat = (im.categoria or "").strip()
+        if cat.lower().startswith("jb-planta-"):
+            bid = cat[len("jb-planta-"):]
+            plantas_ids.add(bid)
+            plantas_norm.add(bid.lower())
+
+    def _blueprint_id(m):
+        b = m.get("_blueprint")
+        if isinstance(b, str):
+            return b
+        if isinstance(b, dict):
+            return b.get("id") or b.get("blueprintId")
+        return None
+
     modelos_en_uso = set()
     for u in deptos_disp:
         if u.modelo:
             modelos_en_uso.add(norm(u.modelo))
     modelos_sin_planta = []
     for m in modelos:
-        k = norm(m.get("nombre") or m.get("name"))
+        nombre = m.get("nombre") or m.get("name")
+        k = norm(nombre)
         if not k: continue
-        tiene_planta = k in plantas_por_modelo or bool(m.get("plano_url") or m.get("planta_url"))
+        bid = _blueprint_id(m)
+        tiene_planta = (
+            (bid is not None and bid in plantas_ids)
+            or k in plantas_norm
+            or bool(m.get("planta_thumb_src") or m.get("plano_url") or m.get("planta_url"))
+        )
         if not tiene_planta:
-            modelos_sin_planta.append(m.get("nombre") or m.get("name"))
+            modelos_sin_planta.append(nombre)
     en_uso_sin_planta = [n for n in modelos_sin_planta if norm(n) in modelos_en_uso]
     if en_uso_sin_planta:
         criticos.append(f"{len(en_uso_sin_planta)} modelo(s) sin planta en uso: {', '.join(en_uso_sin_planta[:5])}")
