@@ -943,10 +943,12 @@ def _project_link(p: dict, tab: str = "") -> str:
 
 
 def _kpi_cell(label, value, color, sub, bg="#f9fafb", lblcolor="#6b7280"):
-    return f'''<td style="background:{bg};border-radius:8px;padding:12px;text-align:center;width:25%">
-      <div style="font-size:11px;color:{lblcolor};font-weight:700;text-transform:uppercase;letter-spacing:.3px">{escape(label)}</div>
-      <div style="font-size:26px;color:{color};font-weight:800;margin-top:2px;line-height:1">{value}</div>
-      <div style="font-size:11px;color:{lblcolor};margin-top:2px">{escape(sub)}</div></td>'''
+    # Compacto para móvil: padding 8 + fuente 22 (con spacing 5 la fila de 4 KPIs
+    # cabe en 375px; antes padding 12 + spacing 8 = 384px → scroll lateral).
+    return f'''<td style="background:{bg};border-radius:8px;padding:8px 4px;text-align:center;width:25%">
+      <div style="font-size:10.5px;color:{lblcolor};font-weight:700;text-transform:uppercase;letter-spacing:.2px">{escape(label)}</div>
+      <div style="font-size:22px;color:{color};font-weight:800;margin-top:2px;line-height:1">{value}</div>
+      <div style="font-size:10.5px;color:{lblcolor};margin-top:2px">{escape(sub)}</div></td>'''
 
 
 def _proj_inline(p, tab: str = "unidades") -> str:
@@ -1019,7 +1021,7 @@ def _build_html(data: dict) -> str:
     # ─── KPIs (4): proyectos · stock disp · con críticas · sin actualizar +Nd
     n_stale = len(data["sin_actualizar"])
     n_crit = data["n_con_critico"]
-    kpis = f'''<table style="width:100%;border-collapse:separate;border-spacing:8px"><tr>
+    kpis = f'''<table style="width:100%;border-collapse:separate;border-spacing:5px"><tr>
       {_kpi_cell("Proyectos", data["n_activos"], "#0a0d12", f'{len(data["inmobiliarias"])} inmobiliaria(s)')}
       {_kpi_cell("Stock disp.", data["n_disponibles_total"], "#16a34a", f'de {data["n_unidades_cargadas"]} cargadas')}
       {_kpi_cell("Con críticas", n_crit, "#dc2626" if n_crit else "#16a34a", "requieren acción", bg="#fee2e2" if n_crit else "#dcfce7", lblcolor="#7f1d1d" if n_crit else "#14532d")}
@@ -1036,7 +1038,7 @@ def _build_html(data: dict) -> str:
             <div style="font-size:12px;color:{cg_col};font-weight:800;text-transform:uppercase;letter-spacing:.3px">Índice de calidad general</div>
             <div style="font-size:11px;color:#6b7280;margin-top:2px">Completitud + frescura del listado · sin críticas (50) + sin warnings (20) + stock fresco (20) + cargado (10)</div>
           </td>
-          <td style="vertical-align:middle;text-align:right;white-space:nowrap">
+          <td style="vertical-align:middle;text-align:right">
             <span style="font-size:30px;font-weight:800;color:{cg_col}">{cg}<span style="font-size:14px;font-weight:700">/100</span></span>
             <div style="font-size:11px;color:{cg_col};font-weight:700;text-transform:uppercase">{escape(cg_lbl)}</div>
           </td>
@@ -1103,13 +1105,16 @@ def _build_html(data: dict) -> str:
                      f'<b>✓ Al día ({len(ok_list)}):</b> <span style="color:#374151">{nombres_ok}</span></div>')
         cal = g.get("calidad", 0)
         cal_col, cal_bg, _cal_lbl = _calidad_band(cal)
+        # Header SIN flex ni nowrap: nombre y chips en líneas propias → apila
+        # natural en teléfonos (los chips desbordaban 80px en 375px) y renderiza
+        # bien en Outlook escritorio (que ignora flexbox).
         inmob_html += f'''<div style="margin-top:14px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">
-          <div style="background:#0b1628;color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center">
-            <span style="font-weight:800;font-size:15px">{escape(g["nombre"])}</span>
-            <span style="white-space:nowrap">
+          <div style="background:#0b1628;color:#fff;padding:10px 14px">
+            <div style="font-weight:800;font-size:15px">{escape(g["nombre"])}</div>
+            <div style="margin-top:5px;line-height:2">
               <span style="font-size:11.5px;background:{cal_bg};color:{cal_col};padding:3px 9px;border-radius:11px;font-weight:800">calidad {cal}/100</span>
               <span style="font-size:11.5px;background:{chip_bg};color:{chip_col};padding:3px 9px;border-radius:11px;font-weight:700">{escape(chip_txt)}</span>
-            </span>
+            </div>
           </div>
           <div style="padding:6px 14px 12px">{rows}</div></div>'''
 
