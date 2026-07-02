@@ -1044,44 +1044,25 @@ def _build_html(data: dict) -> str:
             chip_txt = f'{g["n_proj"]} proyecto(s) · al día'
         rows = ""
         ps = g["proyectos"]
-        # Anti-recorte de Gmail (~102KB): fila COMPLETA solo para proyectos con
-        # pendientes; los OK van en una línea compacta al final. Antes se
-        # renderizaban los 113 proyectos completos → ~235KB y Gmail cortaba el email.
+        # Anti-recorte de Gmail (~102KB): el email pesaba 235KB porque cada proyecto
+        # listaba TODOS sus pendientes con link (~1.9KB c/u × 113). En el EMAIL esta
+        # sección va COMPACTA: 1 línea por proyecto (nombre-link + conteos + estado).
+        # El detalle accionable con links "→ arreglar" vive en la sección Resolución
+        # de pendientes (arriba) y en el listado web (dashboard clicable).
         con_pend = [p for p in ps if p["n_crit"] or p["n_warn"]]
         ok_list = [p for p in ps if not (p["n_crit"] or p["n_warn"])]
-        for i, p in enumerate(con_pend):
+        for p in con_pend:
             color, _bg, label = _antiguedad_color(p["stock_updated_at"])
-            rel = _tiempo_relativo(p["stock_updated_at"]) if p["cargadas"] else "sin datos de stock"
-            border = "" if (i == len(con_pend) - 1 and not ok_list) else "border-bottom:1px solid #f3f4f6;"
             pub = ' 🌐' if p["publicado"] else ''
             if p["n_crit"]:
-                badge = f'<span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">● {p["n_crit"]} crit</span>'
+                cnt = f'<b style="color:#dc2626">● {p["n_crit"]} crit</b>'
+                if p["n_warn"]:
+                    cnt += f' <span style="color:#ca8a04">· {p["n_warn"]} warn</span>'
             else:
-                badge = f'<span style="background:#fef3c7;color:#ca8a04;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">● {p["n_warn"]} warn</span>'
-            # Cada pendiente es un LINK al editor en la pestaña donde se corrige.
-            # Email-safe: <div> con bullet, no <ul><li> (Gmail/Outlook los recortan).
-            def _fila_pend(items, color):
-                return "".join(
-                    f'<div style="margin:2px 0;padding-left:4px;font-size:12px;line-height:1.5;color:{color}">'
-                    f'<span style="color:#9ca3af">&bull;</span> '
-                    f'<a href="{_editor_url(p["id"], _tab_for(t))}" style="color:{color};text-decoration:underline">{escape(t)}</a></div>'
-                    for t in items
-                )
-            detail = ""
-            if p["criticos"]:
-                detail += f'<div style="margin-top:4px">{_fila_pend(p["criticos"], "#dc2626")}</div>'
-            if p["warnings"]:
-                detail += f'<div style="margin-top:2px">{_fila_pend(p["warnings"], "#ca8a04")}</div>'
-            rows += f'''<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;{border}">
-              <div style="padding-right:10px">
-                <div style="font-weight:700;font-size:13.5px;color:#0a0d12">{_project_link(p)}{pub}</div>
-                <div style="font-size:11.5px;color:#6b7280;margin-top:2px">{p["disp"]} disp · {p["cargadas"]} cargadas · {escape(rel)}</div>
-                {detail}
-              </div>
-              <div style="text-align:right;white-space:nowrap">
-                {badge}
-                <div style="font-size:10.5px;color:{color};margin-top:4px;font-weight:700;text-transform:uppercase">{escape(label)}</div>
-              </div></div>'''
+                cnt = f'<b style="color:#ca8a04">● {p["n_warn"]} warn</b>'
+            rows += (f'<div style="padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:12.5px;color:#374151">'
+                     f'{_project_link(p)}{pub} <span style="color:#9ca3af">—</span> {cnt} '
+                     f'<span style="color:{color};font-size:10.5px;font-weight:700;text-transform:uppercase">· {escape(label)}</span></div>')
         if ok_list:
             nombres_ok = " &nbsp;·&nbsp; ".join(escape(p["nombre"]) for p in ok_list)
             rows += (f'<div style="padding:9px 0;font-size:12px;color:#15803d;line-height:1.7">'
