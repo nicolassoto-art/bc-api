@@ -32,9 +32,15 @@ from app.settings import settings
 
 log = logging.getLogger(__name__)
 
-# UTC-3 para Chile (CLT). En invierno chileno es UTC-4 (CLST); el cálculo es solo
-# para mostrar la fecha del día en el subject — el cron usa apscheduler con
-# timezone='America/Santiago' que maneja el DST correctamente.
+# Zona horaria REAL de Chile con DST (UTC-4 invierno / UTC-3 verano ~sep-abr).
+# TODAS las horas mostradas y las ventanas día-calendario usan esta constante.
+# Antes se usaba timezone(timedelta(hours=-4)) fijo → en verano chileno todo
+# quedaba 1 hora corrido (auditoría 2026-07-02). Fallback por si faltara tzdata.
+try:
+    from zoneinfo import ZoneInfo
+    TZ_CL = ZoneInfo("America/Santiago")
+except Exception:  # pragma: no cover
+    TZ_CL = timezone(timedelta(hours=-4))
 
 
 def _proyectos_activos(db: Session):
@@ -115,11 +121,17 @@ def _alertas_de_proyecto(p) -> dict:
         criticos.append("Sin inmobiliaria")
     if not p.comuna or not str(p.comuna).strip():
         criticos.append("Sin comuna")
-    # Foto de fachada: vale el foto_principal_url O cualquier imagen en la sección
-    # Fachada/Exterior (si el corredor cargó la foto pero no la marcó como principal,
-    # NO es "sin foto"). Evita el falso positivo "dice que no hay foto y sí la tienen".
-    _cats_img = [(im.categoria or "").strip().lower() for im in (p.imagenes or [])]
-    _tiene_fachada = bool(p.foto_principal_url) or any(c in ("fachada", "exterior") for c in _cats_img)
+    # Foto de fachada: MISMA semántica que _foto_principal_fallback del API (que es
+    # lo que decide el cover real del catálogo): vale foto_principal_url, O una imagen
+    # marcada es_principal, O una imagen fachada-like (jb-foto*/foto/fachada/exterior/
+    # sin categoría — nunca plantas jb-planta-*). Evita falsos "sin foto" en proyectos
+    # importados de JB, donde el importador sube 'jb-foto'/'cover' sin setear la portada.
+    def _img_fachada(im):
+        c = (im.categoria or "").strip().lower()
+        if c.startswith("jb-planta"):
+            return False
+        return im.es_principal or c in {"jb-foto", "foto", "fachada", "exterior", "cover", ""} or "foto" in c
+    _tiene_fachada = bool(p.foto_principal_url) or any(_img_fachada(im) for im in (p.imagenes or []))
     if not _tiene_fachada:
         criticos.append("Sin foto de fachada")
     no_tiene_stock = (len(unidades) == 0)
@@ -399,7 +411,7 @@ def _resumen_semana_html(eventos) -> str:
     if not eventos:
         return (titulo + '<div style="padding:11px 14px;background:#f9fafb;border-radius:8px;'
                 'color:#6b7280;font-size:12.5px">Sin actividad manual registrada la semana anterior.</div>')
-    tz_cl = timezone(timedelta(hours=-4))
+    tz_cl = TZ_CL
     dias = {}  # iso -> [(cl_dt, ev)]
     for ev in eventos:
         cl = ev["fecha"].astimezone(tz_cl)
@@ -668,7 +680,7 @@ def build_daily_report(db: Session, forzar_semana: bool = False) -> dict:
     # el fin de semana para no perder lo del viernes). Resume TODO lo que se movió
     # en el stock (carga de stock, ediciones, publicaciones, notas…) leído del
     # timeline, con quién y cuándo. Los errores ('Alerta') van en su sección, se excluyen.
-    _now_cl = datetime.now(timezone(timedelta(hours=-4)))  # Chile (≈UTC-4) solo para el weekday
+    _now_cl = datetime.now(TZ_CL)  # hora real de Chile (DST-aware)
     _vent_h = 72 if _now_cl.weekday() == 0 else 24         # lunes mira hasta el viernes
     _cut_act = datetime.now(timezone.utc) - timedelta(hours=_vent_h)
     actividad = []
@@ -686,7 +698,7 @@ def build_daily_report(db: Session, forzar_semana: bool = False) -> dict:
     # ventana que la actividad general (24h, o 72h los lunes).
     _op_nombre = _operador_nombre()
     # Ventana día-CALENDARIO Chile: [ayer 00:00, hoy 00:00). Lunes = vie+sáb+dom.
-    _tz_cl = timezone(timedelta(hours=-4))
+    _tz_cl = TZ_CL
     _hoy_cl_00 = datetime.now(_tz_cl).replace(hour=0, minute=0, second=0, microsecond=0)
     _dias_atras = 3 if _now_cl.weekday() == 0 else 1
     _op_cutoff = _hoy_cl_00 - timedelta(days=_dias_atras)
@@ -918,8 +930,8 @@ def _hora_cl(dt) -> str:
         return ""
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    cl = dt.astimezone(timezone(timedelta(hours=-4)))
-    now = datetime.now(timezone(timedelta(hours=-4)))
+    cl = dt.astimezone(TZ_CL)
+    now = datetime.now(TZ_CL)
     hm = cl.strftime("%H:%M")
     dias = (now.date() - cl.date()).days
     if dias <= 0:
@@ -1032,30 +1044,34 @@ def _build_html(data: dict) -> str:
             chip_txt = f'{g["n_proj"]} proyecto(s) · al día'
         rows = ""
         ps = g["proyectos"]
-        for i, p in enumerate(ps):
+        # Anti-recorte de Gmail (~102KB): fila COMPLETA solo para proyectos con
+        # pendientes; los OK van en una línea compacta al final. Antes se
+        # renderizaban los 113 proyectos completos → ~235KB y Gmail cortaba el email.
+        con_pend = [p for p in ps if p["n_crit"] or p["n_warn"]]
+        ok_list = [p for p in ps if not (p["n_crit"] or p["n_warn"])]
+        for i, p in enumerate(con_pend):
             color, _bg, label = _antiguedad_color(p["stock_updated_at"])
             rel = _tiempo_relativo(p["stock_updated_at"]) if p["cargadas"] else "sin datos de stock"
-            border = "" if i == len(ps) - 1 else "border-bottom:1px solid #f3f4f6;"
+            border = "" if (i == len(con_pend) - 1 and not ok_list) else "border-bottom:1px solid #f3f4f6;"
             pub = ' 🌐' if p["publicado"] else ''
             if p["n_crit"]:
                 badge = f'<span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">● {p["n_crit"]} crit</span>'
-            elif p["n_warn"]:
-                badge = f'<span style="background:#fef3c7;color:#ca8a04;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">● {p["n_warn"]} warn</span>'
             else:
-                badge = '<span style="background:#dcfce7;color:#16a34a;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">● OK</span>'
+                badge = f'<span style="background:#fef3c7;color:#ca8a04;font-size:11px;font-weight:800;padding:3px 9px;border-radius:11px">● {p["n_warn"]} warn</span>'
             # Cada pendiente es un LINK al editor en la pestaña donde se corrige.
-            def _li(items, color):
+            # Email-safe: <div> con bullet, no <ul><li> (Gmail/Outlook los recortan).
+            def _fila_pend(items, color):
                 return "".join(
-                    f'<li><a href="{_editor_url(p["id"], _tab_for(t))}" style="color:{color};text-decoration:underline">{escape(t)}</a></li>'
+                    f'<div style="margin:2px 0;padding-left:4px;font-size:12px;line-height:1.5;color:{color}">'
+                    f'<span style="color:#9ca3af">&bull;</span> '
+                    f'<a href="{_editor_url(p["id"], _tab_for(t))}" style="color:{color};text-decoration:underline">{escape(t)}</a></div>'
                     for t in items
                 )
             detail = ""
             if p["criticos"]:
-                detail += f'<ul style="margin:4px 0 0;padding-left:16px;color:#dc2626;font-size:12px;line-height:1.5">{_li(p["criticos"], "#dc2626")}</ul>'
+                detail += f'<div style="margin-top:4px">{_fila_pend(p["criticos"], "#dc2626")}</div>'
             if p["warnings"]:
-                detail += f'<ul style="margin:2px 0 0;padding-left:16px;color:#ca8a04;font-size:12px;line-height:1.5">{_li(p["warnings"], "#ca8a04")}</ul>'
-            if not detail:
-                detail = '<div style="font-size:12px;color:#16a34a;margin-top:3px">Sin pendientes — publicable.</div>'
+                detail += f'<div style="margin-top:2px">{_fila_pend(p["warnings"], "#ca8a04")}</div>'
             rows += f'''<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;{border}">
               <div style="padding-right:10px">
                 <div style="font-weight:700;font-size:13.5px;color:#0a0d12">{_project_link(p)}{pub}</div>
@@ -1066,6 +1082,10 @@ def _build_html(data: dict) -> str:
                 {badge}
                 <div style="font-size:10.5px;color:{color};margin-top:4px;font-weight:700;text-transform:uppercase">{escape(label)}</div>
               </div></div>'''
+        if ok_list:
+            nombres_ok = " &nbsp;·&nbsp; ".join(escape(p["nombre"]) for p in ok_list)
+            rows += (f'<div style="padding:9px 0;font-size:12px;color:#15803d;line-height:1.7">'
+                     f'<b>✓ Al día ({len(ok_list)}):</b> <span style="color:#374151">{nombres_ok}</span></div>')
         cal = g.get("calidad", 0)
         cal_col, cal_bg, _cal_lbl = _calidad_band(cal)
         inmob_html += f'''<div style="margin-top:14px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">
@@ -1083,7 +1103,7 @@ def _build_html(data: dict) -> str:
     if data["errores_24h"]:
         rows_err = []
         for e in data["errores_24h"]:
-            hora = e["fecha"].astimezone(timezone(timedelta(hours=-4))).strftime("%d/%m %H:%M") if e.get("fecha") else "—"
+            hora = e["fecha"].astimezone(TZ_CL).strftime("%d/%m %H:%M") if e.get("fecha") else "—"
             rows_err.append(f'''<tr>
               <td style="padding:8px 10px;border-bottom:1px solid #fecaca;font-size:12px;color:#6b7280;white-space:nowrap;width:90px">{escape(hora)}</td>
               <td style="padding:8px 10px;border-bottom:1px solid #fecaca;font-weight:700;color:#0a0d12;font-size:12.5px">{escape(e["proyecto"])}</td>
@@ -1188,7 +1208,7 @@ def _build_html(data: dict) -> str:
     """
 
 
-def send_daily_report(forzar_semana: bool = False) -> None:
+def send_daily_report(forzar_semana: bool = False, guardar_snapshot: bool = True) -> None:
     """Disparado por APScheduler L-V 09am. No-op si SMTP no configurado."""
     if not _configured():
         log.info("daily_report: SMTP no configurado — informe NO enviado.")
@@ -1235,8 +1255,12 @@ def send_daily_report(forzar_semana: bool = False) -> None:
             s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))
             s.send_message(msg)
         # Guardar el set de pendientes de HOY como snapshot 'morning' → el informe
-        # de mañana compara contra esto para saber qué se solucionó.
-        _snap_set("morning", data.get("pend_actual", {}), datetime.utcnow().isoformat())
+        # de mañana compara contra esto para saber qué se solucionó. Los disparos
+        # de PRUEBA (/admin/daily-report/test) pasan guardar_snapshot=False para NO
+        # corromper la línea base del cruce (un test a las 18:00 borraría la foto
+        # de las 09:00 y los "Solucionados" del día desaparecerían del informe).
+        if guardar_snapshot:
+            _snap_set("morning", data.get("pend_actual", {}), datetime.utcnow().isoformat())
         log.info(
             "daily_report enviado → To:%s Cc:%s · activos:%d disp:%d inmob:%d crit:%d warn:%d sinCargar:%d staleStock:%d",
             to_addr, ", ".join(cc_list) or "—",
@@ -1257,7 +1281,7 @@ def build_operador_today(db: Session) -> dict:
     Chile hasta el momento de correr. SOLO su usuario (email exacto), sin scraper
     (mismo filtro doble que _operador_actividad: email + descarta origen_auto)."""
     proyectos = _proyectos_activos(db)
-    tz_cl = timezone(timedelta(hours=-4))  # Chile ≈ UTC-4
+    tz_cl = TZ_CL  # Chile con DST real
     medianoche_cl = datetime.now(tz_cl).replace(hour=0, minute=0, second=0, microsecond=0)
     grupos, n, n_proj = _operador_actividad(proyectos, medianoche_cl)
     # Cruce: qué de los pendientes de la MAÑANA (informe 09:00 de hoy) se solucionó.
@@ -1301,7 +1325,7 @@ def _build_operador_html(data: dict) -> str:
     """
 
 
-def send_operador_today_report() -> None:
+def send_operador_today_report(guardar_snapshot: bool = True) -> None:
     """Disparado por APScheduler L-V 13:00 Chile. Envía SOLO los avances de hoy de
     Cristofer a operador_report_to. No-op si SMTP no configurado o si está deshabilitado."""
     if not _configured():
@@ -1335,7 +1359,8 @@ def send_operador_today_report() -> None:
             s.starttls()
             s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))
             s.send_message(msg)
-        _snap_set("afternoon", data.get("pend_actual", {}), datetime.utcnow().isoformat())
+        if guardar_snapshot:
+            _snap_set("afternoon", data.get("pend_actual", {}), datetime.utcnow().isoformat())
         log.info("operador_today enviado → %s · %d cambios / %d proyectos",
                  ", ".join(dests), data["n_operador"], data["n_operador_proyectos"])
     except Exception as e:

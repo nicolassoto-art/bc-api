@@ -18,8 +18,12 @@ from ..settings import settings
 
 log = logging.getLogger("bcapi.mail")
 
-# Sello horario aprox. zona Chile (no crítico; evita depender de tzdata).
-_CL_TZ = timezone(timedelta(hours=-4))
+# Zona horaria REAL de Chile (DST-aware). Fallback UTC-4 si faltara tzdata.
+try:
+    from zoneinfo import ZoneInfo
+    _CL_TZ = ZoneInfo("America/Santiago")
+except Exception:  # pragma: no cover
+    _CL_TZ = timezone(timedelta(hours=-4))
 
 
 def _configured() -> bool:

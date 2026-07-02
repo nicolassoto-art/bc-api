@@ -90,8 +90,12 @@ def _acquire_scheduler_lock() -> bool:
 @app.on_event("startup")
 def _start_scheduler():
     global _scheduler
-    if not settings.daily_report_enabled:
-        log.info("Scheduler: daily_report deshabilitado, no se inicia.")
+    # Cada job tiene su PROPIO flag: daily_report_enabled solo apaga el informe de
+    # las 09:00 — NO el de las 13:00 ni el inbox processor (antes un early-return
+    # apagaba el scheduler entero y todos los jobs caían juntos).
+    if not (settings.daily_report_enabled or settings.operador_report_enabled
+            or settings.inbox_processor_enabled):
+        log.info("Scheduler: todos los jobs deshabilitados, no se inicia.")
         return
     if not _acquire_scheduler_lock():
         log.info("Scheduler: otro worker ya tiene el lock · este worker NO inicia scheduler.")
@@ -100,14 +104,16 @@ def _start_scheduler():
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger
         _scheduler = BackgroundScheduler(timezone="America/Santiago")
-        _scheduler.add_job(
-            send_daily_report,
-            CronTrigger(day_of_week="mon-fri", hour=9, minute=0, timezone="America/Santiago"),
-            id="daily_stock_report",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-        )
+        if settings.daily_report_enabled:
+            _scheduler.add_job(
+                send_daily_report,
+                CronTrigger(day_of_week="mon-fri", hour=9, minute=0, timezone="America/Santiago"),
+                id="daily_stock_report",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+            log.info("Scheduler · daily_stock_report L-V 09:00 America/Santiago")
         # Informe de las 13:00 L-V: solo los avances de HOY de Cristofer (manual).
         if settings.operador_report_enabled:
             _scheduler.add_job(
@@ -132,7 +138,7 @@ def _start_scheduler():
             )
             log.info("Scheduler · inbox_processor cada %d min", settings.inbox_poll_minutes)
         _scheduler.start()
-        log.info("Scheduler iniciado · daily_stock_report L-V 09:00 America/Santiago")
+        log.info("Scheduler iniciado.")
     except Exception as e:
         log.error("No se pudo iniciar scheduler: %s", e, exc_info=True)
 
@@ -149,8 +155,10 @@ def trigger_daily_report(semana: bool = False, _: Usuario = Depends(super_admin)
     """Dispara el informe diario manualmente (solo super_admin) y lo ENVÍA a los
     destinatarios reales (To=daily_report_to, Cc=daily_report_cc). Para revisar el
     contenido SIN enviar, usar GET /admin/daily-report/preview.
-    semana=true fuerza la sección 'Resumen de la semana anterior' (normalmente solo lunes)."""
-    send_daily_report(forzar_semana=semana)
+    semana=true fuerza la sección 'Resumen de la semana anterior' (normalmente solo lunes).
+    NO guarda el snapshot del cruce (solo el cron real de las 09:00 lo guarda) — así un
+    test a cualquier hora no corrompe la línea base de 'Solucionados/Pendientes'."""
+    send_daily_report(forzar_semana=semana, guardar_snapshot=False)
     return {"ok": True, "sent_to": settings.daily_report_to or settings.notify_to,
             "cc": settings.daily_report_cc, "forzar_semana": semana}
 
@@ -175,8 +183,9 @@ def preview_operador_today(_: Usuario = Depends(super_admin)):
 
 @app.post("/admin/operador-today/test", tags=["meta"])
 def trigger_operador_today(_: Usuario = Depends(super_admin)):
-    """Dispara y ENVÍA el informe de las 13:00 a operador_report_to (solo super_admin)."""
-    send_operador_today_report()
+    """Dispara y ENVÍA el informe de las 13:00 a operador_report_to (solo super_admin).
+    NO guarda snapshot (solo el cron real lo hace)."""
+    send_operador_today_report(guardar_snapshot=False)
     return {"ok": True, "sent_to": settings.operador_report_to}
 
 
