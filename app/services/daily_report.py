@@ -221,6 +221,11 @@ def _alertas_de_proyecto(p) -> dict:
         nombre = m.get("nombre") or m.get("name")
         k = norm(nombre)
         if not k: continue
+        # planta_no_disponible: la INMOBILIARIA no publica la planta de este modelo
+        # (lo marca el operador en el editor). No es un pendiente accionable → no
+        # cuenta como "sin planta" (Cristofer no puede subir lo que la fuente no tiene).
+        if m.get("planta_no_disponible"):
+            continue
         bid = _blueprint_id(m)
         tiene_planta = (
             (bid is not None and bid in plantas_ids)
