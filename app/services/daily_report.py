@@ -1057,12 +1057,12 @@ def _build_html(data: dict) -> str:
             if p["n_crit"]:
                 cnt = f'<b style="color:#dc2626">● {p["n_crit"]} crit</b>'
                 if p["n_warn"]:
-                    cnt += f' <span style="color:#ca8a04">· {p["n_warn"]} warn</span>'
+                    cnt += f' · {p["n_warn"]} warn'
             else:
                 cnt = f'<b style="color:#ca8a04">● {p["n_warn"]} warn</b>'
-            rows += (f'<div style="padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:12.5px;color:#374151">'
-                     f'{_project_link(p)}{pub} <span style="color:#9ca3af">—</span> {cnt} '
-                     f'<span style="color:{color};font-size:10.5px;font-weight:700;text-transform:uppercase">· {escape(label)}</span></div>')
+            rows += (f'<div style="padding:4px 0;font-size:12.5px;color:#374151">'
+                     f'{_project_link(p)}{pub} — {cnt} '
+                     f'<span style="color:{color};font-size:10.5px">· {escape(label)}</span></div>')
         if ok_list:
             nombres_ok = " &nbsp;·&nbsp; ".join(escape(p["nombre"]) for p in ok_list)
             rows += (f'<div style="padding:9px 0;font-size:12px;color:#15803d;line-height:1.7">'
@@ -1083,13 +1083,17 @@ def _build_html(data: dict) -> str:
     errores_html = ""
     if data["errores_24h"]:
         rows_err = []
-        for e in data["errores_24h"]:
+        # Cap 10 filas en el EMAIL (anti-recorte Gmail); el conteo total va en el título.
+        _errs = data["errores_24h"][:10]
+        for e in _errs:
             hora = e["fecha"].astimezone(TZ_CL).strftime("%d/%m %H:%M") if e.get("fecha") else "—"
             rows_err.append(f'''<tr>
               <td style="padding:8px 10px;border-bottom:1px solid #fecaca;font-size:12px;color:#6b7280;white-space:nowrap;width:90px">{escape(hora)}</td>
               <td style="padding:8px 10px;border-bottom:1px solid #fecaca;font-weight:700;color:#0a0d12;font-size:12.5px">{escape(e["proyecto"])}</td>
               <td style="padding:8px 10px;border-bottom:1px solid #fecaca;color:#7f1d1d;font-size:12px">{escape((e.get("detalles","") or "")[:160])}</td>
             </tr>''')
+        _extra_err = (f'<div style="font-size:11px;color:#9ca3af;margin-top:4px">… y {data["n_errores_24h"] - len(_errs)} error(es) más</div>'
+                      if data["n_errores_24h"] > len(_errs) else '')
         errores_html = f'''
         <h3 style="margin:24px 0 8px;color:#dc2626;font-size:15px">🚨 Errores del scraper · {data["n_errores_24h"]} en últimas 24h</h3>
         <table style="width:100%;border-collapse:collapse;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;overflow:hidden">
@@ -1099,7 +1103,7 @@ def _build_html(data: dict) -> str:
             <th style="padding:6px 10px;text-align:left;font-size:11px;color:#7f1d1d;font-weight:700">Detalle</th>
           </tr></thead>
           <tbody>{"".join(rows_err)}</tbody>
-        </table>'''
+        </table>{_extra_err}'''
 
     # ─── Actividad desde el informe anterior (avances del día previo) ──────
     act = data.get("actividad", [])
