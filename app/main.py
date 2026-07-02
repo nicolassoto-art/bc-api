@@ -73,7 +73,11 @@ def _acquire_scheduler_lock() -> bool:
     global _scheduler_lock_fd
     try:
         import fcntl
-        fd = os.open("/tmp/bc-api-scheduler.lock", os.O_CREAT | os.O_RDWR, 0o644)
+        # Fuera de /tmp: systemd-tmpfiles puede borrar el archivo por edad y un
+        # worker respawneado tomaría un lock sobre un inode NUEVO → doble scheduler
+        # y emails duplicados. upload_path es persistente y escribible.
+        _lock_path = os.path.join(str(settings.upload_path), ".scheduler.lock")
+        fd = os.open(_lock_path, os.O_CREAT | os.O_RDWR, 0o644)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
@@ -112,6 +116,7 @@ def _start_scheduler():
                 replace_existing=True,
                 max_instances=1,
                 coalesce=True,
+                misfire_grace_time=3600,
             )
             log.info("Scheduler · daily_stock_report L-V 09:00 America/Santiago")
         # Informe de las 13:00 L-V: solo los avances de HOY de Cristofer (manual).
@@ -123,6 +128,7 @@ def _start_scheduler():
                 replace_existing=True,
                 max_instances=1,
                 coalesce=True,
+                misfire_grace_time=3600,
             )
             log.info("Scheduler · operador_today_report L-V 13:00 America/Santiago")
         # Inbox processor: cada N minutos lee emails con Excel adjunto y los aplica.
@@ -141,6 +147,15 @@ def _start_scheduler():
         log.info("Scheduler iniciado.")
     except Exception as e:
         log.error("No se pudo iniciar scheduler: %s", e, exc_info=True)
+        # Liberar el flock: si este worker falló al arrancar el scheduler y retiene
+        # el lock, NINGÚN worker programa los informes (cero emails en silencio).
+        global _scheduler_lock_fd
+        if _scheduler_lock_fd is not None:
+            try:
+                os.close(_scheduler_lock_fd)
+            except Exception:
+                pass
+            _scheduler_lock_fd = None
 
 
 @app.on_event("shutdown")
@@ -158,8 +173,9 @@ def trigger_daily_report(semana: bool = False, _: Usuario = Depends(super_admin)
     semana=true fuerza la sección 'Resumen de la semana anterior' (normalmente solo lunes).
     NO guarda el snapshot del cruce (solo el cron real de las 09:00 lo guarda) — así un
     test a cualquier hora no corrompe la línea base de 'Solucionados/Pendientes'."""
-    send_daily_report(forzar_semana=semana, guardar_snapshot=False)
-    return {"ok": True, "sent_to": settings.daily_report_to or settings.notify_to,
+    estado = send_daily_report(forzar_semana=semana, guardar_snapshot=False)
+    return {"ok": estado == "enviado", "estado": estado,
+            "sent_to": settings.daily_report_to or settings.notify_to,
             "cc": settings.daily_report_cc, "forzar_semana": semana}
 
 
@@ -184,9 +200,9 @@ def preview_operador_today(_: Usuario = Depends(super_admin)):
 @app.post("/admin/operador-today/test", tags=["meta"])
 def trigger_operador_today(_: Usuario = Depends(super_admin)):
     """Dispara y ENVÍA el informe de las 13:00 a operador_report_to (solo super_admin).
-    NO guarda snapshot (solo el cron real lo hace)."""
-    send_operador_today_report(guardar_snapshot=False)
-    return {"ok": True, "sent_to": settings.operador_report_to}
+    Reporta el estado REAL del envío."""
+    estado = send_operador_today_report()
+    return {"ok": estado == "enviado", "estado": estado, "sent_to": settings.operador_report_to}
 
 
 @app.post("/admin/inmobiliarias/normalize", tags=["meta"])

@@ -16,12 +16,15 @@ pueda emitir un email INMEDIATO cuando algo falla durante una importación.
 from __future__ import annotations
 import collections
 import logging
+import os as _os
 import re as _re
 import smtplib
+import threading as _threading
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import formataddr
 from html import escape
+from urllib.parse import quote as _urlquote
 
 from sqlalchemy.orm import Session
 
@@ -93,9 +96,11 @@ def _antiguedad_color(dt):
 
 def _is_depto(u):
     """¿La unidad es un departamento (no estac/bodega/pack)?"""
-    t = (u.tipo or "").lower() if u.tipo else ""
+    # tipo con fallback a tipologia (algunas fuentes tipean ahí) + "parking"
+    # (misma semántica que unidades.py: substring, cubre 'Parking'/'parking doble').
+    t = ((u.tipo or getattr(u, "tipologia", None)) or "").lower()
     n = (u.numero or "")
-    if n.startswith("E-") or "estac" in t: return False
+    if n.startswith("E-") or "estac" in t or "parking" in t: return False
     if n.startswith("B-") or "bodeg" in t or t == "storage": return False
     if "pack" in t: return False
     return True
@@ -154,8 +159,8 @@ def _alertas_de_proyecto(p) -> dict:
     if not p.fecha_entrega and not (extra.get("fisicos") or {}).get("ano_entrega") and not p.ano_entrega:
         warnings.append("Sin fecha de entrega")
     com = extra.get("comercial") or {}
-    if com.get("pie_pct") in (None, ""):
-        warnings.append("Sin pie %")
+    # (el pie % faltante se reporta SOLO en el crítico "Plan de pago incompleto";
+    # antes salía además como warning "Sin pie %" — mismo dato dos veces)
 
     # Plan de pago completo (necesario para cotizar bien). "Completo" = pie % + valor
     # de reserva + alguna estructura de cuotas del pie (pre/post entrega o cuotones).
@@ -172,7 +177,9 @@ def _alertas_de_proyecto(p) -> dict:
     if com.get("valor_reserva_clp") in (None, ""):
         falta_pp.append("valor de reserva")
     if not any(_pos(com.get(k)) for k in
-               ("cuotas_pre_entrega", "cuotas_post_entrega", "cuoton_inicial_pct", "cuoton_final_pct")):
+               ("cuotas_pre_entrega", "cuotas_post_entrega",
+                "cuoton_inicial_pct", "cuoton_final_pct",
+                "cuoton_inicial_uf", "cuoton_final_uf")):  # cuotones en UF también valen
         falta_pp.append("cuotas del pie (pre/post o cuotones)")
     if falta_pp:
         criticos.append("Plan de pago incompleto: falta " + ", ".join(falta_pp))
@@ -232,9 +239,9 @@ def _alertas_de_proyecto(p) -> dict:
     # Unidades con modelo huérfano (modelo no existe en extra.modelos)
     modelos_by_name = {norm(m.get("nombre") or m.get("name")): m for m in modelos if (m.get("nombre") or m.get("name"))}
     huerfanos = []
-    for u in deptos_disp:
-        m = norm(u.modelo)
-        if m and m not in modelos_by_name:
+    for u in deptos:  # TODAS las filas vivas: un modelo inexistente es bug de datos
+        m = norm(u.modelo)  # aunque la unidad esté no-disponible (y el cruce no
+        if m and m not in modelos_by_name:  # debe dar falso "Solucionado" al togglear)
             huerfanos.append(f"{u.numero or '?'} (modelo \"{u.modelo}\")")
     if huerfanos:
         criticos.append(f"{len(huerfanos)} unidad(es) con modelo que no existe: {', '.join(huerfanos[:5])}")
@@ -249,11 +256,16 @@ def _alertas_de_proyecto(p) -> dict:
     if deptos_sin_tipo:
         warnings.append(f"{len(deptos_sin_tipo)} depto(s) sin tipología: {', '.join(deptos_sin_tipo[:8])}")
 
-    # ─── Del scraper: _deptos_con_warning (estado persistente)
+    # ─── Del scraper: _deptos_con_warning (estado persistente). Se filtra contra el
+    # catálogo VIGENTE (si el modelo ya se registró a mano, el aviso del scraper quedó
+    # obsoleto) y NO se reporta si el mismo problema ya salió como "modelo que no
+    # existe" arriba (era el mismo dato dos veces).
     dw = extra.get("_deptos_con_warning") or []
-    if isinstance(dw, list) and dw:
-        modelos_dw = sorted(set(d.get("modelo") for d in dw if d.get("modelo")))
-        criticos.append(f"{len(dw)} depto(s) con modelo no registrado (scraper): {', '.join(modelos_dw[:5])}")
+    if isinstance(dw, list) and dw and not huerfanos:
+        dw_vigentes = sorted({d.get("modelo") for d in dw
+                              if d.get("modelo") and norm(d.get("modelo")) not in modelos_by_name})
+        if dw_vigentes:
+            criticos.append(f"{len(dw_vigentes)} modelo(s) no registrado(s) (scraper): {', '.join(dw_vigentes[:5])}")
 
     return {"criticos": criticos, "warnings": warnings}
 
@@ -281,8 +293,10 @@ def _eventos_ventana(p, cutoff):
 
 
 def _operador_email() -> str:
-    """Email del operador humano (Cristofer) = destinatario To del informe diario."""
-    return (settings.daily_report_to or "").strip().lower()
+    """Email del operador humano (Cristofer) = destinatario To del informe diario.
+    Si DAILY_REPORT_TO trae varios emails coma-separados, el operador es el PRIMERO
+    (antes el match exacto fallaba y los informes decían "sin cambios" para siempre)."""
+    return (settings.daily_report_to or "").split(",")[0].strip().lower()
 
 
 def _operador_nombre() -> str:
@@ -350,7 +364,9 @@ def _operador_section_html(op_nombre, op_grupos, n_op, n_op_proj, periodo, titul
     """Bloque HTML "Mejoras …" como LÍNEA DE TIEMPO: una fila por movimiento ordenada
     por hora (todas mezcladas, NO agrupadas por proyecto). Cada fila:
     HH:MM · Proyecto — detalle. Reutilizado por el informe de las 09:00 y el de 13:00."""
-    head = titulo or f"📋 Los avances de {escape(op_nombre)} {periodo}"
+    # op_nombre SIN escape acá: head pasa por escape() al renderizar (evitaba doble
+    # entidad "&amp;amp;" si algún llamador omitía titulo).
+    head = titulo or f"📋 Los avances de {op_nombre} {periodo}"
     if not n_op:
         return (f'<div style="margin:18px 0 0;padding:11px 14px;background:#f9fafb;border-radius:8px;'
                 f'color:#6b7280;font-size:12.5px">📋 <b>{escape(head)}:</b> sin cambios registrados.</div>')
@@ -373,10 +389,16 @@ def _operador_section_html(op_nombre, op_grupos, n_op, n_op_proj, periodo, titul
             f'<b style="color:#1f7a3d">{escape(proy)}</b> '
             f'<span style="color:#9ca3af">—</span> {det}</div>'
         )
+    # Los build_* truncan op_grupos ([:20]/[:40]) pero pasan los TOTALES: si se
+    # muestran menos movimientos que n_op, avisar en vez de truncar en silencio.
+    _extra_op = (f'<div style="font-size:11px;color:#9ca3af;margin-top:6px">… y {n_op - len(flat)} '
+                 f'movimiento(s) más (proyectos con menos cambios; detalle en el listado web)</div>'
+                 if n_op > len(flat) else '')
     return (
         f'<h3 style="margin:22px 0 6px;color:#0a0d12;font-size:15px">{escape(head)}</h3>'
         f'<div style="font-size:12px;color:#6b7280;margin-bottom:6px">{n_op} cambio(s) en {n_op_proj} proyecto(s) · en orden cronológico</div>'
         f'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:4px 14px">{"".join(filas)}</div>'
+        f'{_extra_op}'
     )
 
 
@@ -455,6 +477,8 @@ def _disclaimer_html() -> str:
 # _alertas_de_proyecto). Cada uno se identifica por (id_proyecto :: texto del crítico).
 import json as _json
 
+_SNAP_LOCK = _threading.Lock()
+
 
 def _snap_path():
     return settings.upload_path / "report_snapshots.json"
@@ -471,11 +495,17 @@ def _snap_load() -> dict:
 
 
 def _snap_set(slot: str, items: dict, ts: str) -> None:
-    """Guarda el set de pendientes actuales en el slot ('morning'|'afternoon')."""
+    """Guarda el set de pendientes en el slot ('morning'). Escritura ATÓMICA
+    (tmp + os.replace) bajo lock: una muerte del proceso a mitad de escritura ya no
+    puede dejar el JSON truncado (y _snap_load devolviendo {} = línea base perdida)."""
     try:
-        snap = _snap_load()
-        snap[slot] = {"ts": ts, "items": items}
-        _snap_path().write_text(_json.dumps(snap, ensure_ascii=False), "utf-8")
+        with _SNAP_LOCK:
+            snap = _snap_load()
+            snap[slot] = {"ts": ts, "items": items}
+            path = _snap_path()
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(_json.dumps(snap, ensure_ascii=False), "utf-8")
+            _os.replace(tmp, path)
     except Exception as e:
         log.warning("report_snapshots save falló: %s", e)
 
@@ -536,6 +566,10 @@ def _enriquecer_resueltos(cruce: dict, proyectos) -> None:
         if not p:
             continue
         evs = _eventos_ventana(p, since)
+        # Solo eventos MANUALES cuentan como "cuándo se solucionó": una Alerta o un
+        # import del scraper (origen_auto) no es un arreglo de la persona. Si no hay
+        # eventos manuales, mejor SIN hora que una hora engañosa.
+        evs = [e for e in evs if e.get("tipo") != "Alerta" and not e.get("origen_auto")]
         if evs:
             ult = max(evs, key=lambda e: e["fecha"])
             it["hora"] = _hora_cl(ult["fecha"]).split(" ")[-1]  # solo HH:MM
@@ -870,7 +904,7 @@ _BASE = "https://herramientas.bigcapital.cl"
 def _editor_url(pid: str, tab: str = "") -> str:
     """Link al EDITOR del proyecto (donde se corrige), opcionalmente en una pestaña.
     El editor acepta deep-link por hash: proyecto.html?id=X#tab=fotos."""
-    u = f"{_BASE}/src/stock-interno/proyecto.html?id={escape(pid or '')}"
+    u = f"{_BASE}/src/stock-interno/proyecto.html?id={_urlquote(pid or '', safe='')}"
     return u + (f"#tab={tab}" if tab else "")
 
 
@@ -1193,14 +1227,16 @@ def _build_html(data: dict) -> str:
     """
 
 
-def send_daily_report(forzar_semana: bool = False, guardar_snapshot: bool = True) -> None:
-    """Disparado por APScheduler L-V 09am. No-op si SMTP no configurado."""
+def send_daily_report(forzar_semana: bool = False, guardar_snapshot: bool = True) -> str:
+    """Disparado por APScheduler L-V 09am. Retorna el estado real del envío
+    ('enviado' | 'smtp_no_configurado' | 'deshabilitado' | 'error: …') para que
+    los endpoints /test no digan ok:true cuando en realidad no salió nada."""
     if not _configured():
         log.info("daily_report: SMTP no configurado — informe NO enviado.")
-        return
+        return "smtp_no_configurado"
     if not settings.daily_report_enabled:
         log.info("daily_report: deshabilitado (DAILY_REPORT_ENABLED=false).")
-        return
+        return "deshabilitado"
     try:
         with SessionLocal() as db:
             data = build_daily_report(db, forzar_semana=forzar_semana)
@@ -1253,8 +1289,10 @@ def send_daily_report(forzar_semana: bool = False, guardar_snapshot: bool = True
             data["n_con_critico"], data["n_con_warning"],
             len(data["sin_cargar"]), len(data["sin_actualizar"]),
         )
+        return "enviado"
     except Exception as e:
         log.error("daily_report falló: %s", e, exc_info=True)
+        return f"error: {e}"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1310,15 +1348,15 @@ def _build_operador_html(data: dict) -> str:
     """
 
 
-def send_operador_today_report(guardar_snapshot: bool = True) -> None:
+def send_operador_today_report() -> str:
     """Disparado por APScheduler L-V 13:00 Chile. Envía SOLO los avances de hoy de
-    Cristofer a operador_report_to. No-op si SMTP no configurado o si está deshabilitado."""
+    Cristofer a operador_report_to. Retorna el estado real del envío."""
     if not _configured():
         log.info("operador_today: SMTP no configurado — informe NO enviado.")
-        return
+        return "smtp_no_configurado"
     if not settings.operador_report_enabled:
         log.info("operador_today: deshabilitado (OPERADOR_REPORT_ENABLED=false).")
-        return
+        return "deshabilitado"
     try:
         with SessionLocal() as db:
             data = build_operador_today(db)
@@ -1332,7 +1370,7 @@ def send_operador_today_report(guardar_snapshot: bool = True) -> None:
         dests = [e.strip() for e in (settings.operador_report_to or "").split(",") if e.strip()]
         if not dests:
             log.warning("operador_today: sin destinatarios (operador_report_to vacío).")
-            return
+            return "sin_destinatarios"
         msg["To"] = ", ".join(dests)
         msg["Reply-To"] = from_addr
         msg.set_content(
@@ -1344,12 +1382,14 @@ def send_operador_today_report(guardar_snapshot: bool = True) -> None:
             s.starttls()
             s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))
             s.send_message(msg)
-        if guardar_snapshot:
-            _snap_set("afternoon", data.get("pend_actual", {}), datetime.utcnow().isoformat())
+        # (el slot 'afternoon' se eliminó: se escribía en cada envío de las 13:00
+        # pero ningún cruce lo leía — solo 'morning' es línea base.)
         log.info("operador_today enviado → %s · %d cambios / %d proyectos",
                  ", ".join(dests), data["n_operador"], data["n_operador_proyectos"])
+        return "enviado"
     except Exception as e:
         log.error("operador_today falló: %s", e, exc_info=True)
+        return f"error: {e}"
 
 
 def send_error_alert(titulo: str, detalle: str, proyecto: str = "") -> None:
