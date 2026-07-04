@@ -117,7 +117,9 @@ def _foto_principal_fallback(p: Proyecto) -> str | None:
     el listado admin — centralizada para que el catálogo público (worker)
     nunca quede sin cover. Causa raíz de '57 proyectos sin foto' (2026-06-08).
     """
-    if p.foto_principal_url:
+    # data: URIs (portadas base64 del editor pre-2026-07-02, hasta 836KB) se
+    # ignoran: inflaban el catalogo publico a 5MB. Cae al fallback de imagenes.
+    if p.foto_principal_url and not p.foto_principal_url.startswith("data:"):
         return p.foto_principal_url
     if not p.imagenes:
         return None
