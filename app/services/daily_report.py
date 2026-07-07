@@ -500,12 +500,17 @@ def _resumen_semana_html(eventos) -> str:
         cl = ev["fecha"].astimezone(tz_cl)
         dias.setdefault(cl.date().isoformat(), []).append((cl, ev))
     bloques = []
+    # Cap por día (2026-07-07, anti-recorte de Gmail ~102KB): un solo día con
+    # muchos cambios podía inflar todo el correo. El TOTAL real de la semana no
+    # se esconde: sigue en el título del bloque siguiente y en el PDF adjunto
+    # (Resolución de pendientes) para lo que sea un pendiente vigente.
+    DIA_CAP = 15
     for iso in sorted(dias):
         lst = sorted(dias[iso], key=lambda x: x[0])  # orden horario ascendente
         d0 = lst[0][0]
         cab = f'{_DIAS_FULL[d0.weekday()]} {d0.day} {_MES_FULL[d0.month - 1]}'
         filas = []
-        for cl, ev in lst:
+        for cl, ev in lst[:DIA_CAP]:
             tipo = _TIPO_LBL.get(ev.get("tipo", ""), ev.get("tipo") or "Cambio")
             det = escape((ev.get("detalles") or "").strip()[:200]) or escape(tipo)
             filas.append(
@@ -515,6 +520,11 @@ def _resumen_semana_html(eventos) -> str:
                 f'<b style="color:#1f7a3d">{escape(ev["proyecto"])}</b> '
                 f'<span style="color:#9ca3af;font-size:11px">({escape(ev.get("inmobiliaria") or "Sin inmobiliaria")})</span> '
                 f'<span style="color:#9ca3af">—</span> {det}</div>'
+            )
+        if len(lst) > DIA_CAP:
+            filas.append(
+                f'<div style="margin:0;padding:4px 0;font-size:11px;color:#9ca3af">… y {len(lst) - DIA_CAP} '
+                f'movimiento(s) más ese día — detalle en el listado web</div>'
             )
         bloques.append(
             f'<div style="margin-top:10px"><div style="font-size:13px;font-weight:700;color:#0a0d12;'
@@ -668,12 +678,15 @@ def _resolucion_html(cruce: dict, ref_label: str) -> str:
                 cuerpo = f'<b style="color:#0a0d12">{proy}</b> <span style="font-size:11px;color:#6b7280">({inmob})</span> — {txt}'
             return (f'<div style="margin:2px 0;font-size:12px;color:{color}">'
                     f'<span style="color:#9ca3af">&bull;</span>{hora_html} {cuerpo}</div>')
-        filas = "".join(_fila(it) for it in items[:25])
         # (2026-07-06) El PDF adjunto SIEMPRE trae el listado COMPLETO (sin cortar,
         # inmune al límite ~102KB de Gmail que recortaba el cuerpo del email si se
-        # listaban todos acá). El cuerpo muestra hasta 25 como vista previa.
-        extra = (f'<div style="font-size:11px;color:#9ca3af;margin:2px 0">… y {len(items)-25} más '
-                 f'→ ver el listado completo en el PDF adjunto</div>') if len(items) > 25 else ''
+        # listaban todos acá). El cuerpo muestra una vista previa acotada; bajado
+        # de 25→15 el 2026-07-07 (junto con compactar "Resumen por inmobiliaria")
+        # porque el correo real llegó a pesar 169KB y Gmail lo recortaba entero.
+        CAP = 15
+        filas = "".join(_fila(it) for it in items[:CAP])
+        extra = (f'<div style="font-size:11px;color:#9ca3af;margin:2px 0">… y {len(items)-CAP} más '
+                 f'→ ver el listado completo en el PDF adjunto</div>') if len(items) > CAP else ''
         return f'<div style="margin:3px 0 8px">{filas}{extra}</div>' if items else ''
 
     cuerpo = ""
@@ -1261,23 +1274,30 @@ def _build_html(data: dict) -> str:
         ps = g["proyectos"]
         # Anti-recorte de Gmail (~102KB): el email pesaba 235KB porque cada proyecto
         # listaba TODOS sus pendientes con link (~1.9KB c/u × 113). En el EMAIL esta
-        # sección va COMPACTA: 1 línea por proyecto (nombre-link + conteos + estado).
-        # El detalle accionable con links "→ arreglar" vive en la sección Resolución
-        # de pendientes (arriba) y en el listado web (dashboard clicable).
+        # sección va COMPACTA: 1 línea por proyecto, SOLO nombre + conteos (sin link
+        # ni indicador de antigüedad — ver comentario más abajo, 2026-07-07). El
+        # detalle accionable con links "→ arreglar" vive en Resolución de pendientes
+        # (arriba), el PDF adjunto (completo) y el listado web (dashboard clicable).
         con_pend = [p for p in ps if p["n_crit"] or p["n_warn"]]
         ok_list = [p for p in ps if not (p["n_crit"] or p["n_warn"])]
         for p in con_pend:
-            color, _bg, label = _antiguedad_color(p["stock_updated_at"])
             pub = ' 🌐' if p["publicado"] else ''
             if p["n_crit"]:
-                cnt = f'<b style="color:#dc2626">● {p["n_crit"]} crit</b>'
+                cnt = f'<b style="color:#dc2626">●{p["n_crit"]}c</b>'
                 if p["n_warn"]:
-                    cnt += f' · {p["n_warn"]} warn'
+                    cnt += f'·{p["n_warn"]}w'
             else:
-                cnt = f'<b style="color:#ca8a04">● {p["n_warn"]} warn</b>'
-            rows += (f'<div style="padding:4px 0;font-size:12.5px;color:#374151">'
-                     f'{_project_link(p)}{pub} — {cnt} '
-                     f'<span style="color:{color};font-size:10.5px">· {escape(label)}</span></div>')
+                cnt = f'<b style="color:#ca8a04">●{p["n_warn"]}w</b>'
+            # (2026-07-07) SIN link ni indicador de antigüedad por fila — esta sección
+            # es un TABLERO de un vistazo (114 proyectos), no la lista accionable.
+            # Antes cada fila llevaba <a href=...editor> (~170 bytes) × 113 proyectos
+            # con pendiente → 54KB solo esta sección, con "Resumen semana anterior"
+            # empujaba el correo a 169KB (Gmail recorta sobre ~102KB, se perdía TODO
+            # lo que viene después: errores del scraper incluido). Los links de
+            # verdad viven en "Resolución de pendientes" (arriba) y en el PDF adjunto
+            # (completo, sin límite de tamaño) — acá solo el nombre, en texto plano.
+            rows += (f'<div style="padding:3px 0;font-size:12px;color:#374151">'
+                     f'<b style="color:#0a0d12">{escape(p["nombre"])}</b>{pub} {cnt}</div>')
         if ok_list:
             nombres_ok = " &nbsp;·&nbsp; ".join(escape(p["nombre"]) for p in ok_list)
             rows += (f'<div style="padding:9px 0;font-size:12px;color:#15803d;line-height:1.7">'
