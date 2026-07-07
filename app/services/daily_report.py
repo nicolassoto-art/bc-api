@@ -156,7 +156,10 @@ def _alertas_de_proyecto(p) -> dict:
     # ─── WARNINGS (revisar pero no bloquean)
     if not p.fase:
         warnings.append("Sin fase definida")
-    if not p.fecha_entrega and not (extra.get("fisicos") or {}).get("ano_entrega") and not p.ano_entrega:
+    # (2026-07-06) quitado el lookup muerto a extra["fisicos"]["ano_entrega"] —
+    # esa clave no existe en producción (ver nota más abajo); p.ano_entrega (columna
+    # real) ya cubre el caso, así que esto no cambia el resultado, solo la claridad.
+    if not p.fecha_entrega and not p.ano_entrega:
         warnings.append("Sin fecha de entrega")
     com = extra.get("comercial") or {}
     # (el pie % faltante se reporta SOLO en el crítico "Plan de pago incompleto";
@@ -219,16 +222,25 @@ def _alertas_de_proyecto(p) -> dict:
     # Datos físicos (2026-07-06): pisos/unidades/estacionamientos/bodegas/
     # ascensores — mismos campos de la pestaña General del editor. 0 es un valor
     # VÁLIDO (ej. edificio bajo sin ascensor) → solo None/"" cuenta como faltante.
-    fis = extra.get("fisicos") or {}
+    #
+    # BUG REAL (encontrado 2026-07-06 en mega-audit, confirmado contra 3 proyectos
+    # reales vía API): NO existe extra["fisicos"] en producción — estos campos
+    # viven PLANOS en extra, y "estacionamientos" se llama "estac_totales" (NO
+    # "estacionamientos_totales"). fis=extra.get("fisicos") daba SIEMPRE {} →
+    # marcaba "Datos físicos incompletos" en el 100% de los proyectos (114/114),
+    # incluso los que tenían el dato completo (ej. Tocornal: pisos=9, ascensores=3,
+    # estac_totales=95 — igual salía como "falta todo"). jb_importer.py sí escribe
+    # con path "extra.fisicos.X" al importar, pero lo que queda GUARDADO y lo que
+    # lee este archivo son cosas distintas — verificado en vivo, no es teoría.
     FISICOS_LABELS = [
         ("pisos", "pisos"),
         ("unidades_totales", "unidades totales"),
         ("unidades_por_piso", "unidades por piso"),
-        ("estacionamientos_totales", "estacionamientos totales"),
+        ("estac_totales", "estacionamientos totales"),
         ("bodegas_totales", "bodegas totales"),
         ("ascensores", "ascensores"),
     ]
-    falta_fis = [lbl for key, lbl in FISICOS_LABELS if fis.get(key) in (None, "")]
+    falta_fis = [lbl for key, lbl in FISICOS_LABELS if extra.get(key) in (None, "")]
     if falta_fis:
         criticos.append("Datos físicos incompletos: falta " + ", ".join(falta_fis))
 
