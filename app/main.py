@@ -13,11 +13,12 @@ from fastapi.staticfiles import StaticFiles
 from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias, documentos, tickets
 from .settings import settings
 from .deps.auth import super_admin
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from .services import email_service
 from .services.daily_report import (
     send_daily_report, build_daily_report, _build_html,
     send_operador_today_report, build_operador_today, _build_operador_html,
+    _pendientes_pdf_bytes,
 )
 from .services.inbox_processor import process_inbox
 from .models import Usuario
@@ -186,6 +187,20 @@ def preview_daily_report(semana: bool = False, _: Usuario = Depends(super_admin)
     with SessionLocal() as db:
         data = build_daily_report(db, forzar_semana=semana)
     return HTMLResponse(_build_html(data))
+
+
+@app.get("/admin/daily-report/pendientes-pdf", tags=["meta"])
+def preview_pendientes_pdf(_: Usuario = Depends(super_admin)):
+    """PDF con el listado COMPLETO de pendientes vigentes (críticos, sin cortar —
+    persisten + nuevos), con datos REALES de prod, SIN enviar ningún email. Es el
+    mismo PDF que se adjunta al informe diario; expuesto aparte para poder revisarlo
+    antes de que salga el correo real. Solo super_admin."""
+    with SessionLocal() as db:
+        data = build_daily_report(db)
+    cruce = data.get("cruce", {})
+    items = (cruce.get("persisten") or []) + (cruce.get("nuevos") or [])
+    pdf_bytes = _pendientes_pdf_bytes(items, data["fecha_cl"])
+    return Response(content=pdf_bytes, media_type="application/pdf")
 
 
 @app.get("/admin/operador-today/preview", response_class=HTMLResponse, tags=["meta"])

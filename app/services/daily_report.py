@@ -181,8 +181,56 @@ def _alertas_de_proyecto(p) -> dict:
                 "cuoton_inicial_pct", "cuoton_final_pct",
                 "cuoton_inicial_uf", "cuoton_final_uf")):  # cuotones en UF también valen
         falta_pp.append("cuotas del pie (pre/post o cuotones)")
+    # Condiciones comerciales (2026-07-06, pedido Nicolás: la ficha debe estar
+    # completa). Mismos 4 selects que muestra el editor bajo "Condiciones
+    # Comerciales" y que hoy NO se chequeaban. precio_cotizacion tiene default
+    # 'lista' en proyectos nuevos → en la práctica casi nunca falta; se chequea
+    # igual por consistencia con la ficha completa.
+    if com.get("tipo_pie") in (None, ""):
+        falta_pp.append("tipo de pie")
+    if com.get("tipo_descuento") in (None, ""):
+        falta_pp.append("tipo de descuento")
+    if com.get("tipo_bono_pie") in (None, ""):
+        falta_pp.append("tipo de bono pie")
+    if com.get("precio_cotizacion") in (None, ""):
+        falta_pp.append("precio en cotizador")
     if falta_pp:
         criticos.append("Plan de pago incompleto: falta " + ", ".join(falta_pp))
+
+    # Forma de pago del pie (2026-07-06): CONDICIONAL a la estructura que el
+    # proyecto realmente usa — si no hay cuotón inicial, no corresponde exigir
+    # "cómo se paga el cuotón inicial" (sería falso positivo). uf_minima_cuota_pre
+    # y nota_pago_pie quedan fuera a propósito: el propio editor dice "déjalo en
+    # blanco si el proyecto no lo usa" — son opcionales, no ficha incompleta.
+    falta_fp = []
+    if (_pos(com.get("cuoton_inicial_pct")) or _pos(com.get("cuoton_inicial_uf"))) \
+            and com.get("pago_cuoton_inicial") in (None, ""):
+        falta_fp.append("pago del cuotón inicial")
+    if _pos(com.get("cuotas_pre_entrega")) and com.get("pago_pre_entrega") in (None, ""):
+        falta_fp.append("pago pre-entrega")
+    if _pos(com.get("cuotas_post_entrega")) and com.get("pago_post_entrega") in (None, ""):
+        falta_fp.append("pago post-entrega")
+    if (_pos(com.get("cuotas_pre_entrega")) or _pos(com.get("cuotas_post_entrega"))) \
+            and com.get("valor_cuota_clp") in (None, ""):
+        falta_fp.append("valor de la cuota (CLP)")
+    if falta_fp:
+        criticos.append("Forma de pago del pie incompleta: falta " + ", ".join(falta_fp))
+
+    # Datos físicos (2026-07-06): pisos/unidades/estacionamientos/bodegas/
+    # ascensores — mismos campos de la pestaña General del editor. 0 es un valor
+    # VÁLIDO (ej. edificio bajo sin ascensor) → solo None/"" cuenta como faltante.
+    fis = extra.get("fisicos") or {}
+    FISICOS_LABELS = [
+        ("pisos", "pisos"),
+        ("unidades_totales", "unidades totales"),
+        ("unidades_por_piso", "unidades por piso"),
+        ("estacionamientos_totales", "estacionamientos totales"),
+        ("bodegas_totales", "bodegas totales"),
+        ("ascensores", "ascensores"),
+    ]
+    falta_fis = [lbl for key, lbl in FISICOS_LABELS if fis.get(key) in (None, "")]
+    if falta_fis:
+        criticos.append("Datos físicos incompletos: falta " + ", ".join(falta_fis))
 
     # ─── GRANULARES (modelos / unidades)
     modelos = extra.get("modelos") or []
@@ -346,7 +394,11 @@ def _operador_actividad(proyectos, cutoff, end=None):
                 if (ev.get("usuario") or "").strip().lower() != op_email:
                     continue  # solo el usuario humano de Cristofer
                 key = p.nombre or p.id
-                g = grupos.setdefault(key, {"id": p.id, "nombre": key, "eventos": []})
+                g = grupos.setdefault(key, {
+                    "id": p.id, "nombre": key,
+                    "inmobiliaria": (p.inmobiliaria or "").strip() or "Sin inmobiliaria",
+                    "eventos": [],
+                })
                 g["eventos"].append(ev)
                 n += 1
     # Orden CRONOLÓGICO ascendente: eventos del más antiguo al más reciente dentro de
@@ -379,19 +431,22 @@ def _operador_section_html(op_nombre, op_grupos, n_op, n_op_proj, periodo, titul
     flat = []
     for g in op_grupos:
         for ev in g["eventos"]:
-            flat.append((ev, g.get("nombre") or g.get("id")))
+            flat.append((ev, g.get("nombre") or g.get("id"), g.get("inmobiliaria") or "Sin inmobiliaria"))
     flat.sort(key=lambda x: x[0]["fecha"])  # cronológico ascendente
     filas = []
-    for ev, proy in flat:
+    for ev, proy, inmob in flat:
         # solo la hora HH:MM (Chile), sin "hoy/ayer" — la fecha ya está en la cabecera
         hhmm = _hora_cl(ev["fecha"]).split(" ")[-1]
         tipo = _TIPO_LBL.get(ev.get("tipo", ""), ev.get("tipo") or "Cambio")
         det = escape((ev.get("detalles") or "").strip()[:200]) or escape(tipo)
+        # (2026-07-06) SIEMPRE mostrar proyecto Y inmobiliaria — antes solo salía el
+        # proyecto y era ambiguo de qué inmobiliaria era sin abrir el editor.
         filas.append(
             f'<div style="margin:0;padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:12.5px;color:#374151">'
             f'<b style="color:#0a0d12">{escape(hhmm)}</b> '
             f'<span style="color:#9ca3af">·</span> '
             f'<b style="color:#1f7a3d">{escape(proy)}</b> '
+            f'<span style="color:#9ca3af;font-size:11px">({escape(inmob)})</span> '
             f'<span style="color:#9ca3af">—</span> {det}</div>'
         )
     # Los build_* truncan op_grupos ([:20]/[:40]) pero pasan los TOTALES: si se
@@ -426,7 +481,8 @@ def _operador_eventos_planos(proyectos, cutoff, end):
                     continue
                 if (ev.get("usuario") or "").strip().lower() != op_email:
                     continue
-                out.append({**ev, "proyecto": p.nombre or p.id})
+                out.append({**ev, "proyecto": p.nombre or p.id,
+                            "inmobiliaria": (p.inmobiliaria or "").strip() or "Sin inmobiliaria"})
     out.sort(key=lambda e: e["fecha"])
     return out
 
@@ -457,6 +513,7 @@ def _resumen_semana_html(eventos) -> str:
                 f'<b style="color:#0a0d12">{cl.strftime("%H:%M")}</b> '
                 f'<span style="color:#9ca3af">·</span> '
                 f'<b style="color:#1f7a3d">{escape(ev["proyecto"])}</b> '
+                f'<span style="color:#9ca3af;font-size:11px">({escape(ev.get("inmobiliaria") or "Sin inmobiliaria")})</span> '
                 f'<span style="color:#9ca3af">—</span> {det}</div>'
             )
         bloques.append(
@@ -531,7 +588,10 @@ def _pendientes_actuales(proyectos) -> dict:
     for p in proyectos:
         a = _alertas_de_proyecto(p)
         for c in a.get("criticos", []):
-            out[f"{p.id}::{_critico_key(c)}"] = {"proyecto": p.nombre or p.id, "id": p.id, "texto": c}
+            out[f"{p.id}::{_critico_key(c)}"] = {
+                "proyecto": p.nombre or p.id, "id": p.id, "texto": c,
+                "inmobiliaria": (p.inmobiliaria or "").strip() or "Sin inmobiliaria",
+            }
     return out
 
 
@@ -595,18 +655,25 @@ def _resolucion_html(cruce: dict, ref_label: str) -> str:
             hora = it.get("hora")
             hora_html = f' <b style="color:#0a0d12">{escape(hora)}</b>' if hora else ''
             proy = escape(it["proyecto"])
+            # .get() con fallback: snapshots viejos (previos a este cambio) no tienen
+            # "inmobiliaria" — nunca debe faltar en pantalla, aunque venga de un snapshot antiguo.
+            inmob = escape(it.get("inmobiliaria") or "Sin inmobiliaria")
             txt = escape(it["texto"])
             if con_link and it.get("id"):
                 url = _editor_url(it["id"], _tab_for(it["texto"]))
                 cuerpo = (f'<a href="{url}" style="color:{color};text-decoration:underline">'
-                          f'<b>{proy}</b> — {txt}</a> '
+                          f'<b>{proy}</b> <span style="font-size:11px">({inmob})</span> — {txt}</a> '
                           f'<span style="color:#9ca3af;font-size:11px">→ arreglar</span>')
             else:
-                cuerpo = f'<b style="color:#0a0d12">{proy}</b> — {txt}'
+                cuerpo = f'<b style="color:#0a0d12">{proy}</b> <span style="font-size:11px;color:#6b7280">({inmob})</span> — {txt}'
             return (f'<div style="margin:2px 0;font-size:12px;color:{color}">'
                     f'<span style="color:#9ca3af">&bull;</span>{hora_html} {cuerpo}</div>')
         filas = "".join(_fila(it) for it in items[:25])
-        extra = f'<div style="font-size:11px;color:#9ca3af;margin:2px 0">… y {len(items)-25} más</div>' if len(items) > 25 else ''
+        # (2026-07-06) El PDF adjunto SIEMPRE trae el listado COMPLETO (sin cortar,
+        # inmune al límite ~102KB de Gmail que recortaba el cuerpo del email si se
+        # listaban todos acá). El cuerpo muestra hasta 25 como vista previa.
+        extra = (f'<div style="font-size:11px;color:#9ca3af;margin:2px 0">… y {len(items)-25} más '
+                 f'→ ver el listado completo en el PDF adjunto</div>') if len(items) > 25 else ''
         return f'<div style="margin:3px 0 8px">{filas}{extra}</div>' if items else ''
 
     cuerpo = ""
@@ -916,6 +983,12 @@ def _editor_url(pid: str, tab: str = "") -> str:
 # Mapa pendiente → pestaña del editor donde se arregla (orden importa: el primer
 # keyword que aparezca gana). "modelo sin planta" → modelos; "depto sin precio" → unidades.
 _TAB_KEYWORDS = [
+    # Estos 3 van PRIMERO: sus mensajes contienen "unidad"/"precio" (ej. "unidades
+    # totales", "precio en cotizador") que de otro modo matchearían esos keywords
+    # más abajo y mandarían a la pestaña equivocada (unidades) en vez de "general".
+    ("físic", "general"),                # "Datos físicos incompletos: ..."
+    ("plan de pago", "general"),          # "Plan de pago incompleto: ..."
+    ("forma de pago del pie", "general"),  # "Forma de pago del pie incompleta: ..."
     ("foto", "fotos"),
     ("planta", "modelos"),
     ("ubicaci", "local"),
@@ -939,6 +1012,107 @@ def _tab_for(msg: str) -> str:
         if kw in m:
             return tab
     return "general"
+
+
+def _pendientes_pdf_bytes(items: list[dict], fecha_cl: str) -> bytes:
+    """PDF con TODOS los pendientes vigentes, uno por fila, CADA FILA es un link
+    clickeable directo a la pestaña del editor donde se arregla (pedido Nicolás
+    2026-07-06). A diferencia del cuerpo del email (limitado a ~102KB antes de que
+    Gmail lo recorte), el PDF nunca corta nada — es la lista completa garantizada.
+    """
+    from io import BytesIO
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=letter,
+        leftMargin=1.3 * cm, rightMargin=1.3 * cm, topMargin=1.3 * cm, bottomMargin=1.3 * cm,
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("PendTitulo", parent=styles["Heading1"], fontSize=15, spaceAfter=3)
+    sub_style = ParagraphStyle("PendSub", parent=styles["Normal"], fontSize=9,
+                               textColor=colors.HexColor("#6b7280"), spaceAfter=4)
+    inmob_style = ParagraphStyle("PendInmob", parent=styles["Normal"], fontSize=10,
+                                 textColor=colors.white, leading=13)
+    row_style = ParagraphStyle("PendFila", parent=styles["Normal"], fontSize=9, leading=12,
+                               textColor=colors.HexColor("#111827"))
+
+    # Orden VISUAL por inmobiliaria → proyecto (no oculta ni resume nada: la
+    # cantidad de filas es exactamente len(items), igual que si fuera una sola lista).
+    items_sorted = sorted(items, key=lambda it: (
+        (it.get("inmobiliaria") or "").lower(), (it.get("proyecto") or "").lower(),
+    ))
+
+    elems = [
+        Paragraph("Pendientes de ficha · Stock BigCapital", title_style),
+        Paragraph(
+            f"{escape(fecha_cl)} &middot; {len(items_sorted)} pendiente(s) en total &middot; "
+            f"clic en cualquier fila para arreglarlo directo en el editor",
+            sub_style,
+        ),
+        Spacer(1, 6),
+    ]
+
+    LINK_COLOR = "#1d4ed8"
+    rows = [[Paragraph("<b>#</b>", row_style), Paragraph("<b>Pendiente</b>", row_style)]]
+    row_bg_idx = []  # índices de fila (dentro de `rows`, con header) que son cabecera de inmobiliaria
+    last_inmob = None
+    n = 0
+    for it in items_sorted:
+        inmob = it.get("inmobiliaria") or "Sin inmobiliaria"
+        if inmob != last_inmob:
+            rows.append([Paragraph("", inmob_style), Paragraph(escape(inmob), inmob_style)])
+            row_bg_idx.append(len(rows) - 1)
+            last_inmob = inmob
+        n += 1
+        pid = it.get("id") or ""
+        url = _editor_url(pid, _tab_for(it.get("texto") or ""))
+        proy = escape(it.get("proyecto") or pid)
+        texto = escape(it.get("texto") or "")
+        # Inmobiliaria SIEMPRE en la fila (no solo en el encabezado de grupo): si la
+        # tabla corta entre páginas, el encabezado de arriba puede no quedar visible
+        # en la página siguiente y la fila queda sin contexto de a quién pertenece.
+        celda = (f'<link href="{escape(url)}" color="{LINK_COLOR}"><b>{proy}</b> '
+                 f'<font size="8" color="#6b7280">({escape(inmob)})</font> &mdash; {texto}</link>')
+        rows.append([Paragraph(str(n), row_style), Paragraph(celda, row_style)])
+
+    tbl = Table(rows, colWidths=[1.2 * cm, 17.0 * cm], repeatRows=1)
+    style_cmds = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#111827")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#e5e7eb")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]
+    for idx in row_bg_idx:
+        style_cmds.append(("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#374151")))
+        style_cmds.append(("SPAN", (0, idx), (-1, idx)))
+    tbl.setStyle(TableStyle(style_cmds))
+    elems.append(tbl)
+    doc.build(elems)
+    return buf.getvalue()
+
+
+def _attach_pendientes_pdf(msg: EmailMessage, cruce: dict, fecha_cl: str) -> None:
+    """Adjunta el PDF con TODOS los pendientes vigentes (persisten + nuevos). Si no
+    hay ninguno, o si reportlab falla por cualquier motivo, no adjunta nada — nunca
+    debe romper el envío del email por esto."""
+    try:
+        items = (cruce.get("persisten") or []) + (cruce.get("nuevos") or [])
+        if not items:
+            return
+        pdf_bytes = _pendientes_pdf_bytes(items, fecha_cl)
+        fname = f"pendientes_stock_{datetime.now(TZ_CL):%Y-%m-%d}.pdf"
+        msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=fname)
+    except Exception as e:  # noqa: BLE001
+        log.warning("No se pudo generar/adjuntar el PDF de pendientes: %s", e, exc_info=True)
 
 
 def _project_link(p: dict, tab: str = "") -> str:
@@ -1281,6 +1455,7 @@ def send_daily_report(forzar_semana: bool = False, guardar_snapshot: bool = True
         msg["Reply-To"] = from_addr
         msg.set_content(f"Informe diario de stock · {data['fecha_cl']}\nActivos: {data['n_activos']} · Disp: {data['n_disponibles_total']} · Cambios 24h: {data['n_cambios_24h']}")
         msg.add_alternative(html, subtype="html")
+        _attach_pendientes_pdf(msg, data.get("cruce", {}), data["fecha_cl"])
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as s:
             s.starttls()
             s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))
@@ -1388,6 +1563,7 @@ def send_operador_today_report() -> str:
             f"{data['n_operador']} cambio(s) en {data['n_operador_proyectos']} proyecto(s)."
         )
         msg.add_alternative(html, subtype="html")
+        _attach_pendientes_pdf(msg, data.get("cruce", {}), data["fecha_cl"])
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as s:
             s.starttls()
             s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))
