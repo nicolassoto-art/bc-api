@@ -673,7 +673,10 @@ def _resolucion_html(cruce: dict, ref_label: str) -> str:
     def _lista(items, color, con_link=False):
         # Email-safe: <div> con bullet (no <ul><li>, que Gmail/Outlook recortan).
         # con_link=True: el error es un LINK al editor en la pestaña donde se arregla.
-        def _fila(it):
+        # Orden inmobiliaria → proyecto (mismo criterio que el PDF adjunto, pedido
+        # Nicolás 2026-07-07) + número de caso por fila (antes solo bullet, sin
+        # forma de referenciar "el pendiente #12" al hablar con el equipo).
+        def _fila(it, n):
             hora = it.get("hora")
             hora_html = f' <b style="color:#0a0d12">{escape(hora)}</b>' if hora else ''
             proy = escape(it["proyecto"])
@@ -689,17 +692,20 @@ def _resolucion_html(cruce: dict, ref_label: str) -> str:
             else:
                 cuerpo = f'<b style="color:#0a0d12">{proy}</b> <span style="font-size:11px;color:#6b7280">({inmob})</span> — {txt}'
             return (f'<div style="margin:2px 0;font-size:12px;color:{color}">'
-                    f'<span style="color:#9ca3af">&bull;</span>{hora_html} {cuerpo}</div>')
+                    f'<span style="color:#9ca3af">{n}.</span>{hora_html} {cuerpo}</div>')
+        items_sorted = sorted(items, key=lambda it: (
+            (it.get("inmobiliaria") or "").lower(), (it.get("proyecto") or "").lower(),
+        ))
         # (2026-07-06) El PDF adjunto SIEMPRE trae el listado COMPLETO (sin cortar,
         # inmune al límite ~102KB de Gmail que recortaba el cuerpo del email si se
         # listaban todos acá). El cuerpo muestra una vista previa acotada; bajado
         # de 25→15 el 2026-07-07 (junto con compactar "Resumen por inmobiliaria")
         # porque el correo real llegó a pesar 169KB y Gmail lo recortaba entero.
         CAP = 15
-        filas = "".join(_fila(it) for it in items[:CAP])
-        extra = (f'<div style="font-size:11px;color:#9ca3af;margin:2px 0">… y {len(items)-CAP} más '
-                 f'→ ver el listado completo en el PDF adjunto</div>') if len(items) > CAP else ''
-        return f'<div style="margin:3px 0 8px">{filas}{extra}</div>' if items else ''
+        filas = "".join(_fila(it, i + 1) for i, it in enumerate(items_sorted[:CAP]))
+        extra = (f'<div style="font-size:11px;color:#9ca3af;margin:2px 0">… y {len(items_sorted)-CAP} más '
+                 f'→ ver el listado completo en el PDF adjunto</div>') if len(items_sorted) > CAP else ''
+        return f'<div style="margin:3px 0 8px">{filas}{extra}</div>' if items_sorted else ''
 
     cuerpo = ""
     cuerpo += f'<div style="font-size:12.5px;color:#16a34a;font-weight:700;margin-top:6px">✅ Solucionados {escape(ref_label)} · {len(res)}</div>'
