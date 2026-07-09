@@ -1,0 +1,36 @@
+name: Diag Quotes Explore (server-side, solo lectura)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: diag-quotes-explore
+  cancel-in-progress: false
+
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+      - name: Explorar /quotes de JB (NO escribe en bc-api)
+        env:
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+        run: python3 scripts/diag_quotes_explore.py
+      - name: Upload artefactos (JSON + screenshots)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quotes-explore
+          path: imports/_diag_quotes/
+          retention-days: 14
