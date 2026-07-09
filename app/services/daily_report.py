@@ -335,6 +335,95 @@ def _alertas_de_proyecto(p) -> dict:
     return {"criticos": criticos, "warnings": warnings}
 
 
+def _catalogo_vs_stock(proyectos) -> list[dict]:
+    """Compara, por proyecto, lo que el CATÁLOGO público mostrará contra el STOCK
+    INTERNO real (la fuente de verdad — proyecto-vista.html manda). El catálogo y
+    la vista de "Modelos" agrupan las unidades por su campo `modelo`; si ese campo
+    no calza con un modelo registrado, la unidad se cae de esa vista y el catálogo
+    muestra MENOS de lo que hay en stock. Ese fue el bug de Carrera Capital (el
+    scraper subía las unidades con modelo vacío → los 5 modelos salían en 0).
+
+    Detecta tres divergencias (todo desde bc-api, sin depender del caché del worker):
+      1. unidades disponibles con modelo VACÍO (el catálogo no las agrupa)
+      2. unidades disponibles con modelo que NO existe entre los registrados
+      3. modelos registrados SIN ninguna unidad disponible (tarjeta vacía en catálogo)
+    Devuelve solo los proyectos con alguna divergencia, ordenados inmobiliaria→proyecto.
+    """
+    norm = lambda s: (s or "").strip().lower()
+    out = []
+    for p in proyectos:
+        extra = p.extra or {}
+        modelos = extra.get("modelos") or []
+        modelos_nombres = [(m.get("nombre") or m.get("name")) for m in modelos
+                           if (m.get("nombre") or m.get("name"))]
+        modelos_norm = {norm(n) for n in modelos_nombres}
+        deptos_disp = [u for u in (p.unidades or []) if _is_depto(u) and u.disponible]
+        if not deptos_disp:
+            continue  # sin stock disponible no hay nada que comparar en el catálogo
+        sin_modelo = [u for u in deptos_disp if not norm(u.modelo)]
+        inexistente = [u for u in deptos_disp
+                       if norm(u.modelo) and norm(u.modelo) not in modelos_norm]
+        modelos_en_uso = {norm(u.modelo) for u in deptos_disp if norm(u.modelo)}
+        modelos_vacios = [n for n in modelos_nombres if norm(n) not in modelos_en_uso]
+        if not (sin_modelo or inexistente or modelos_vacios):
+            continue
+        disp_total = len(deptos_disp)
+        # las que el catálogo SÍ agrupa bien = disponibles con modelo válido
+        disp_catalogo = disp_total - len(sin_modelo) - len(inexistente)
+        out.append({
+            "id": p.id,
+            "proyecto": p.nombre or p.id,
+            "inmobiliaria": (p.inmobiliaria or "").strip() or "Sin inmobiliaria",
+            "disp_total": disp_total,
+            "disp_catalogo": disp_catalogo,
+            "n_sin_modelo": len(sin_modelo),
+            "n_inexistente": len(inexistente),
+            "inexistente_ej": [f'{u.numero or "?"} ("{u.modelo}")' for u in inexistente[:5]],
+            "modelos_vacios": modelos_vacios,
+        })
+    out.sort(key=lambda x: (x["inmobiliaria"].lower(), x["proyecto"].lower()))
+    return out
+
+
+def _catalogo_vs_stock_html(items: list[dict]) -> str:
+    """Sección 'Catálogo vs Stock interno'. Lista los proyectos donde el catálogo
+    NO refleja fielmente el stock (fuente de verdad = proyecto-vista.html). Numera
+    cada caso. Vacía = todo alineado (mensaje verde)."""
+    header = ('<h3 style="margin:22px 0 6px;color:#0a0d12;font-size:15px">🔄 Catálogo vs Stock interno</h3>'
+              '<div style="font-size:11.5px;color:#6b7280;margin:-2px 0 8px">Manda el <b>stock interno</b> '
+              '(proyecto-vista). El catálogo público agrupa por modelo: si una unidad no calza con un modelo '
+              'registrado, se cae del catálogo y se muestra menos stock del real.</div>')
+    if not items:
+        return (header + '<div style="background:#dcfce7;border-left:4px solid #16a34a;border-radius:0 6px 6px 0;'
+                'padding:10px 14px;color:#15803d;font-weight:700;font-size:12.5px">🟢 Catálogo y stock interno '
+                'alineados — todas las unidades disponibles calzan con su modelo.</div>')
+    filas = ""
+    for i, it in enumerate(items, 1):
+        url = _editor_url(it["id"], "modelos")
+        proy = escape(it["proyecto"])
+        inmob = escape(it["inmobiliaria"])
+        partes = []
+        if it["disp_catalogo"] < it["disp_total"]:
+            partes.append(f'<b style="color:#dc2626">el catálogo muestra {it["disp_catalogo"]} de '
+                          f'{it["disp_total"]}</b> disponibles')
+        if it["n_sin_modelo"]:
+            partes.append(f'{it["n_sin_modelo"]} unidad(es) sin modelo asignado')
+        if it["n_inexistente"]:
+            ej = escape(", ".join(it["inexistente_ej"]))
+            partes.append(f'{it["n_inexistente"]} con modelo inexistente: {ej}')
+        if it["modelos_vacios"]:
+            mv = escape(", ".join(it["modelos_vacios"][:5]))
+            partes.append(f'{len(it["modelos_vacios"])} modelo(s) sin stock: {mv}')
+        detalle = " · ".join(partes)
+        filas += (f'<div style="margin:2px 0;font-size:12px;color:#374151">'
+                  f'<span style="color:#9ca3af">{i}.</span> '
+                  f'<a href="{url}" style="color:#9a3412;text-decoration:underline"><b>{proy}</b> '
+                  f'<span style="font-size:11px">({inmob})</span></a> — {detalle} '
+                  f'<span style="color:#9ca3af;font-size:11px">→ revisar</span></div>')
+    return (header + f'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;'
+            f'padding:10px 14px">{filas}</div>')
+
+
 def _eventos_ventana(p, cutoff):
     """Eventos del timeline de un proyecto desde `cutoff` (datetime aware UTC).
     Devuelve [{tipo,fecha,detalles,usuario}]. Base de _eventos_24h y de la
@@ -989,6 +1078,7 @@ def build_daily_report(db: Session, forzar_semana: bool = False) -> dict:
         "cruce": cruce,
         "pend_actual": pend_actual,
         "semana_anterior": semana_anterior,
+        "catalogo_vs_stock": _catalogo_vs_stock(proyectos),
     }
 
 
@@ -1407,6 +1497,8 @@ def _build_html(data: dict) -> str:
     )
     # Cruce de pendientes vs informe anterior (qué se solucionó / qué sigue)
     resolucion_html = _resolucion_html(data.get("cruce", {}), "desde el informe anterior")
+    # Catálogo vs Stock interno (monitoreo diario de desincronización de modelos)
+    catalogo_stock_html = _catalogo_vs_stock_html(data.get("catalogo_vs_stock", []))
     disclaimer_html = _disclaimer_html()
     # Lunes: resumen día a día de la semana anterior (None los demás días).
     semana_html = _resumen_semana_html(data["semana_anterior"]) if es_lunes else ""
@@ -1435,6 +1527,7 @@ def _build_html(data: dict) -> str:
           {operador_html}
           {semana_html}
           {resolucion_html}
+          {catalogo_stock_html}
           {actividad_html}
           {inmob_html}
           {faltantes_html}
