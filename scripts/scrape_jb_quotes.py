@@ -38,20 +38,6 @@ OUT.mkdir(parents=True, exist_ok=True)
 
 SEARCH_PATH = "/api/quote/organization/search"
 
-# Claves de paginación candidatas (nombre de campo -> es_offset). El contrato
-# real se detecta mirando el postData capturado; esto es solo el orden de
-# preferencia si aparecen varias.
-OFFSET_KEYS = ("offset", "skip", "from", "start")
-LIMIT_KEYS = ("limit", "take", "size", "pageSize", "perPage")
-PAGE_KEYS = ("page", "pageNumber", "pageIndex")
-
-
-def _pick(d: dict, keys):
-    for k in keys:
-        if k in d:
-            return k
-    return None
-
 
 def _first(d: dict, *names):
     """Primer valor no vacío entre varios nombres de campo posibles."""
@@ -126,110 +112,147 @@ async def main():
     )
     await imp.login()
     page = imp._page
+    from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
-    # ── 1. Capturar la request real de búsqueda ──
-    captured = {"url": None, "post_data": None, "headers": None}
+    # ── 1. Capturar TODAS las requests de búsqueda + descubrir la paginación
+    # haciendo click real en "página siguiente" (la paginación no va en la
+    # request inicial -- la UI la agrega al pasar de página). Comparando la
+    # request de página 1 vs página 2 se ve qué param cambió (URL o body). ──
+    search_reqs = []
+    captured = {"headers": None}
 
     async def on_request(req):
-        if SEARCH_PATH in req.url and req.method == "POST" and captured["url"] is None:
-            captured["url"] = req.url
-            captured["post_data"] = req.post_data
-            captured["headers"] = dict(req.headers)
+        if SEARCH_PATH in req.url and req.method == "POST":
+            search_reqs.append({"url": req.url, "post_data": req.post_data})
+            if captured["headers"] is None:
+                captured["headers"] = dict(req.headers)
 
     page.on("request", on_request)
-
-    print("### Navegando a /quotes para capturar la request de búsqueda", flush=True)
+    print("### /quotes: cargando y pasando a página 2 para descubrir la paginación", flush=True)
     await page.goto("https://app.jetbrokers.io/quotes", wait_until="networkidle", timeout=45_000)
     await page.wait_for_timeout(4_000)
+    n_inicial = len(search_reqs)
+
+    next_selectors = [
+        'button[aria-label="Página siguiente"]',
+        'button[aria-label="Next page"]',
+        'button.mat-mdc-paginator-navigation-next',
+        'button.mat-paginator-navigation-next',
+        '[class*="paginator"] button:has-text(">")',
+    ]
+    for sel in next_selectors:
+        try:
+            btn = page.locator(sel).first
+            if await btn.count() and await btn.is_enabled():
+                await btn.click()
+                await page.wait_for_timeout(3_500)
+                print(f"   ✓ click en '{sel}'", flush=True)
+                break
+        except Exception:
+            continue
     page.remove_listener("request", on_request)
 
-    if not captured["url"]:
-        print("✗ No se capturó la request de búsqueda -- la UI de /quotes cambió?", flush=True)
+    if not search_reqs:
+        print("✗ No se capturó ninguna request de búsqueda -- la UI cambió?", flush=True)
         await imp.close()
         sys.exit(1)
 
+    req0 = search_reqs[0]
+    parts = urlsplit(req0["url"])
+    qs0 = dict(parse_qsl(parts.query))
     try:
-        body = json.loads(captured["post_data"]) if captured["post_data"] else {}
+        body0 = json.loads(req0["post_data"]) if req0["post_data"] else {}
     except Exception:
-        body = {}
-    # La paginación NO va en el postData (ahí solo hay filtros: reference,
-    # broker, project, priceFrom/To, dateFrom/To, tipology, element) -- va en
-    # el QUERY de la URL. Se parsea de la URL capturada. Sin PII: son params
-    # de paginación/filtro vacíos, no datos de cliente.
-    from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
-    parts = urlsplit(captured["url"])
-    qs = dict(parse_qsl(parts.query))
-    print(f"   ✓ request capturada. postData keys={list(body.keys())} | query keys={list(qs.keys())}", flush=True)
+        body0 = {}
 
-    off_key = _pick(qs, OFFSET_KEYS)
-    lim_key = _pick(qs, LIMIT_KEYS)
-    page_key = _pick(qs, PAGE_KEYS)
-    page_size = int(qs.get(lim_key)) if lim_key and str(qs.get(lim_key)).isdigit() else 30
-    page_base = int(qs.get(page_key)) if page_key and str(qs.get(page_key)).isdigit() else 1
-    print(f"   paginación (query URL): offset_key={off_key} page_key={page_key} "
-          f"limit_key={lim_key} page_size={page_size} page_base={page_base}", flush=True)
+    # request de "página 2" = la primera que difiere de req0 (aparece recién
+    # tras el click).
+    req_next = next((r for r in search_reqs[n_inicial:]
+                     if r["url"] != req0["url"] or r["post_data"] != req0["post_data"]), None)
+
+    # Descubrir qué cambió (query o body) entre página 1 y página 2.
+    # scheme(i) -> (url, post_data_str) para la página índice i (0 = primera).
+    scheme = None
+    pag_desc = "ninguna"
+    if req_next is not None:
+        qsN = dict(parse_qsl(urlsplit(req_next["url"]).query))
+        try:
+            bodyN = json.loads(req_next["post_data"]) if req_next["post_data"] else {}
+        except Exception:
+            bodyN = {}
+
+        def _num_or_none(v):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return None
+
+        # Buscar la clave numérica que cambió (primero en query, luego en body).
+        changed = None  # (origen, key, base, delta)
+        for key in set(qs0) | set(qsN):
+            v0, v1 = _num_or_none(qs0.get(key)), _num_or_none(qsN.get(key))
+            if v0 is not None and v1 is not None and v1 != v0:
+                changed = ("query", key, v0, v1 - v0)
+                break
+        if changed is None:
+            for key in set(body0) | set(bodyN):
+                v0, v1 = _num_or_none(body0.get(key)), _num_or_none(bodyN.get(key))
+                if v0 is not None and v1 is not None and v1 != v0:
+                    changed = ("body", key, v0, v1 - v0)
+                    break
+
+        if changed:
+            origen, key, base, delta = changed
+            pag_desc = f"{origen}.{key} base={base} delta={delta}"
+
+            def scheme(i, _o=origen, _k=key, _b=base, _d=delta):
+                if _o == "query":
+                    q = dict(qs0); q[_k] = _b + i * _d
+                    url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(q), parts.fragment))
+                    return url, (req0["post_data"] or "{}")
+                else:
+                    b = dict(body0); b[_k] = _b + i * _d
+                    return req0["url"], json.dumps(b)
+
+    print(f"   paginación descubierta: {pag_desc}", flush=True)
 
     # Cliente HTTP ligado a la sesión del browser (comparte cookies/auth).
     req_ctx = page.request
     headers = {k: v for k, v in (captured["headers"] or {}).items()
                if k.lower() not in ("content-length", "host")}
 
-    def _url_with(param_updates):
-        q = dict(qs)
-        q.update(param_updates)
-        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(q), parts.fragment))
-
-    async def _fetch(url_i):
-        r = await req_ctx.post(url_i, data=(captured["post_data"] or "{}"), headers=headers)
+    async def _fetch_page(i):
+        if scheme is not None:
+            url_i, data_i = scheme(i)
+        else:
+            url_i, data_i = req0["url"], (req0["post_data"] or "{}")
+        r = await req_ctx.post(url_i, data=data_i, headers=headers)
         if not r.ok:
-            return None, r.status
+            return None, None, r.status
         d = await r.json()
         qs_ = d.get("quotes") if isinstance(d, dict) else d
         cnt = d.get("count") if isinstance(d, dict) else None
-        return (qs_, cnt), r.status
+        return qs_, cnt, r.status
 
-    # Página 0 (ids base para verificar que la paginación avance de verdad).
-    (page0, total_count), st0 = await _fetch(captured["url"])
+    # Página 0.
+    page0, total_count, st0 = await _fetch_page(0)
     if page0 is None:
         print(f"   ✗ página 0: HTTP {st0}", flush=True)
         await imp.close()
         sys.exit(1)
     page0_ids = {q.get("id") for q in page0}
-
-    # Esquema de paginación: usa la clave explícita si el query la trae; si no
-    # (la UI la agrega recién al pasar de página), PRUEBA candidatos y se queda
-    # con el primero cuya "página 1" traiga ids distintos a la página 0.
-    scheme = None  # (fn i -> {param: valor})
-    if off_key is not None:
-        scheme = lambda i: {off_key: i * page_size}  # noqa: E731
-    elif page_key is not None:
-        scheme = lambda i: {page_key: page_base + i}  # noqa: E731
-    else:
-        candidates = [
-            ("page", lambda i: {"page": 1 + i}),
-            ("offset", lambda i: {"offset": i * page_size}),
-            ("skip", lambda i: {"skip": i * page_size}),
-            ("page(base0)", lambda i: {"page": i}),
-            ("pageNumber", lambda i: {"pageNumber": 1 + i}),
-        ]
-        for nombre, fn in candidates:
-            (p1, _), _ = await _fetch(_url_with(fn(1)))
-            if p1 and {q.get("id") for q in p1} - page0_ids:
-                scheme = fn
-                print(f"   ✓ paginación por prueba: '{nombre}' (página 1 trae ids nuevos)", flush=True)
-                break
-            await page.wait_for_timeout(250)
+    page_size = len(page0) or 30
 
     all_quotes = list(page0)
     seen_ids = set(page0_ids)
     can_paginate = scheme is not None
     print(f"   página 0: {len(page0)} (de {total_count})", flush=True)
     if not can_paginate:
-        print("   ⚠ no se encontró forma de paginar -- solo página 0 (30 filas)", flush=True)
+        print("   ⚠ no se descubrió forma de paginar -- solo página 0", flush=True)
 
     i = 1
     while can_paginate and i < 400:  # tope de seguridad
-        (quotes, _), st = await _fetch(_url_with(scheme(i)))
+        quotes, _, st = await _fetch_page(i)
         if quotes is None:
             print(f"   ✗ página {i}: HTTP {st}", flush=True)
             break
