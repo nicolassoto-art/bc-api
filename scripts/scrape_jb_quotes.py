@@ -318,6 +318,44 @@ async def main():
                 break
             await page.wait_for_timeout(200)
 
+    # Fallback C: bisección por VENTANA DE FECHAS. El endpoint devuelve siempre
+    # 30 (cap server-side) e ignora todo param de paginación, PERO el postData
+    # trae filtros reales dateFrom/dateTo. Estrategia: partir el rango
+    # completo (2020->hoy) y, si una ventana devuelve el tope (=cap), partirla
+    # al medio recursivamente hasta que cada sub-ventana traiga menos del cap
+    # (= totalmente capturada). Garantiza completitud sin depender de la
+    # paginación oculta. Se verifica primero que el endpoint SÍ filtre por
+    # fecha (una ventana antigua vacía devuelve 0, no 30).
+    date_window_quotes = None
+    if scheme is None and single_shot is None:
+        from datetime import date, timedelta
+
+        async def _win(d_from, d_to):
+            b = {**body0, "dateFrom": d_from.isoformat(), "dateTo": d_to.isoformat()}
+            return await _raw(req0["url"], json.dumps(b)) or []
+
+        cap = len(base_quotes or []) or 30
+        vieja = await _win(date(2015, 1, 1), date(2015, 1, 2))
+        if len(vieja) < cap:  # el filtro de fecha funciona (ventana vieja no llena el cap)
+            collected = {}
+            reqs = [0]
+
+            async def _rec(d_from, d_to, depth=0):
+                reqs[0] += 1
+                qs = await _win(d_from, d_to)
+                for q in qs:
+                    collected[q.get("id")] = q
+                if len(qs) >= cap and (d_to - d_from).days > 1 and depth < 40:
+                    mid = d_from + (d_to - d_from) / 2
+                    await _rec(d_from, mid, depth + 1)
+                    await _rec(mid, d_to, depth + 1)
+
+            await _rec(date(2020, 1, 1), date.today() + timedelta(days=2))
+            date_window_quotes = list(collected.values())
+            pag_desc = f"ventana-fechas: {len(date_window_quotes)} en {reqs[0]} requests (cap={cap})"
+        else:
+            print(f"   ⚠ el endpoint ignora dateFrom/dateTo (ventana vieja devolvió {len(vieja)})", flush=True)
+
     print(f"   paginación descubierta: {pag_desc}", flush=True)
 
     async def _fetch_page(i):
@@ -341,6 +379,11 @@ async def main():
         total_count = d.get("count") if isinstance(d, dict) else None
         can_paginate = False
         print(f"   single-shot: {len(all_quotes)} cotizaciones (count={total_count})", flush=True)
+    elif date_window_quotes is not None:
+        # ── Camino C: recolectado por bisección de ventanas de fecha ──
+        all_quotes = date_window_quotes
+        total_count = None
+        can_paginate = False
     else:
         # ── Camino B: paginar (o solo página 0 si no se descubrió cómo) ──
         page0, total_count, st0 = await _fetch_page(0)
