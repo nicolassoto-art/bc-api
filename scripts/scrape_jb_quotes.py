@@ -76,10 +76,13 @@ def normalize_quote(q: dict) -> dict:
             return _first(v, *keys)
         return v if isinstance(v, str) else None
 
-    # UF del departamento -- mismo criterio que las cotizaciones PDF ya
-    # importadas (financiero.precio_uf = precio del depto en UF). Los campos
-    # *CLP son la versión en pesos; los sin sufijo son UF.
-    uf = _num(_first(q, "apartmentPrice") or _first(q, "totalWithoutBonoPie") or _first(q, "totalPriceBonoPie"))
+    # UF del departamento. OJO: JB guarda estos montos como ENTERO = UF × 100
+    # (2 decimales fijos) -- ej. 315800 = 3.158,00 UF. Verificado contra el
+    # precio conocido de cotizaciones ya importadas (p50 crudo 295.038 / 100 =
+    # 2.950 UF, rango real de un departamento). Se divide por 100 para dejar
+    # UF de verdad, igual escala que financiero.precio_uf de los PDFs.
+    uf_raw = _num(_first(q, "apartmentPrice") or _first(q, "totalWithoutBonoPie") or _first(q, "totalPriceBonoPie"))
+    uf = round(uf_raw / 100, 2)
 
     return {
         "id": q.get("id"),
