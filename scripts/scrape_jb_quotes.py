@@ -100,7 +100,12 @@ def normalize_quote(q: dict) -> dict:
         "reference": q.get("reference"),
         "created_at": q.get("createdAt"),
         "broker_name": _name(created_by, "name", "fullName", "title") or _name(q.get("name"), "name"),
-        "rut": _first(customer, "taxId", "rut", "documentNumber") if isinstance(customer, dict) else None,
+        # El listado de /quotes NO trae rut del cliente -- customer solo tiene
+        # {id, name}. El customer.id de JB es un identificador estable por
+        # cliente, así que sirve igual como clave de dedup "una cotización por
+        # cliente, la más alta". Se guarda con prefijo jbc: para no chocar con
+        # ruts reales de las otras fuentes (propuestas/simulaciones).
+        "rut": (f"jbc:{customer.get('id')}" if isinstance(customer, dict) and customer.get("id") else None),
         "cliente_nombre": _name(customer, "fullName", "name"),
         "precio_uf": uf,
         "proyecto": _name(project, "name") or (developer if isinstance(developer, str) else _name(developer, "name")),
@@ -147,50 +152,109 @@ async def main():
         body = json.loads(captured["post_data"]) if captured["post_data"] else {}
     except Exception:
         body = {}
-    print(f"   ✓ request capturada. postData keys={list(body.keys())}", flush=True)
+    # La paginación NO va en el postData (ahí solo hay filtros: reference,
+    # broker, project, priceFrom/To, dateFrom/To, tipology, element) -- va en
+    # el QUERY de la URL. Se parsea de la URL capturada. Sin PII: son params
+    # de paginación/filtro vacíos, no datos de cliente.
+    from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+    parts = urlsplit(captured["url"])
+    qs = dict(parse_qsl(parts.query))
+    print(f"   ✓ request capturada. postData keys={list(body.keys())} | query keys={list(qs.keys())}", flush=True)
 
-    # ── 2. Detectar el esquema de paginación del propio postData ──
-    off_key = _pick(body, OFFSET_KEYS)
-    lim_key = _pick(body, LIMIT_KEYS)
-    page_key = _pick(body, PAGE_KEYS)
-    page_size = int(body.get(lim_key)) if lim_key and str(body.get(lim_key)).isdigit() else 30
-    print(f"   paginación: offset_key={off_key} page_key={page_key} limit_key={lim_key} page_size={page_size}", flush=True)
+    off_key = _pick(qs, OFFSET_KEYS)
+    lim_key = _pick(qs, LIMIT_KEYS)
+    page_key = _pick(qs, PAGE_KEYS)
+    page_size = int(qs.get(lim_key)) if lim_key and str(qs.get(lim_key)).isdigit() else 30
+    page_base = int(qs.get(page_key)) if page_key and str(qs.get(page_key)).isdigit() else 1
+    print(f"   paginación (query URL): offset_key={off_key} page_key={page_key} "
+          f"limit_key={lim_key} page_size={page_size} page_base={page_base}", flush=True)
 
     # Cliente HTTP ligado a la sesión del browser (comparte cookies/auth).
     req_ctx = page.request
     headers = {k: v for k, v in (captured["headers"] or {}).items()
                if k.lower() not in ("content-length", "host")}
 
-    all_quotes = []
-    total_count = None
-    for i in range(200):  # tope de seguridad: 200 páginas
-        b = dict(body)
-        if off_key is not None:
-            b[off_key] = i * page_size
-        elif page_key is not None:
-            b[page_key] = i + (1 if body.get(page_key, 1) else 0)  # respeta base 0/1 del contrato
-        elif i > 0:
-            print("   ⚠ sin clave de paginación detectada -- solo página 1", flush=True)
-            break
+    def _url_with(param_updates):
+        q = dict(qs)
+        q.update(param_updates)
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(q), parts.fragment))
 
-        resp = await req_ctx.post(captured["url"], data=json.dumps(b), headers=headers)
-        if not resp.ok:
-            print(f"   ✗ página {i}: HTTP {resp.status}", flush=True)
+    async def _fetch(url_i):
+        r = await req_ctx.post(url_i, data=(captured["post_data"] or "{}"), headers=headers)
+        if not r.ok:
+            return None, r.status
+        d = await r.json()
+        qs_ = d.get("quotes") if isinstance(d, dict) else d
+        cnt = d.get("count") if isinstance(d, dict) else None
+        return (qs_, cnt), r.status
+
+    # Página 0 (ids base para verificar que la paginación avance de verdad).
+    (page0, total_count), st0 = await _fetch(captured["url"])
+    if page0 is None:
+        print(f"   ✗ página 0: HTTP {st0}", flush=True)
+        await imp.close()
+        sys.exit(1)
+    page0_ids = {q.get("id") for q in page0}
+
+    # Esquema de paginación: usa la clave explícita si el query la trae; si no
+    # (la UI la agrega recién al pasar de página), PRUEBA candidatos y se queda
+    # con el primero cuya "página 1" traiga ids distintos a la página 0.
+    scheme = None  # (fn i -> {param: valor})
+    if off_key is not None:
+        scheme = lambda i: {off_key: i * page_size}  # noqa: E731
+    elif page_key is not None:
+        scheme = lambda i: {page_key: page_base + i}  # noqa: E731
+    else:
+        candidates = [
+            ("page", lambda i: {"page": 1 + i}),
+            ("offset", lambda i: {"offset": i * page_size}),
+            ("skip", lambda i: {"skip": i * page_size}),
+            ("page(base0)", lambda i: {"page": i}),
+            ("pageNumber", lambda i: {"pageNumber": 1 + i}),
+        ]
+        for nombre, fn in candidates:
+            (p1, _), _ = await _fetch(_url_with(fn(1)))
+            if p1 and {q.get("id") for q in p1} - page0_ids:
+                scheme = fn
+                print(f"   ✓ paginación por prueba: '{nombre}' (página 1 trae ids nuevos)", flush=True)
+                break
+            await page.wait_for_timeout(250)
+
+    all_quotes = list(page0)
+    seen_ids = set(page0_ids)
+    can_paginate = scheme is not None
+    print(f"   página 0: {len(page0)} (de {total_count})", flush=True)
+    if not can_paginate:
+        print("   ⚠ no se encontró forma de paginar -- solo página 0 (30 filas)", flush=True)
+
+    i = 1
+    while can_paginate and i < 400:  # tope de seguridad
+        (quotes, _), st = await _fetch(_url_with(scheme(i)))
+        if quotes is None:
+            print(f"   ✗ página {i}: HTTP {st}", flush=True)
             break
-        data = await resp.json()
-        quotes = data.get("quotes") if isinstance(data, dict) else data
-        if total_count is None and isinstance(data, dict):
-            total_count = data.get("count")
         if not quotes:
             break
-        all_quotes.extend(quotes)
-        print(f"   página {i}: +{len(quotes)} (acum {len(all_quotes)}"
-              + (f" / {total_count}" if total_count else "") + ")", flush=True)
+        # Anti-loop: si la página no trae ids nuevos, la paginación no avanza.
+        nuevos = [q for q in quotes if q.get("id") not in seen_ids]
+        if not nuevos:
+            print(f"   ✗ página {i} sin ids nuevos (paginación no avanza) -- corto", flush=True)
+            break
+        for q in nuevos:
+            seen_ids.add(q.get("id"))
+        all_quotes.extend(nuevos)
+        if i % 20 == 0 or (total_count and len(all_quotes) >= total_count):
+            print(f"   página {i}: acum {len(all_quotes)}"
+                  + (f" / {total_count}" if total_count else ""), flush=True)
         if total_count is not None and len(all_quotes) >= total_count:
             break
         if len(quotes) < page_size:
             break
-        await page.wait_for_timeout(400)  # cortesía, no martillar la API
+        i += 1
+        await page.wait_for_timeout(300)  # cortesía, no martillar la API
+
+    print(f"   total juntado: {len(all_quotes)}"
+          + (f" / {total_count}" if total_count else ""), flush=True)
 
     await imp.close()
 
