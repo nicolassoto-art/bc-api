@@ -36,14 +36,14 @@ logging.basicConfig(
 log = logging.getLogger("inspect_workview")
 
 TAB_CANDIDATES = [
-    "General", "Información", "Datos generales",
-    "Stock", "Unidades", "Departamentos",
-    "Modelos", "Tipologías",
-    "Estacionamientos", "Bodegas",
-    "Condiciones Comerciales", "Comercial", "Plan de pago",
-    "Notas", "Notas comerciales",
-    "Fotos", "Galería", "Imágenes",
-    "Documentos", "Archivos", "Planos",
+    "General",
+    "Stock",
+    "Documentos",
+    "Notas",
+    "Arriendos",
+    "JetGallery",
+    "Comisiones",
+    "Timeline",
 ]
 
 
