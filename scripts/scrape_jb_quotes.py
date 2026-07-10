@@ -158,29 +158,48 @@ async def main():
                 captured["headers"] = dict(req.headers)
 
     page.on("request", on_request)
-    print("### /quotes: cargando y pasando a página 2 para descubrir la paginación", flush=True)
+    print("### /quotes: cargando y haciendo scroll para descubrir la paginación", flush=True)
     await page.goto("https://app.jetbrokers.io/quotes", wait_until="networkidle", timeout=45_000)
     await page.wait_for_timeout(4_000)
     n_inicial = len(search_reqs)
 
-    next_selectors = [
-        'button[aria-label="Página siguiente"]',
-        'button[aria-label="Next page"]',
-        'button.mat-mdc-paginator-navigation-next',
-        'button.mat-paginator-navigation-next',
-        '[class*="paginator"] button:has-text(">")',
-    ]
-    for sel in next_selectors:
-        try:
-            btn = page.locator(sel).first
-            if await btn.count() and await btn.is_enabled():
-                await btn.click()
-                await page.wait_for_timeout(3_500)
-                print(f"   ✓ click en '{sel}'", flush=True)
-                break
-        except Exception:
-            continue
+    # La lista es virtual-scroll (Angular CDK): no hay paginador con botones
+    # (diag lo confirmó: 0 botones, 0 selects). Los siguientes lotes se cargan
+    # al hacer SCROLL. Se scrollea el viewport (y la ventana) repetido hasta
+    # que aparezca una request de búsqueda distinta a la inicial.
+    async def _scroll_burst():
+        await page.evaluate("""() => {
+            const vp = document.querySelector('cdk-virtual-scroll-viewport')
+                    || document.querySelector('[class*="scroll"]')
+                    || document.scrollingElement || document.body;
+            vp.scrollTop = vp.scrollHeight;
+            window.scrollTo(0, document.body.scrollHeight);
+        }""")
+        await page.keyboard.press("End")
+
+    for _ in range(6):
+        await _scroll_burst()
+        await page.wait_for_timeout(1_800)
+        if any(r["url"] != search_reqs[0]["url"] or r["post_data"] != search_reqs[0]["post_data"]
+               for r in search_reqs[n_inicial:]):
+            print("   ✓ scroll disparó una request de búsqueda distinta", flush=True)
+            break
+
+    # Backup: si algún día vuelve a haber paginador con botones, intentar click.
+    if not any(r["url"] != search_reqs[0]["url"] or r["post_data"] != search_reqs[0]["post_data"]
+               for r in search_reqs[n_inicial:]):
+        for sel in ('button[aria-label="Página siguiente"]', 'button[aria-label="Next page"]',
+                    'button.mat-mdc-paginator-navigation-next'):
+            try:
+                btn = page.locator(sel).first
+                if await btn.count() and await btn.is_enabled():
+                    await btn.click()
+                    await page.wait_for_timeout(3_000)
+                    break
+            except Exception:
+                continue
     page.remove_listener("request", on_request)
+    print(f"   requests de búsqueda capturadas: {len(search_reqs)}", flush=True)
 
     if not search_reqs:
         print("✗ No se capturó ninguna request de búsqueda -- la UI cambió?", flush=True)
