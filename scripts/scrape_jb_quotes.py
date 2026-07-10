@@ -203,7 +203,7 @@ async def main():
 
         if changed:
             origen, key, base, delta = changed
-            pag_desc = f"{origen}.{key} base={base} delta={delta}"
+            pag_desc = f"click: {origen}.{key} base={base} delta={delta}"
 
             def scheme(i, _o=origen, _k=key, _b=base, _d=delta):
                 if _o == "query":
@@ -214,12 +214,46 @@ async def main():
                     b = dict(body0); b[_k] = _b + i * _d
                     return req0["url"], json.dumps(b)
 
-    print(f"   paginación descubierta: {pag_desc}", flush=True)
-
     # Cliente HTTP ligado a la sesión del browser (comparte cookies/auth).
     req_ctx = page.request
     headers = {k: v for k, v in (captured["headers"] or {}).items()
                if k.lower() not in ("content-length", "host")}
+
+    async def _raw(url_i, data_i):
+        r = await req_ctx.post(url_i, data=data_i, headers=headers)
+        if not r.ok:
+            return None
+        d = await r.json()
+        return (d.get("quotes") if isinstance(d, dict) else d) or []
+
+    # Fallback: si el click no descubrió la paginación, PROBAR candidatos en
+    # el body (NestJS suele leer paginación del body en un POST /search) y en
+    # el query, verificando que la "página 1" traiga ids distintos a la 0.
+    if scheme is None:
+        base_quotes = await _raw(req0["url"], req0["post_data"] or "{}")
+        base_ids = {q.get("id") for q in (base_quotes or [])}
+        # (nombre, origen, builder-de-página-1) -- se prueba con i=1
+        probes = [
+            ("body.page(1based)", "body", lambda i: {**body0, "page": 1 + i}),
+            ("body.page(0based)", "body", lambda i: {**body0, "page": i}),
+            ("body.offset", "body", lambda i: {**body0, "offset": i * 30}),
+            ("body.skip", "body", lambda i: {**body0, "skip": i * 30}),
+            ("body.skip+take", "body", lambda i: {**body0, "skip": i * 30, "take": 30}),
+            ("body.start+length", "body", lambda i: {**body0, "start": i * 30, "length": 30}),
+            ("body.pageNumber", "body", lambda i: {**body0, "pageNumber": 1 + i}),
+        ]
+        for nombre, origen, build in probes:
+            b1 = build(1)
+            p1 = await _raw(req0["url"], json.dumps(b1))
+            if p1 and ({q.get("id") for q in p1} - base_ids):
+                pag_desc = f"probe: {nombre}"
+
+                def scheme(i, _build=build):
+                    return req0["url"], json.dumps(_build(i))
+                break
+            await page.wait_for_timeout(200)
+
+    print(f"   paginación descubierta: {pag_desc}", flush=True)
 
     async def _fetch_page(i):
         if scheme is not None:
