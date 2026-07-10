@@ -365,7 +365,13 @@ def _catalogo_vs_stock(proyectos) -> list[dict]:
                        if norm(u.modelo) and norm(u.modelo) not in modelos_norm]
         modelos_en_uso = {norm(u.modelo) for u in deptos_disp if norm(u.modelo)}
         modelos_vacios = [n for n in modelos_nombres if norm(n) not in modelos_en_uso]
-        if not (sin_modelo or inexistente or modelos_vacios):
+        # GATILLO = solo divergencia DURA: unidades disponibles que el catálogo NO
+        # agrupa (modelo vacío o inexistente) → muestra MENOS stock del real (bug CCA).
+        # Un modelo registrado sin unidades (modelos_vacios) NO gatilla por sí solo:
+        # suele ser legítimo (tipo agotado, o un modelo "con jardín" que hoy no tiene
+        # stock) y llenaría la sección de ruido (62 proyectos). Se muestra solo como
+        # dato secundario en los proyectos que YA divergen por la señal dura.
+        if not (sin_modelo or inexistente):
             continue
         disp_total = len(deptos_disp)
         # las que el catálogo SÍ agrupa bien = disponibles con modelo válido
