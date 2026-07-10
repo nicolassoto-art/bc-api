@@ -1,0 +1,50 @@
+name: Inspect JetBrokers marketplace workview
+
+# Reconocimiento de una URL /marketplace/workview/{id} (proyecto de OTRA inmobiliaria
+# listado en el marketplace de JetBrokers, no editable vía /projects/edit/{id}).
+# Ver scripts/inspect_marketplace_workview.py.
+
+on:
+  workflow_dispatch:
+    inputs:
+      jb_id:
+        description: 'JetBrokers id (ej: IquFoRoO)'
+        required: true
+
+concurrency:
+  group: import-jb-serial
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+
+      - name: Inspeccionar workview
+        env:
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+          HEADLESS:         '1'
+        run: python3 scripts/inspect_marketplace_workview.py "${{ github.event.inputs.jb_id }}"
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inspect-workview-${{ github.event.inputs.jb_id }}-${{ github.run_id }}
+          path: imports/_inspect/
+          retention-days: 14
+          if-no-files-found: warn
