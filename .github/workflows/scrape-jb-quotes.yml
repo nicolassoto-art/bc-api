@@ -1,0 +1,67 @@
+name: Scrape JB Quotes to VPS (Informe Comercial)
+
+# Baja TODAS las cotizaciones de la organización desde JetBroker y las deja en
+# el VPS de Herramientas BC para que actualizar_cotizaciones_historico.py las
+# use como fuente (fuente=JetBroker), además de los PDFs importados a mano.
+#
+# El JSON de salida tiene PII (rut/nombre de cliente) -> se copia por SCP
+# directo al VPS, NUNCA se sube como artefacto ni se commitea. Solo meta.json
+# (conteos, sin PII) queda como artefacto para auditar la corrida.
+
+on:
+  workflow_dispatch:
+  # Semanal, lunes 08:30 UTC (~04:30-05:30 Chile) -- antes del informe.
+  # Descomentar para activar:
+  # schedule:
+  #   - cron: '30 8 * * 1'
+
+concurrency:
+  group: scrape-jb-quotes
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+
+      - name: Scrape cotizaciones JB
+        env:
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+        run: python3 scripts/scrape_jb_quotes.py
+
+      - name: Copiar quotes_jb.json al VPS (SCP directo, sin pasar por artefacto)
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" \
+            "mkdir -p /var/www/herramientas/data/cotizaciones_jb"
+          scp -i ~/.ssh/id_ed25519 imports/_jb_quotes/quotes_jb.json \
+            "$VPS_USER@$VPS_HOST:/var/www/herramientas/data/cotizaciones_jb/quotes_jb.json"
+          echo "✓ quotes_jb.json copiado al VPS"
+
+      - name: Upload SOLO meta.json (conteos, sin PII)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jb-quotes-meta
+          path: imports/_jb_quotes/meta.json
+          retention-days: 14
+          if-no-files-found: warn
