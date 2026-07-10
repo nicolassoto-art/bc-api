@@ -62,13 +62,13 @@ async def run(jb_id: str, headless: bool = True) -> None:
         await imp.login()
 
         url = f"https://app.jetbrokers.io/marketplace/workview/{jb_id}"
-        log(f"📂 Navegando a {url}")
+        log.info(f"📂 Navegando a {url}")
         await imp._page.goto(url, wait_until="networkidle", timeout=60_000)
         await imp._page.wait_for_timeout(5_000)
         await imp._dismiss_popups()
 
         final_url = imp._page.url
-        log(f"   URL final tras navegar: {final_url}")
+        log.info(f"   URL final tras navegar: {final_url}")
 
         html = await imp._page.content()
         (out_dir / "initial.html").write_text(html, encoding="utf-8")
@@ -88,7 +88,7 @@ async def run(jb_id: str, headless: bool = True) -> None:
             return [...new Set(out)];
         }""")
         (out_dir / "botones_visibles.json").write_text(json.dumps(buttons, indent=2, ensure_ascii=False))
-        log(f"   {len(buttons)} botones/links visibles distintos")
+        log.info(f"   {len(buttons)} botones/links visibles distintos")
 
         # Probar cada tab candidato, screenshot si lo encuentra
         tabs_found = []
@@ -101,7 +101,7 @@ async def run(jb_id: str, headless: bool = True) -> None:
                 tab_text = await imp._page.evaluate("() => document.body.innerText")
                 (out_dir / f"tab-{safe_name}_text.txt").write_text(tab_text, encoding="utf-8")
                 tabs_found.append(tab)
-                log(f"   ✓ tab encontrado y capturado: {tab}")
+                log.info(f"   ✓ tab encontrado y capturado: {tab}")
             except Exception:
                 continue
 
@@ -113,7 +113,7 @@ async def run(jb_id: str, headless: bool = True) -> None:
             "n_botones_visibles": len(buttons),
         }
         (out_dir / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
-        log(f"✓ Resumen: {json.dumps(summary, ensure_ascii=False)}")
+        log.info(f"✓ Resumen: {json.dumps(summary, ensure_ascii=False)}")
     finally:
         await imp.close()
 
