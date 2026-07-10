@@ -1,14 +1,15 @@
 # Eventos anómalos — registro automático
 
-Última actualización: Fri 10/07/2026 08:06 Chile · 250 eventos totales
+Última actualización: Fri 10/07/2026 11:37 Chile · 254 eventos totales
 
 Este archivo se regenera automáticamente desde `eventos_anomalos.jsonl`.
 Los eventos están deduplicados en ventanas de 24h.
 
-## 🚨 Fallos de workflow (1 en total, mostrando últimos 1)
+## 🚨 Fallos de workflow (2 en total, mostrando últimos 2)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-07-10 15:37:48 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 | 2026-05-28 21:34:11 | `import-jb.yml#26596794924` | created=Thu 28/05 15:19 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26596794924) |
 
 ## ⚠ Proyectos con modelos pero sin unidades (94 en total, mostrando últimos 30)
@@ -46,10 +47,11 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-06-24 09:48:05 | `edificio-conexi-n-independencia · _EDIFICIO CONEXIÓN INDEPENDENCI_` | 17 modelos pero 0 unidades — Excel JB vacío |
 | 2026-06-24 09:48:01 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
 
-## ⚠ Proyectos huérfanos (JB sin data) (28 en total, mostrando últimos 28)
+## ⚠ Proyectos huérfanos (JB sin data) (29 en total, mostrando últimos 29)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-07-10 15:37:24 | `jb-iquforoo · _JB-IquFoRoO_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
 | 2026-06-02 11:54:37 | `jb-86yw1rpt · _Centenario I_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
 | 2026-06-02 11:54:37 | `jb-72gkwnlw · _Terrazzo_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
 | 2026-06-02 11:54:37 | `jb-5d7qpmgc · _Trinidad III_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
@@ -79,10 +81,11 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-05-28 13:49:55 | `jb-osnl3m1c · _Vista San Martin_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
 | 2026-05-28 13:49:55 | `jb-dx4rddfn · _Fuentes de Lomas II_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
 
-## ℹ Inmobiliaria sin asignar (10 en total, mostrando últimos 10)
+## ℹ Inmobiliaria sin asignar (11 en total, mostrando últimos 11)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-07-10 15:37:24 | `jb-iquforoo · _JB-IquFoRoO_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
 | 2026-06-01 19:11:35 | `jb-zohnfoqj · _Edificio Borja Plaza_` | inmobiliaria='BigCapital' — JB no devolvió la real |
 | 2026-05-30 22:33:58 | `jb-zohnfoqj · _Edificio Borja Plaza_` | inmobiliaria='BigCapital' — JB no devolvió la real |
 | 2026-05-29 19:56:24 | `jb-osnl3m1c · _Vista San Martin_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
@@ -93,6 +96,12 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-05-28 13:49:55 | `jb-m9zxfnhe · _Pionera Parque Cerrillos_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
 | 2026-05-28 13:49:55 | `jb-osnl3m1c · _Vista San Martin_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
 | 2026-05-28 13:49:55 | `jb-dx4rddfn · _Fuentes de Lomas II_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
+
+## ℹ Nombre stub no actualizado (1 en total, mostrando últimos 1)
+
+| Fecha (UTC) | Subject | Detalle |
+|---|---|---|
+| 2026-07-10 15:37:24 | `jb-iquforoo · _JB-IquFoRoO_` | Nombre quedó como JB-{id} (no se sobreescribió desde JB) |
 
 ## ℹ Workflows cancelados (78 en total, mostrando últimos 30)
 
