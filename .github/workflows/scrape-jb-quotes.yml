@@ -11,9 +11,11 @@ name: Scrape JB Quotes to VPS (Informe Comercial)
 on:
   workflow_dispatch:
   # Semanal, lunes 08:30 UTC (~04:30-05:30 Chile) -- antes del informe.
-  # Descomentar para activar:
-  # schedule:
-  #   - cron: '30 8 * * 1'
+  # Cada LUNES 08:30 UTC (~04:30-05:30 Chile) -- antes de enviar el informe.
+  # El scrape tarda ~30 min (bisección de fechas), termina ~09:00 UTC, con
+  # margen antes de cualquier envío en horario laboral.
+  schedule:
+    - cron: '30 8 * * 1'
 
 concurrency:
   group: scrape-jb-quotes
