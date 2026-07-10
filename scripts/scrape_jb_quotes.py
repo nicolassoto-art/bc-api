@@ -102,6 +102,36 @@ def normalize_quote(q: dict) -> dict:
     }
 
 
+async def _dump_paginator(page):
+    """Diagnóstico (sin PII): vuelca la estructura del paginador de /quotes
+    para saber en la próxima corrida cómo pasar de página. Solo estructura:
+    aria-labels de botones + outerHTML de elementos tipo paginator + opciones
+    del selector de tamaño de página."""
+    try:
+        info = await page.evaluate("""() => {
+            const out = {buttons: [], paginators: [], selects: []};
+            document.querySelectorAll('button[aria-label]').forEach(b => {
+                const a = b.getAttribute('aria-label') || '';
+                if (/page|página|next|siguiente|anterior|prev/i.test(a))
+                    out.buttons.push({aria: a, disabled: b.disabled, cls: b.className});
+            });
+            document.querySelectorAll('[class*="paginat"], mat-paginator').forEach(p => {
+                out.paginators.push((p.outerHTML || '').slice(0, 400));
+            });
+            document.querySelectorAll('mat-select, select').forEach(s => {
+                out.selects.push(s.getAttribute('aria-label') || s.className || 'select');
+            });
+            return out;
+        }""")
+        print(f"   [diag paginador] botones={info.get('buttons')}", flush=True)
+        print(f"   [diag paginador] selects={info.get('selects')}", flush=True)
+        for h in info.get("paginators", [])[:2]:
+            print(f"   [diag paginador] html={h}", flush=True)
+        await page.screenshot(path=str(OUT / "quotes_paginator.png"), full_page=True)
+    except Exception as ex:
+        print(f"   [diag paginador] err: {str(ex)[:100]}", flush=True)
+
+
 async def main():
     imp = JBImporter(
         jb_email=os.environ["JETBROKERS_EMAIL"],
@@ -226,12 +256,28 @@ async def main():
         d = await r.json()
         return (d.get("quotes") if isinstance(d, dict) else d) or []
 
-    # Fallback: si el click no descubrió la paginación, PROBAR candidatos en
-    # el body (NestJS suele leer paginación del body en un POST /search) y en
-    # el query, verificando que la "página 1" traiga ids distintos a la 0.
+    # Fallback A: subir el LÍMITE de filas en el body -- muchos POST /search
+    # devuelven N filas con un `limit`/`take`/`length` que por defecto es 30;
+    # subirlo trae todo en una sola request (no hace falta paginar). Se prueba
+    # cada candidato pidiendo un número grande y se usa el que devuelva >30.
+    single_shot = None  # (nombre, body_str) que trae el lote completo
     if scheme is None:
         base_quotes = await _raw(req0["url"], req0["post_data"] or "{}")
         base_ids = {q.get("id") for q in (base_quotes or [])}
+        BIG = 10000
+        for lim_key in ("limit", "take", "length", "pageSize", "perPage", "size", "rows", "count", "pageSize"):
+            b = {**body0, lim_key: BIG}
+            got = await _raw(req0["url"], json.dumps(b))
+            if got and len(got) > len(base_quotes or []):
+                single_shot = (lim_key, json.dumps(b))
+                pag_desc = f"limit-grande: body.{lim_key}={BIG} -> {len(got)} filas"
+                break
+            await page.wait_for_timeout(150)
+
+    # Fallback B: si subir el límite no sirvió, PROBAR candidatos de paginación
+    # en el body (page/offset/skip...), verificando que la página 1 traiga ids
+    # distintos a la 0.
+    if scheme is None and single_shot is None:
         # (nombre, origen, builder-de-página-1) -- se prueba con i=1
         probes = [
             ("body.page(1based)", "body", lambda i: {**body0, "page": 1 + i}),
@@ -268,21 +314,33 @@ async def main():
         cnt = d.get("count") if isinstance(d, dict) else None
         return qs_, cnt, r.status
 
-    # Página 0.
-    page0, total_count, st0 = await _fetch_page(0)
-    if page0 is None:
-        print(f"   ✗ página 0: HTTP {st0}", flush=True)
-        await imp.close()
-        sys.exit(1)
-    page0_ids = {q.get("id") for q in page0}
-    page_size = len(page0) or 30
-
-    all_quotes = list(page0)
-    seen_ids = set(page0_ids)
-    can_paginate = scheme is not None
-    print(f"   página 0: {len(page0)} (de {total_count})", flush=True)
-    if not can_paginate:
-        print("   ⚠ no se descubrió forma de paginar -- solo página 0", flush=True)
+    # ── Camino A: una sola request con límite grande trajo todo ──
+    if single_shot is not None:
+        r = await req_ctx.post(req0["url"], data=single_shot[1], headers=headers)
+        d = await r.json()
+        all_quotes = (d.get("quotes") if isinstance(d, dict) else d) or []
+        total_count = d.get("count") if isinstance(d, dict) else None
+        can_paginate = False
+        print(f"   single-shot: {len(all_quotes)} cotizaciones (count={total_count})", flush=True)
+    else:
+        # ── Camino B: paginar (o solo página 0 si no se descubrió cómo) ──
+        page0, total_count, st0 = await _fetch_page(0)
+        if page0 is None:
+            print(f"   ✗ página 0: HTTP {st0}", flush=True)
+            # Diagnóstico: volcar el paginador de la UI para saber cómo pasar
+            # de página en la próxima corrida (sin PII -- solo estructura).
+            await _dump_paginator(page)
+            await imp.close()
+            sys.exit(1)
+        page0_ids = {q.get("id") for q in page0}
+        page_size = len(page0) or 30
+        all_quotes = list(page0)
+        seen_ids = set(page0_ids)
+        can_paginate = scheme is not None
+        print(f"   página 0: {len(page0)} (de {total_count})", flush=True)
+        if not can_paginate:
+            print("   ⚠ no se descubrió forma de paginar -- solo página 0", flush=True)
+            await _dump_paginator(page)
 
     i = 1
     while can_paginate and i < 400:  # tope de seguridad
