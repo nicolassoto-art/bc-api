@@ -1627,6 +1627,48 @@ class JBImporter:
             pass
         raise RuntimeError(f"Tab '{tab_label}' no encontrado")
 
+    # ── Sync liviano de stock (sin wipe, sin Notas/Comercial/SPA/fotos) ────
+    async def sync_stock_light(self, jb_id: str) -> Optional[Path]:
+        """Descarga SOLO el Excel de la tab 'Stock' del editor JB.
+
+        Pensado para sync frecuente (varias veces al día) de bajo consumo en JB:
+        un goto() al editor + un click de tab + un click de descarga — nada más.
+        No visita General/Comercial/Cuenta reserva/SPA/Notas/Modelos/fotos, y no
+        hace `_wipe_proyecto_full()`. El detalle completo (notas comerciales,
+        condiciones comerciales, fotos, planos) se sigue trayendo con `run()` en
+        la importación inicial — eso no cambia día a día.
+        """
+        log.info(f"📦 Sync liviano de stock para {jb_id}...")
+        edit_url = f"https://app.jetbrokers.io/projects/edit/{jb_id}"
+        await self._page.goto(edit_url, wait_until="networkidle", timeout=60_000)
+        await self._page.wait_for_timeout(5_000)
+        await self._dismiss_popups()
+
+        await self._click_tab("Stock")
+        await self._page.wait_for_timeout(2_500)
+
+        xlsx_path = self.imports_dir / jb_id / f"stock-jb-{time.strftime('%Y%m%d-%H%M%S')}.xlsx"
+        xlsx_path.parent.mkdir(parents=True, exist_ok=True)
+        # Mismo orden de prioridad de botones que scrape_editor (línea ~964):
+        # preferir la plantilla PRERRELLENA con datos, no la vacía.
+        for btn_text in (
+            "prerellena con datos", "prerellena", "con datos",
+            "Descargar Excel", "Exportar",
+            "Descargar plantilla", "Descargar",
+        ):
+            try:
+                async with self._page.expect_download(timeout=15_000) as dl_info:
+                    await self._page.locator(f"button:has-text('{btn_text}'), a:has-text('{btn_text}')").first.click(timeout=4_000)
+                download = await dl_info.value
+                await download.save_as(str(xlsx_path))
+                if xlsx_path.exists() and xlsx_path.stat().st_size > 1024:
+                    log.info(f"   📊 Excel stock descargado vía '{btn_text}': {xlsx_path.name} ({xlsx_path.stat().st_size} bytes)")
+                    return xlsx_path
+            except Exception:
+                continue
+        log.warning("   stock excel → no se encontró botón de descarga")
+        return None
+
     # ── Modelos (combinar API + DOM) ──────────────────────────────────────
     def _extract_modelos(self, units: list[dict]) -> list[dict]:
         """Extrae modelos únicos desde el array de units, con sus blueprints."""

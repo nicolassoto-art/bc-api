@@ -1,0 +1,105 @@
+name: Sync liviano de stock JetBrokers (bajo consumo JB)
+
+# A diferencia de import-jb.yml (full wipe+reimport: notas comerciales, condiciones
+# comerciales, fotos, planos), este workflow SOLO entra a la tab "Stock" del editor JB,
+# descarga el Excel y lo sube por /excel/upload (upsert+baja ya seguro del lado bc-api,
+# mismo endpoint que usa MNK). No wipea el proyecto, no toca notas/comercial/fotos.
+# Ver scripts/sync_jb_stock.py — incluye guardia anti-baja-masiva (>=8 absolutos Y
+# >=40% de los deptos disponibles actuales) porque /excel/upload no la trae server-side.
+#
+# El proyecto debe existir ya en bc-api (import-jb.yml corrido al menos una vez).
+
+on:
+  workflow_dispatch:
+    inputs:
+      jb_id:
+        description: 'JetBrokers project ID a sincronizar (vacío = usa la lista programada de abajo)'
+        required: false
+        default: ''
+  # ⚠️ Dejar comentado hasta tener el jb_id real de Laguna Centro (u otros proyectos
+  # que se agreguen a sync liviano). Reemplazar el placeholder en el step "Resolver
+  # jb_id" antes de descomentar — un cron activo apuntando a un ID inválido fallaría
+  # 2×/día sin avisar a nadie más que el job summary.
+  # schedule:
+  #   - cron: '0 13 * * *'  # 09:00 Chile (UTC-4)
+  #   - cron: '0 19 * * *'  # 15:00 Chile (UTC-4)
+
+concurrency:
+  group: import-jb-serial
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+
+      - name: Resolver jb_id a sincronizar
+        id: resolve
+        run: |
+          JB_ID="${{ github.event.inputs.jb_id }}"
+          if [ -z "$JB_ID" ]; then
+            # Lista programada de sync liviano — agregar acá al sumar otro proyecto.
+            JB_ID="TBD_LAGUNA_CENTRO_JB_ID"
+          fi
+          if [ "$JB_ID" = "TBD_LAGUNA_CENTRO_JB_ID" ]; then
+            echo "::error::jb_id no configurado — pasa -f jb_id=<id> o completa el placeholder en este step"
+            exit 1
+          fi
+          echo "jb_id=$JB_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Login bc-api → JWT (via Python httpx para escape seguro)
+        env:
+          BC_API_EMAIL: nicolas.soto@bigcapital.cl
+          BC_API_PASSWORD: ${{ secrets.BC_API_PASSWORD }}
+        run: |
+          set -euo pipefail
+          JWT=$(python3 -c "
+          import os, httpx, sys
+          r = httpx.post(
+              'https://bc-api.178-105-91-29.nip.io/auth/login',
+              json={'email': os.environ['BC_API_EMAIL'], 'password': os.environ['BC_API_PASSWORD']},
+              timeout=15.0,
+          )
+          if r.status_code != 200:
+              sys.stderr.write(f'HTTP {r.status_code}: {r.text[:300]}\n')
+              sys.exit(1)
+          print(r.json()['access_token'])
+          ")
+          if [ -z "$JWT" ]; then echo "JWT vacío"; exit 1; fi
+          echo "::add-mask::$JWT"
+          echo "BC_API_JWT=$JWT" >> "$GITHUB_ENV"
+
+      - name: Sync stock (sin wipe, sin notas/comercial/fotos)
+        env:
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+          BC_API_BASE:      https://bc-api.178-105-91-29.nip.io
+          HEADLESS:         '1'
+          IMPORTS_DIR:      imports
+        run: python3 scripts/sync_jb_stock.py "${{ steps.resolve.outputs.jb_id }}"
+
+      - name: Upload artifacts (Excel + logs, para debug si falla)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-jb-stock-${{ steps.resolve.outputs.jb_id }}-${{ github.run_id }}
+          path: imports/
+          retention-days: 14
+          if-no-files-found: warn
