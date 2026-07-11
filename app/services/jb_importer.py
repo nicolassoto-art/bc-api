@@ -1669,6 +1669,221 @@ class JBImporter:
         log.warning("   stock excel → no se encontró botón de descarga")
         return None
 
+    # ── Marketplace workview (proyecto de OTRA inmobiliaria en nuestro catálogo
+    # de reventa, /marketplace/workview/{id} en vez de /projects/edit/{id}) ───
+    async def scrape_marketplace_workview(self, jb_id: str) -> dict:
+        """Scrapea un proyecto listado en el marketplace de JB (no editable por
+        nosotros -- lo agregamos a nuestro catálogo de reventa). Layout distinto
+        al editor propio: tabs General/Stock/Documentos/Notas/Arriendos/
+        JetGallery/Comisiones/Timeline. Sin wipe (no es nuestro), sin botón
+        Descargar Excel (el stock se parsea del DOM, son cards no <table>).
+        """
+        log.info(f"🛒 Scrapeando marketplace/workview de {jb_id}...")
+        url = f"https://app.jetbrokers.io/marketplace/workview/{jb_id}"
+        await self._page.goto(url, wait_until="networkidle", timeout=60_000)
+        await self._page.wait_for_timeout(5_000)
+        await self._dismiss_popups()
+
+        debug_dir = self.imports_dir / jb_id / "_debug_workview"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        out: dict[str, Any] = {}
+
+        # ── General: nombre/comuna/modalidad/inmobiliaria (header, NO son
+        # inputs de formulario -- son divs de texto plano, selector propio) ──
+        try:
+            header = await self._page.evaluate(r"""() => {
+                const text = document.body.innerText;
+                const m = text.match(/Vista Trabajo\s+([^\n]+)/);
+                const nombre_bc = m ? m[1].trim() : '';
+                const loader = document.querySelector('app-img-loader');
+                const loaderCol = loader ? loader.closest('[fxlayout="column"]') : null;
+                const headerRow = loaderCol ? loaderCol.previousElementSibling : null;
+                const parts = headerRow
+                    ? [...headerRow.children].map(c => (c.innerText || '').trim()).filter(Boolean)
+                    : [];
+                const inmoEl = document.querySelector('.text-xl.text-center');
+                return {
+                    nombre_breadcrumb: nombre_bc,
+                    header_parts: parts,
+                    inmobiliaria: inmoEl ? inmoEl.innerText.trim() : '',
+                };
+            }""")
+            (debug_dir / "header.json").write_text(json.dumps(header, indent=2, ensure_ascii=False))
+            parts = header.get("header_parts") or []
+            nombre = header.get("nombre_breadcrumb") or (parts[0] if len(parts) > 0 else "")
+            comuna = parts[1] if len(parts) > 1 else ""
+            modalidad = parts[2] if len(parts) > 2 else ""
+            if nombre:
+                self._set_path(out, "_top_level.nombre", nombre)
+            if comuna:
+                self._set_path(out, "_top_level.comuna", comuna)
+            if modalidad:
+                self._set_path(out, "_top_level.modalidad", modalidad)
+            if header.get("inmobiliaria"):
+                self._set_path(out, "extra.inmobiliaria.nombre", header["inmobiliaria"])
+            log.info(f"   📋 General: nombre={nombre!r} comuna={comuna!r} modalidad={modalidad!r} inmobiliaria={header.get('inmobiliaria')!r}")
+        except Exception as e:
+            log.warning(f"   header general → {e}")
+
+        await self._page.screenshot(path=str(debug_dir / "tab-general.png"), full_page=True)
+
+        # ── Stock: cards .apartment (NO paginado -- confirmado que JB carga
+        # todas las unidades disponibles de una vez en este layout) ──
+        try:
+            await self._click_tab("Stock")
+            await self._page.wait_for_timeout(2_500)
+            await self._page.screenshot(path=str(debug_dir / "tab-stock.png"), full_page=True)
+            apt_rows = await self._page.evaluate(r"""() => {
+                const out = [];
+                document.querySelectorAll('.apartment').forEach(apt => {
+                    const numero = (apt.querySelector('.add-section .number')?.innerText || '').trim();
+                    const fields = {};
+                    apt.querySelectorAll('.data-elements .data-section').forEach(sec => {
+                        const headers = [...sec.querySelectorAll('.headers > div')].map(d => (d.innerText||'').trim());
+                        const values = [...sec.querySelectorAll('.values > div')].map(d => (d.innerText||'').trim());
+                        headers.forEach((h, i) => { if (h) fields[h] = values[i] ?? ''; });
+                    });
+                    const precio = (apt.querySelector('.prices-section .group-icon:not(.final) .data .value')?.innerText || '').trim();
+                    const precioFinal = (apt.querySelector('.prices-section .group-icon.final .data .value')?.innerText || '').trim();
+                    const dbHeaders = [...apt.querySelectorAll('.prices-section .group .headers > div')].map(d => (d.innerText||'').trim());
+                    const dbValues = [...apt.querySelectorAll('.prices-section .group .values > div')].map(d => (d.innerText||'').trim());
+                    const descBono = {};
+                    dbHeaders.forEach((h, i) => { if (h) descBono[h] = dbValues[i] ?? ''; });
+                    const estac = (apt.querySelector('.parking .value')?.innerText || '').trim();
+                    const bodega = (apt.querySelector('.store .value')?.innerText || '').trim();
+                    const pack = (apt.querySelector('.pack .value')?.innerText || '').trim();
+                    out.push({numero, fields, precio, precioFinal, descBono, estac, bodega, pack});
+                });
+                return out;
+            }""")
+            (debug_dir / "stock_apartments_raw.json").write_text(json.dumps(apt_rows, indent=2, ensure_ascii=False))
+            unidades = self._parse_marketplace_unidades(apt_rows)
+            self._pending_unidades = unidades
+            log.info(f"   🏠 Stock: {len(apt_rows)} cards → {len(unidades)} unidades parseadas")
+        except Exception as e:
+            log.warning(f"   stock workview → {e}")
+
+        # ── Notas: <app-marketplace-notes>, texto formateado (no quill) ──
+        try:
+            await self._click_tab("Notas")
+            await self._page.wait_for_timeout(2_000)
+            await self._page.screenshot(path=str(debug_dir / "tab-notas.png"), full_page=True)
+            notas_html = await self._page.evaluate(
+                "() => document.querySelector('app-marketplace-notes')?.innerHTML || ''"
+            )
+            if notas_html and len(notas_html) > 20:
+                self._set_path(out, "extra.notas_html", notas_html)
+                notas_text = self._html_to_text(notas_html)
+                if notas_text:
+                    self._set_path(out, "extra.notas_text", notas_text)
+                log.info(f"   ✓ Notas extraídas ({len(notas_html)} chars HTML, {len(notas_text)} chars texto)")
+            else:
+                log.warning("   notas → vacío o selector no matcheó")
+        except Exception as e:
+            log.warning(f"   notas workview → {e}")
+
+        # ── Documentos: metadata (fecha/tipo/detalles/peso/extensión). Los
+        # archivos en sí se descargan por botón (sin href directo) -- v1 solo
+        # cataloga, no descarga/sube binarios (queda para una iteración futura). ──
+        try:
+            await self._click_tab("Documentos")
+            await self._page.wait_for_timeout(2_500)
+            await self._load_all_table_rows()
+            doc_rows = await self._scrape_table_rows()
+            docs_meta = []
+            for r in doc_rows:
+                cells = r.get("cells") or []
+                if not cells:
+                    continue
+                docs_meta.append({
+                    "fecha": cells[0] if len(cells) > 0 else "",
+                    "tipo": cells[1] if len(cells) > 1 else "",
+                    "detalles": cells[2] if len(cells) > 2 else "",
+                    "peso": cells[3] if len(cells) > 3 else "",
+                    "extension": cells[4] if len(cells) > 4 else "",
+                })
+            if docs_meta:
+                self._set_path(out, "extra._marketplace_documentos", docs_meta)
+                log.info(f"   📄 Documentos: {len(docs_meta)} catalogados (metadata solo, sin descargar binarios)")
+        except Exception as e:
+            log.warning(f"   documentos workview → {e}")
+
+        self._set_path(out, "extra._marketplace_workview", True)
+        self._set_path(out, "extra._marketplace_jb_id", jb_id)
+        log.info(f"   ✓ {self._count_leaves(out)} campos extraídos de marketplace/workview")
+        return out
+
+    def _parse_marketplace_unidades(self, apt_rows: list[dict]) -> list[dict]:
+        """Mapea las cards .apartment del marketplace workview a dicts UnidadIn-compatibles."""
+        FLAG_MAP = {"opcional": "optional", "obligatorio": "required", "nunca": "never"}
+
+        def _num(s: Optional[str]) -> Optional[float]:
+            s = (s or "").strip()
+            if not s:
+                return None
+            try:
+                return float(s.replace(".", "").replace(",", ".")) if "," in s else float(s)
+            except Exception:
+                return None
+
+        def _uf(s: Optional[str]) -> Optional[float]:
+            s = (s or "").replace("UF", "").strip()
+            if not s:
+                return None
+            try:
+                if "," in s:
+                    s = s.replace(".", "").replace(",", ".")
+                else:
+                    parts = s.split(".")
+                    if len(parts) > 1 and all(len(p) == 3 for p in parts[1:]):
+                        s = s.replace(".", "")
+                return float(s)
+            except Exception:
+                return None
+
+        def _pct(s: Optional[str]) -> float:
+            s = (s or "").replace("%", "").strip()
+            try:
+                return float(s.replace(",", "."))
+            except Exception:
+                return 0.0
+
+        def _field(fields: dict, *keys: str) -> str:
+            for key in keys:
+                for fk, fv in fields.items():
+                    if fk.strip().rstrip(":").lower() == key.lower():
+                        return fv
+            return ""
+
+        out = []
+        for row in apt_rows:
+            numero = (row.get("numero") or "").strip()
+            if not numero:
+                continue
+            fields = row.get("fields") or {}
+            descBono = row.get("descBono") or {}
+            out.append({
+                "numero": numero,
+                "modelo": _field(fields, "Modelo") or "S/M",
+                "tipologia": _field(fields, "Tipo"),
+                "tipo": "Depto",
+                "orientacion": _field(fields, "Orientación", "Orientacion"),
+                "sup_total": _num(_field(fields, "Sup. Total", "Sup Total")),
+                "sup_interior": _num(_field(fields, "Sup. Interior", "Sup Interior")),
+                "sup_terraza": _num(_field(fields, "Sup. Terraza", "Sup Terraza")),
+                "sup_logia": _num(_field(fields, "Sup. Logia", "Sup Logia")),
+                "sup_jardin": _num(_field(fields, "Sup. Jardin", "Sup Jardín")),
+                "precio_lista_uf": _uf(row.get("precio")),
+                "descuento_pct": _pct(_field(descBono, "Descuento")),
+                "bono_pie_pct": _pct(_field(descBono, "Bono Pie")),
+                "precio_final_uf": _uf(row.get("precioFinal")),
+                "estac_flag": FLAG_MAP.get((row.get("estac") or "").strip().lower(), "optional"),
+                "bodega_flag": FLAG_MAP.get((row.get("bodega") or "").strip().lower(), "optional"),
+                "pack_flag": FLAG_MAP.get((row.get("pack") or "").strip().lower(), "optional"),
+                "disponible": True,
+            })
+        return out
+
     # ── Modelos (combinar API + DOM) ──────────────────────────────────────
     def _extract_modelos(self, units: list[dict]) -> list[dict]:
         """Extrae modelos únicos desde el array de units, con sus blueprints."""
