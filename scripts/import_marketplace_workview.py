@@ -119,10 +119,20 @@ async def run(jb_id: str, bc_base: str, jwt: str, dry_run: bool, headless: bool 
         await imp.put_proyecto(proyecto_id, current, scraped, modelos=[])
         log.info("   ✓ PUT /proyectos OK")
 
-        # Subir unidades (POST directo, ya vienen en shape bc-api desde el parser)
+        # Subir unidades vía Excel sintético + /excel/upload (upsert+baja seguro,
+        # a diferencia de upload_unidades_direct que solo POSTea -- correcto para
+        # la carga inicial pero duplicaría unidades en cada corrida del sync
+        # recurrente diario).
         if unidades:
-            result = await imp.upload_unidades_direct(proyecto_id, unidades)
-            log.info(f"   ✓ unidades: {result['inserted']}/{len(unidades)} insertadas")
+            xlsx_path = imp.build_jb_style_excel(jb_id, unidades)
+            result = await imp.upload_jb_excel(proyecto_id, xlsx_path)
+            if result.get("status") == "error":
+                log.error(f"✗ upload excel falló: {result}")
+                return 1
+            log.info(
+                f"   ✓ unidades: {result.get('inserted', 0)} ins, {result.get('updated', 0)} upd, "
+                f"{len(result.get('errors', []))} err"
+            )
         else:
             log.warning("   ⚠ sin unidades parseadas — revisar selectores de Stock")
 

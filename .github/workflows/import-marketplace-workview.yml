@@ -10,11 +10,17 @@ on:
     inputs:
       jb_id:
         description: 'JetBrokers id (ej: IquFoRoO)'
-        required: true
+        required: false
+        default: 'IquFoRoO'
       dry_run:
         description: 'true = solo scrapea y muestra resumen, no sube nada'
         required: false
         default: 'true'
+  # 1×/día -- Laguna Centro Torre H (IquFoRoO). Solo stock + notas + condiciones
+  # comerciales (re-scrapea todo el workview, liviano: 1 login, sin wipe, sin
+  # descarga de fotos/documentos). 09:00 Chile (UTC-4) = 13:00 UTC.
+  schedule:
+    - cron: '0 13 * * *'
 
 concurrency:
   group: import-jb-serial
@@ -62,7 +68,7 @@ jobs:
           HEADLESS:         '1'
         run: |
           set -euo pipefail
-          ARGS="${{ github.event.inputs.jb_id }}"
+          ARGS="${{ github.event.inputs.jb_id || 'IquFoRoO' }}"
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             ARGS="$ARGS --dry-run"
           fi
@@ -72,7 +78,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: import-marketplace-${{ github.event.inputs.jb_id }}-${{ github.run_id }}
+          name: import-marketplace-${{ github.event.inputs.jb_id || 'IquFoRoO' }}-${{ github.run_id }}
           path: imports/
           retention-days: 14
           if-no-files-found: warn

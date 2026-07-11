@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import httpx
+from openpyxl import Workbook
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 log = logging.getLogger("jb_importer")
@@ -2445,6 +2446,50 @@ class JBImporter:
             except Exception:
                 pass
         return {"inserted": inserted, "errors": errors}
+
+    def build_jb_style_excel(self, jb_id: str, unidades: list[dict]) -> Path:
+        """Construye un .xlsx formato JB (INSTRUCCIONES/UNIDAD/ESTACIONAMIENTOS/
+        BODEGAS) a partir de unidades ya parseadas (shape UnidadIn-compatible,
+        ej. las que devuelve _parse_marketplace_unidades). Permite reusar
+        upload_jb_excel() → /excel/upload, que YA tiene upsert+baja seguro
+        (preserva orientación/descuento manuales, marca disponible=False en vez
+        de duplicar) -- necesario para sync repetido (2×/día, etc.), a
+        diferencia de upload_unidades_direct() que solo POSTea (duplicaría en
+        cada corrida)."""
+        wb = Workbook()
+        wb.remove(wb.active)
+        wb.create_sheet("INSTRUCCIONES")
+
+        ws = wb.create_sheet("UNIDAD")
+        ws.append(["REQ"] * 14)  # fila 1: marcadores REQ/OPC (no se parsean valores)
+        ws.append([
+            "Unidad Número", "Modelo", "Orientacion", "Sup Interior", "Sup Terraza",
+            "Sup Logia", "Sup Jardin", "Sup Total", "ValorUF", "Descuento", "Bonopie",
+            "Cotiza Estacionamiento", "Cotiza Bodega", "Cotiza Pack",
+        ])
+        for u in unidades:
+            ws.append([
+                u.get("numero"), u.get("modelo"), u.get("orientacion"),
+                u.get("sup_interior"), u.get("sup_terraza"), u.get("sup_logia"),
+                u.get("sup_jardin"), u.get("sup_total"), u.get("precio_lista_uf"),
+                u.get("descuento_pct"), u.get("bono_pie_pct"),
+                u.get("estac_flag"), u.get("bodega_flag"), u.get("pack_flag"),
+            ])
+
+        # Vacías pero presentes -- _is_jb_excel() exige los 4 sheets. Esta vista
+        # no expone estac/bodega como inventario separado (van como flag por
+        # depto), así que no hay filas que meter acá.
+        we = wb.create_sheet("ESTACIONAMIENTOS")
+        we.append(["OPC", "OPC"])
+        we.append(["Número", "PrecioUF"])
+        wb2 = wb.create_sheet("BODEGAS")
+        wb2.append(["OPC", "OPC"])
+        wb2.append(["Número", "PrecioUF"])
+
+        xlsx_path = self.imports_dir / jb_id / f"stock-marketplace-{time.strftime('%Y%m%d-%H%M%S')}.xlsx"
+        xlsx_path.parent.mkdir(parents=True, exist_ok=True)
+        wb.save(xlsx_path)
+        return xlsx_path
 
     async def upload_jb_excel(self, proyecto_id: str, xlsx_path: Path) -> dict:
         """Sube el Excel JB descargado a /excel/upload de bc-api.
