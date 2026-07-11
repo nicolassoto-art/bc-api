@@ -100,6 +100,9 @@ async def run(jb_id: str, headless: bool = True) -> None:
                 await imp._page.screenshot(path=str(out_dir / f"tab-{safe_name}.png"), full_page=True)
                 tab_text = await imp._page.evaluate("() => document.body.innerText")
                 (out_dir / f"tab-{safe_name}_text.txt").write_text(tab_text, encoding="utf-8")
+                if tab in ("Stock", "Notas", "Documentos"):
+                    tab_html = await imp._page.content()
+                    (out_dir / f"tab-{safe_name}.html").write_text(tab_html, encoding="utf-8")
                 tabs_found.append(tab)
                 log.info(f"   ✓ tab encontrado y capturado: {tab}")
             except Exception:
