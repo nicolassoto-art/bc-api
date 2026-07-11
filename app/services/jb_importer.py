@@ -1695,13 +1695,16 @@ class JBImporter:
                 const text = document.body.innerText;
                 const m = text.match(/Vista Trabajo\s+([^\n]+)/);
                 const nombre_bc = m ? m[1].trim() : '';
-                const loader = document.querySelector('app-img-loader');
-                const loaderCol = loader ? loader.closest('[fxlayout="column"]') : null;
-                const headerRow = loaderCol ? loaderCol.previousElementSibling : null;
+                // Anclar en .text-xl.text-center (nombre inmobiliaria, confirmado único)
+                // en vez de app-img-loader -- ese matchea MÁS de un logo en la página
+                // (ej. el del sidebar) y query_selector() se queda con el primero,
+                // que no es el del card de info del proyecto.
+                const inmoEl = document.querySelector('.text-xl.text-center');
+                const inmoCol = inmoEl ? inmoEl.closest('[fxlayout="column"]') : null;
+                const headerRow = inmoCol ? inmoCol.previousElementSibling : null;
                 const parts = headerRow
                     ? [...headerRow.children].map(c => (c.innerText || '').trim()).filter(Boolean)
                     : [];
-                const inmoEl = document.querySelector('.text-xl.text-center');
                 return {
                     nombre_breadcrumb: nombre_bc,
                     header_parts: parts,
