@@ -1872,6 +1872,13 @@ class JBImporter:
                 if matched_path:
                     if matched_path.startswith("_"):
                         target_key = matched_path[1:]
+                        # nombre/comuna/modalidad ya vienen del header (breadcrumb visual,
+                        # confirmado a ojo) -- no dejar que este scanner genérico los pise
+                        # con un campo de formulario homónimo que puede ser un default
+                        # ajeno a este listado de reventa (visto en vivo: "Modalidad"→
+                        # "Nuevo" pisando el "Entrega inmediata" real del header).
+                        if target_key in ("nombre", "comuna", "modalidad") and out.get("_top_level", {}).get(target_key):
+                            continue
                         out.setdefault("_top_level", {})
                         existing = out["_top_level"].get(target_key)
                         new_val = value.strip() if value else ""
