@@ -1730,6 +1730,170 @@ class JBImporter:
 
         await self._page.screenshot(path=str(debug_dir / "tab-general.png"), full_page=True)
 
+        # ── Condiciones Comerciales / Plan de pago / Reserva / Cuenta reserva:
+        # misma sección "General" del editor propio reusa este mismo formulario
+        # Angular (mismos formcontrolname), aunque acá esté read-only o parcial.
+        # Duplicado deliberado del scanner de scrape_editor() (líneas ~447-678)
+        # en vez de refactor compartido -- ese método es productivo y probado
+        # en 84+ proyectos, prefiero no tocarlo para esto.
+        try:
+            all_pairs = await self._page.evaluate("""() => {
+                const out = [];
+                const visible = el => {
+                    if (!el.offsetParent && el.tagName !== 'OPTION') return false;
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                };
+                const findLabel = (el) => {
+                    if (el.id) {
+                        const l = document.querySelector(`label[for="${el.id}"]`);
+                        if (l) return l.innerText.trim();
+                    }
+                    let p = el.parentElement;
+                    let hops = 0;
+                    while (p && hops < 5) {
+                        const lbl = p.querySelector('label');
+                        if (lbl && lbl.contains(el) === false) {
+                            const t = lbl.innerText.trim();
+                            if (t) return t;
+                        }
+                        const prev = p.previousElementSibling;
+                        if (prev && prev.tagName === 'LABEL') return prev.innerText.trim();
+                        p = p.parentElement;
+                        hops++;
+                    }
+                    const placeholder = el.placeholder || el.getAttribute?.('aria-label') || '';
+                    return placeholder.trim();
+                };
+                const findSection = (el) => {
+                    let node = el.parentElement;
+                    while (node && node !== document.body) {
+                        if (node.classList && (node.classList.contains('card') || node.classList.contains('panel') || node.classList.contains('section'))) {
+                            const header = node.querySelector(':scope > .card-header, :scope > .panel-heading, :scope > header, :scope > h1, :scope > h2, :scope > h3, :scope > h4');
+                            if (header) {
+                                const t = header.innerText.trim().split('\\n')[0].trim();
+                                if (t) return t;
+                            }
+                        }
+                        node = node.parentElement;
+                    }
+                    const headers = document.querySelectorAll('.card-header, .panel-heading, h1, h2, h3, h4, h5, legend');
+                    let lastBefore = null;
+                    for (const h of headers) {
+                        if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                            lastBefore = h;
+                        }
+                    }
+                    if (lastBefore) {
+                        return lastBefore.innerText.trim().split('\\n')[0].trim();
+                    }
+                    return '';
+                };
+                const inputs = document.querySelectorAll('input:not([type="hidden"]), select, textarea, mat-select, ng-select, .ng-select, .ng-select-container, [role="combobox"]');
+                inputs.forEach(el => {
+                    if (!visible(el)) return;
+                    let v = el.value;
+                    if (el.tagName === 'SELECT') {
+                        v = el.options[el.selectedIndex]?.text || el.value;
+                    } else if (el.tagName === 'MAT-SELECT' || el.tagName === 'NG-SELECT' || el.getAttribute('role') === 'combobox') {
+                        const isMulti = el.classList && el.classList.contains('ng-select-multiple');
+                        if (isMulti) {
+                            const labels = [...el.querySelectorAll('.ng-value-label')]
+                                .map(s => (s.innerText || '').trim())
+                                .filter(t => t && t !== '×');
+                            v = labels.join(', ');
+                        } else {
+                            const ngValue = el.querySelector('.ng-value:not(.ng-placeholder)');
+                            let txt = '';
+                            if (ngValue) {
+                                const spans = [...ngValue.querySelectorAll('span')].filter(s =>
+                                    s.innerText && !s.classList.contains('ng-value-icon') &&
+                                    !s.classList.contains('ng-clear') && !s.classList.contains('ng-arrow'));
+                                txt = (spans[spans.length-1]?.innerText || ngValue.innerText || '').trim();
+                            } else {
+                                txt = (el.querySelector('.mat-mdc-select-value-text, [class*="select-value"]')?.innerText
+                                    || el.querySelector('span:not(.ng-placeholder):not(.ng-arrow):not(.ng-clear)')?.innerText
+                                    || '').trim();
+                            }
+                            v = txt;
+                        }
+                        if (/^(seleccion|elegir|placeholder|×|\\u00d7)$/i.test(v)) v = '';
+                    }
+                    const label = findLabel(el);
+                    if (!label) return;
+                    const section = findSection(el);
+                    out.push({label, section, value: (v == null ? '' : v), type: el.type || el.tagName, name: el.name || el.id || ''});
+                });
+                return out;
+            }""")
+            (debug_dir / "labels_found.json").write_text(json.dumps(all_pairs, indent=2, ensure_ascii=False), encoding="utf-8")
+            log.info(f"   {len(all_pairs)} pares label/value encontrados (Condiciones Comerciales/Plan de pago)")
+
+            def norm(s):
+                return s.lower().replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ñ","n").strip()
+
+            def normalize_value(path: str, value: str):
+                numeric_paths = (
+                    "pie_pct", "cuoton_", "_pct", "valor_", "cuotas_",
+                    "pisos", "unidades_", "estacionamientos_", "bodegas_", "ascensores",
+                    "_clp", "_uf",
+                )
+                if not any(p in path for p in numeric_paths):
+                    return value
+                if value is None or value == "":
+                    return None
+                try:
+                    s = str(value).strip()
+                    if "," in s:
+                        s = s.replace(".", "").replace(",", ".")
+                    else:
+                        parts = s.split(".")
+                        if len(parts) > 1 and all(len(p) == 3 for p in parts[1:]):
+                            s = s.replace(".", "")
+                    n = float(s)
+                    return int(n) if n == int(n) else n
+                except Exception:
+                    return value
+
+            unmatched = []
+            for pair in all_pairs:
+                label = pair.get("label", "").strip()
+                section = pair.get("section", "").strip()
+                value = pair.get("value", "").strip()
+                nlabel = norm(label)
+                nsection = norm(section)
+                matched_path = None
+                for (sec_key, lbl_key), path in self.LABEL_MAP.items():
+                    if norm(lbl_key) == nlabel:
+                        if sec_key == "" or norm(sec_key) in nsection or nsection in norm(sec_key):
+                            matched_path = path
+                            if sec_key:
+                                break
+                if matched_path:
+                    if matched_path.startswith("_"):
+                        target_key = matched_path[1:]
+                        out.setdefault("_top_level", {})
+                        existing = out["_top_level"].get(target_key)
+                        new_val = value.strip() if value else ""
+                        if new_val in ("", None) and existing not in ("", None):
+                            pass
+                        else:
+                            out["_top_level"][target_key] = new_val
+                    else:
+                        existing = self._get_path(out, matched_path)
+                        new_val = normalize_value(matched_path, value)
+                        if new_val in (None, "", 0) and existing not in (None, ""):
+                            pass
+                        else:
+                            self._set_path(out, matched_path, new_val)
+                else:
+                    unmatched.append({"section": section, "label": label, "value": value[:60]})
+            (debug_dir / "unmatched_labels.json").write_text(json.dumps(unmatched, indent=2, ensure_ascii=False), encoding="utf-8")
+            n_comercial = len((out.get("extra") or {}).get("comercial") or {})
+            log.info(f"   💰 Condiciones Comerciales: {n_comercial} campos con valor (de {len(all_pairs)} inputs vistos, {len(unmatched)} sin mapeo)")
+        except Exception as e:
+            log.warning(f"   condiciones comerciales workview → {e}")
+
         # ── Stock: cards .apartment (NO paginado -- confirmado que JB carga
         # todas las unidades disponibles de una vez en este layout) ──
         try:
