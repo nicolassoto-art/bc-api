@@ -1,14 +1,15 @@
 # Eventos anómalos — registro automático
 
-Última actualización: Sun 12/07/2026 11:07 Chile · 266 eventos totales
+Última actualización: Sun 12/07/2026 13:11 Chile · 267 eventos totales
 
 Este archivo se regenera automáticamente desde `eventos_anomalos.jsonl`.
 Los eventos están deduplicados en ventanas de 24h.
 
-## 🚨 Fallos de workflow (3 en total, mostrando últimos 3)
+## 🚨 Fallos de workflow (4 en total, mostrando últimos 4)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-07-12 17:11:28 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 | 2026-07-11 17:08:50 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 | 2026-07-10 15:37:48 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 | 2026-05-28 21:34:11 | `import-jb.yml#26596794924` | created=Thu 28/05 15:19 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26596794924) |
