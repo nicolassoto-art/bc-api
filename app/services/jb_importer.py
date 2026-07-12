@@ -139,6 +139,11 @@ class ImportReport:
         return {**asdict(self), "duration_s": self.duration_s}
 
 
+class _SkipSection(Exception):
+    """Sentinel interno para saltar una sección de scrape_marketplace_workview
+    en modo stock_only, sin reindentar el bloque try/except que la envuelve."""
+
+
 class JBImporter:
     def __init__(
         self,
@@ -1672,12 +1677,18 @@ class JBImporter:
 
     # ── Marketplace workview (proyecto de OTRA inmobiliaria en nuestro catálogo
     # de reventa, /marketplace/workview/{id} en vez de /projects/edit/{id}) ───
-    async def scrape_marketplace_workview(self, jb_id: str) -> dict:
+    async def scrape_marketplace_workview(self, jb_id: str, stock_only: bool = False) -> dict:
         """Scrapea un proyecto listado en el marketplace de JB (no editable por
         nosotros -- lo agregamos a nuestro catálogo de reventa). Layout distinto
         al editor propio: tabs General/Stock/Documentos/Notas/Arriendos/
         JetGallery/Comisiones/Timeline. Sin wipe (no es nuestro), sin botón
         Descargar Excel (el stock se parsea del DOM, son cards no <table>).
+
+        stock_only=True: para el sync recurrente (diario) -- se salta el scan
+        de Condiciones Comerciales/Plan de pago + Notas + Documentos (no
+        cambian día a día) y solo entra a la tab Stock. Menos requests/tabs
+        por corrida = menos carga en JB. El nombre/comuna/modalidad del
+        breadcrumb sí se lee siempre (ya está en la página, sin costo extra).
         """
         log.info(f"🛒 Scrapeando marketplace/workview de {jb_id}...")
         url = f"https://app.jetbrokers.io/marketplace/workview/{jb_id}"
@@ -1738,6 +1749,8 @@ class JBImporter:
         # en vez de refactor compartido -- ese método es productivo y probado
         # en 84+ proyectos, prefiero no tocarlo para esto.
         try:
+            if stock_only:
+                raise _SkipSection
             all_pairs = await self._page.evaluate("""() => {
                 const out = [];
                 const visible = el => {
@@ -1899,6 +1912,8 @@ class JBImporter:
             (debug_dir / "unmatched_labels.json").write_text(json.dumps(unmatched, indent=2, ensure_ascii=False), encoding="utf-8")
             n_comercial = len((out.get("extra") or {}).get("comercial") or {})
             log.info(f"   💰 Condiciones Comerciales: {n_comercial} campos con valor (de {len(all_pairs)} inputs vistos, {len(unmatched)} sin mapeo)")
+        except _SkipSection:
+            pass
         except Exception as e:
             log.warning(f"   condiciones comerciales workview → {e}")
 
@@ -1940,6 +1955,8 @@ class JBImporter:
 
         # ── Notas: <app-marketplace-notes>, texto formateado (no quill) ──
         try:
+            if stock_only:
+                raise _SkipSection
             await self._click_tab("Notas")
             await self._page.wait_for_timeout(2_000)
             await self._page.screenshot(path=str(debug_dir / "tab-notas.png"), full_page=True)
@@ -1954,6 +1971,8 @@ class JBImporter:
                 log.info(f"   ✓ Notas extraídas ({len(notas_html)} chars HTML, {len(notas_text)} chars texto)")
             else:
                 log.warning("   notas → vacío o selector no matcheó")
+        except _SkipSection:
+            pass
         except Exception as e:
             log.warning(f"   notas workview → {e}")
 
@@ -1961,6 +1980,8 @@ class JBImporter:
         # archivos en sí se descargan por botón (sin href directo) -- v1 solo
         # cataloga, no descarga/sube binarios (queda para una iteración futura). ──
         try:
+            if stock_only:
+                raise _SkipSection
             await self._click_tab("Documentos")
             await self._page.wait_for_timeout(2_500)
             await self._load_all_table_rows()
@@ -1980,6 +2001,8 @@ class JBImporter:
             if docs_meta:
                 self._set_path(out, "extra._marketplace_documentos", docs_meta)
                 log.info(f"   📄 Documentos: {len(docs_meta)} catalogados (metadata solo, sin descargar binarios)")
+        except _SkipSection:
+            pass
         except Exception as e:
             log.warning(f"   documentos workview → {e}")
 

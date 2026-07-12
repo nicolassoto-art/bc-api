@@ -56,7 +56,7 @@ async def get_jwt(bc_api_base: str) -> str:
     return r.json().get("access_token") or r.json().get("token")
 
 
-async def run(jb_id: str, bc_base: str, jwt: str, dry_run: bool, headless: bool = True) -> int:
+async def run(jb_id: str, bc_base: str, jwt: str, dry_run: bool, headless: bool = True, stock_only: bool = False) -> int:
     imp = JBImporter(
         jb_email=os.environ["JETBROKERS_EMAIL"],
         jb_password=os.environ["JETBROKERS_PASS"],
@@ -89,9 +89,9 @@ async def run(jb_id: str, bc_base: str, jwt: str, dry_run: bool, headless: bool 
         proyecto_id = current["id"]
         log.info(f"▶ proyecto_id={proyecto_id} (nombre actual: {current.get('nombre')!r})")
 
-        scraped = await imp.scrape_marketplace_workview(jb_id)
+        scraped = await imp.scrape_marketplace_workview(jb_id, stock_only=stock_only)
         n_fields = imp._count_leaves(scraped)
-        log.info(f"   {n_fields} campos extraídos")
+        log.info(f"   {n_fields} campos extraídos" + (" (stock_only)" if stock_only else ""))
 
         unidades = imp._pending_unidades or []
         notas_chars = len((scraped.get("extra") or {}).get("notas_html") or "")
@@ -156,13 +156,17 @@ def main():
     parser.add_argument("jb_id", help="JB project ID (ej: IquFoRoO)")
     parser.add_argument("--dry-run", action="store_true", help="Scrapea y muestra el resumen, no sube nada")
     parser.add_argument("--headed", action="store_true")
+    parser.add_argument(
+        "--stock-only", action="store_true",
+        help="Solo tab Stock (salta Condiciones Comerciales/Notas/Documentos) -- para el sync diario, menos carga en JB",
+    )
     args = parser.parse_args()
 
     bc_base = os.environ.get("BC_API_BASE", "https://bc-api.178-105-91-29.nip.io").rstrip("/")
 
     async def _main():
         jwt = await get_jwt(bc_base)
-        code = await run(args.jb_id, bc_base, jwt, dry_run=args.dry_run, headless=not args.headed)
+        code = await run(args.jb_id, bc_base, jwt, dry_run=args.dry_run, headless=not args.headed, stock_only=args.stock_only)
         sys.exit(code)
 
     asyncio.run(_main())

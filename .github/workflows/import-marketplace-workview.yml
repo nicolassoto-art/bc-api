@@ -16,11 +16,13 @@ on:
         description: 'true = solo scrapea y muestra resumen, no sube nada'
         required: false
         default: 'true'
-  # 1×/día -- Laguna Centro Torre H (IquFoRoO). Solo stock + notas + condiciones
-  # comerciales (re-scrapea todo el workview, liviano: 1 login, sin wipe, sin
-  # descarga de fotos/documentos). 09:00 Chile (UTC-4) = 13:00 UTC.
+  # L-V 11:00 Chile (UTC-4) = 15:00 UTC -- Laguna Centro Torre H (IquFoRoO).
+  # El trigger de schedule corre con --stock-only (ver step de abajo): salta
+  # Condiciones Comerciales/Notas/Documentos (no cambian día a día), solo
+  # entra a la tab Stock -- menos requests/tabs por corrida, menos carga en
+  # JB. Corridas manuales (workflow_dispatch) siguen trayendo todo por default.
   schedule:
-    - cron: '0 13 * * *'
+    - cron: '0 15 * * 1-5'
 
 concurrency:
   group: import-jb-serial
@@ -71,6 +73,9 @@ jobs:
           ARGS="${{ github.event.inputs.jb_id || 'IquFoRoO' }}"
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             ARGS="$ARGS --dry-run"
+          fi
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            ARGS="$ARGS --stock-only"
           fi
           python3 scripts/import_marketplace_workview.py $ARGS
 
