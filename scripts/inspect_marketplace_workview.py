@@ -58,8 +58,20 @@ async def run(jb_id: str, headless: bool = True) -> None:
     )
     out_dir = imp.imports_dir / "_inspect" / jb_id
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    image_responses: list[dict] = []
+
+    async def on_response(resp):
+        try:
+            ct = resp.headers.get("content-type", "")
+            if ct.startswith("image/") or "gallery" in resp.url or "/file" in resp.url:
+                image_responses.append({"url": resp.url, "status": resp.status, "content_type": ct})
+        except Exception:
+            pass
+
     try:
         await imp.login()
+        imp._page.on("response", on_response)
 
         url = f"https://app.jetbrokers.io/marketplace/workview/{jb_id}"
         log.info(f"📂 Navegando a {url}")
@@ -100,7 +112,7 @@ async def run(jb_id: str, headless: bool = True) -> None:
                 await imp._page.screenshot(path=str(out_dir / f"tab-{safe_name}.png"), full_page=True)
                 tab_text = await imp._page.evaluate("() => document.body.innerText")
                 (out_dir / f"tab-{safe_name}_text.txt").write_text(tab_text, encoding="utf-8")
-                if tab in ("Stock", "Notas", "Documentos"):
+                if tab in ("Stock", "Notas", "Documentos", "JetGallery", "General"):
                     tab_html = await imp._page.content()
                     (out_dir / f"tab-{safe_name}.html").write_text(tab_html, encoding="utf-8")
                 tabs_found.append(tab)
@@ -108,12 +120,18 @@ async def run(jb_id: str, headless: bool = True) -> None:
             except Exception:
                 continue
 
+        (out_dir / "image_responses.json").write_text(
+            json.dumps(image_responses, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        log.info(f"   🖼  {len(image_responses)} responses tipo imagen/galería/file capturadas")
+
         summary = {
             "jb_id": jb_id,
             "url_solicitada": url,
             "url_final": final_url,
             "tabs_encontrados": tabs_found,
             "n_botones_visibles": len(buttons),
+            "n_image_responses": len(image_responses),
         }
         (out_dir / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
         log.info(f"✓ Resumen: {json.dumps(summary, ensure_ascii=False)}")
