@@ -1,0 +1,27 @@
+name: Test fetch_project_files (marketplace)
+
+on:
+  workflow_dispatch:
+    inputs:
+      jb_id:
+        required: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+      - env:
+          JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
+          JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
+          HEADLESS: '1'
+        run: python3 scripts/test_fetch_files.py "${{ github.event.inputs.jb_id }}"
