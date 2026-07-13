@@ -34,5 +34,7 @@ print(f"extra.comercial: {json.dumps(extra.get('comercial') or {}, ensure_ascii=
 print(f"extra._marketplace_documentos: {len(extra.get('_marketplace_documentos') or [])} items")
 print(f"extra._marketplace_workview: {extra.get('_marketplace_workview')}")
 print(f"extra keys: {sorted(extra.keys())}")
+print(f"extra.modelos: {json.dumps(extra.get('modelos'), ensure_ascii=False, default=str)}")
+print(f"imagenes: {len(p.get('imagenes') or [])} items")
 if unidades:
     print(f"\nsample unidad[0]: {json.dumps(unidades[0], ensure_ascii=False, default=str)}")
