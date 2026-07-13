@@ -2006,6 +2006,87 @@ class JBImporter:
         except Exception as e:
             log.warning(f"   documentos workview → {e}")
 
+        # ── JetGallery: iframe a microsite PÚBLICO jetgallery.jetbrokers.io con
+        # el detalle completo del proyecto (cover, fotos reales, TODOS los
+        # modelos con blueprintId, dirección, descripción, perks). Confirmado
+        # con captura de red real (no adivinado): las URLs de descarga
+        # (jetgallery.jetbrokers.io/api/gallery/download/{org}/{fileId}) son
+        # públicas, sin auth, CORS abierto -- no hace falta sesión ni cookies,
+        # solo descubrir el galleryId (va en el src del iframe). ──
+        try:
+            if stock_only:
+                raise _SkipSection
+            await self._click_tab("JetGallery")
+            await self._page.wait_for_timeout(2_500)
+            iframe_src = await self._page.evaluate(
+                "() => document.querySelector('#jgIframe, iframe')?.src || ''"
+            )
+            m = re.search(r"jetgallery\.jetbrokers\.io/([^/]+)/([^/]+)/([^/]+)/", iframe_src or "")
+            if not m:
+                log.warning(f"   jetgallery → no se encontró iframe src (visto: {iframe_src!r})")
+            else:
+                gallery_org, gallery_jbid, gallery_id = m.group(1), m.group(2), m.group(3)
+                details_url = f"https://jetgallery.jetbrokers.io/api/gallery/details/{gallery_org}/{gallery_jbid}/{gallery_id}"
+                async with httpx.AsyncClient(timeout=20.0) as cli:
+                    r = await cli.get(details_url)
+                if r.status_code == 200:
+                    gd = r.json()
+                    (debug_dir / "jetgallery_details.json").write_text(
+                        json.dumps(gd, indent=2, ensure_ascii=False), encoding="utf-8"
+                    )
+                    dl_base = f"https://jetgallery.jetbrokers.io/api/gallery/download/{gallery_org}"
+                    if gd.get("address"):
+                        self._set_path(out, "_top_level.direccion", gd["address"])
+                    if gd.get("description"):
+                        self._set_path(out, "extra.descripcion", gd["description"])
+                    if gd.get("buildingCompany"):
+                        self._set_path(out, "extra.fisicos.constructora", gd["buildingCompany"])
+                    if gd.get("gpsLat"):
+                        self._set_path(out, "_top_level.gps_lat", gd["gpsLat"])
+                    if gd.get("gpsLon"):
+                        self._set_path(out, "_top_level.gps_lon", gd["gpsLon"])
+                    if gd.get("coverId"):
+                        self._set_path(out, "extra._marketplace_cover_url", f"{dl_base}/{gd['coverId']}")
+                    perks = [p for p in (gd.get("perks") or []) + (gd.get("perksCommonAreas") or []) if p]
+                    if perks:
+                        self._set_path(out, "extra.equipamiento", perks)
+                    if gd.get("perksNearby"):
+                        self._set_path(out, "extra.entorno", gd["perksNearby"])
+
+                    modelos_out = []
+                    for m_ in (gd.get("models") or []):
+                        bp = m_.get("blueprintId")
+                        modelos_out.append({
+                            "nombre": m_.get("name"),
+                            "dormitorios": m_.get("rooms"),
+                            "banos": m_.get("bathrooms"),
+                            "planta_url": f"{dl_base}/{bp}" if bp else None,
+                            "planta_id": bp,
+                        })
+                    if modelos_out:
+                        self._set_path(out, "extra.modelos_dom", modelos_out)
+                        n_con_planta = sum(1 for x in modelos_out if x.get("planta_url"))
+                        log.info(f"   📐 JetGallery: {len(modelos_out)} modelos, {n_con_planta} con planta real")
+
+                    fotos_out = []
+                    for f in (gd.get("files") or []):
+                        fid = f.get("id")
+                        if not fid or not (f.get("mime") or "").startswith("image/"):
+                            continue
+                        fotos_out.append({
+                            "id": fid, "url": f"{dl_base}/{fid}",
+                            "tipo": f.get("type"), "detalles": f.get("details"),
+                        })
+                    if fotos_out:
+                        self._set_path(out, "extra._marketplace_fotos", fotos_out)
+                        log.info(f"   🖼  JetGallery: {len(fotos_out)} fotos reales encontradas")
+                else:
+                    log.warning(f"   jetgallery details → HTTP {r.status_code}")
+        except _SkipSection:
+            pass
+        except Exception as e:
+            log.warning(f"   jetgallery workview → {e}")
+
         self._set_path(out, "extra._marketplace_workview", True)
         self._set_path(out, "extra._marketplace_jb_id", jb_id)
         log.info(f"   ✓ {self._count_leaves(out)} campos extraídos de marketplace/workview")

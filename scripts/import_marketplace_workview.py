@@ -94,13 +94,20 @@ async def run(jb_id: str, bc_base: str, jwt: str, dry_run: bool, headless: bool 
         log.info(f"   {n_fields} campos extraídos" + (" (stock_only)" if stock_only else ""))
 
         unidades = imp._pending_unidades or []
-        notas_chars = len((scraped.get("extra") or {}).get("notas_html") or "")
-        docs_count = len((scraped.get("extra") or {}).get("_marketplace_documentos") or [])
+        extra_scraped = scraped.get("extra") or {}
+        notas_chars = len(extra_scraped.get("notas_html") or "")
+        docs_count = len(extra_scraped.get("_marketplace_documentos") or [])
+        modelos_dom = extra_scraped.get("modelos_dom") or []
+        n_modelos_con_planta = sum(1 for m in modelos_dom if m.get("planta_url"))
+        fotos_count = len(extra_scraped.get("_marketplace_fotos") or [])
+        cover_url = extra_scraped.get("_marketplace_cover_url")
         top = scraped.get("_top_level") or {}
         log.info(
             f"   resumen: nombre={top.get('nombre')!r} comuna={top.get('comuna')!r} "
             f"modalidad={top.get('modalidad')!r} unidades={len(unidades)} "
-            f"notas_html_chars={notas_chars} documentos={docs_count}"
+            f"notas_html_chars={notas_chars} documentos={docs_count} "
+            f"modelos={len(modelos_dom)} ({n_modelos_con_planta} con planta) "
+            f"fotos={fotos_count} cover={'sí' if cover_url else 'no'}"
         )
 
         if dry_run:
@@ -111,13 +118,55 @@ async def run(jb_id: str, bc_base: str, jwt: str, dry_run: bool, headless: bool 
                 "unidades_count": len(unidades),
                 "notas_html_chars": notas_chars,
                 "documentos_count": docs_count,
+                "modelos_count": len(modelos_dom),
+                "modelos_con_planta": n_modelos_con_planta,
+                "fotos_count": fotos_count,
+                "cover_url": cover_url,
                 "sample_unidad": unidades[0] if unidades else None,
+                "sample_modelo": modelos_dom[0] if modelos_dom else None,
             }, indent=2, ensure_ascii=False, default=str))
             return 0
 
-        # PUT proyecto (nombre/comuna/modalidad/inmobiliaria/notas/documentos_meta)
+        # PUT proyecto (nombre/comuna/modalidad/inmobiliaria/notas/documentos_meta/
+        # modelos con planta -- extra.modelos_dom cae a extra.modelos en put_proyecto)
         await imp.put_proyecto(proyecto_id, current, scraped, modelos=[])
         log.info("   ✓ PUT /proyectos OK")
+
+        # Fotos/cover (URLs públicas de jetgallery.jetbrokers.io, sin re-hosting --
+        # /imagenes/url está hecho justo para esto, "importar fotos de JetBrokers").
+        extra_scraped = scraped.get("extra") or {}
+        cover_url = extra_scraped.get("_marketplace_cover_url")
+        fotos = extra_scraped.get("_marketplace_fotos") or []
+        if cover_url or fotos:
+            deleted = await imp._delete_existing_jb_assets(proyecto_id)
+            if deleted:
+                log.info(f"   🧹 {deleted} imagen(es) previa(s) borradas antes de re-registrar")
+            CATEGORIA_POR_TIPO = {
+                "projectPerk": "jb-foto",
+                "projectPerkCommonArea": "jb-foto-areas-comunes",
+                "projectPerkNearby": "jb-foto-entorno",
+            }
+            n_fotos_ok = 0
+            if cover_url:
+                r = await imp._bc_client.post(
+                    f"/proyectos/{proyecto_id}/imagenes/url",
+                    json={"url": cover_url, "categoria": "cover", "es_principal": True},
+                )
+                if r.is_success:
+                    n_fotos_ok += 1
+                else:
+                    log.warning(f"   cover → HTTP {r.status_code} {r.text[:150]}")
+            for f in fotos:
+                categoria = CATEGORIA_POR_TIPO.get(f.get("tipo"), "jb-foto")
+                r = await imp._bc_client.post(
+                    f"/proyectos/{proyecto_id}/imagenes/url",
+                    json={"url": f["url"], "categoria": categoria, "es_principal": False},
+                )
+                if r.is_success:
+                    n_fotos_ok += 1
+                else:
+                    log.warning(f"   foto {f.get('id')} → HTTP {r.status_code} {r.text[:150]}")
+            log.info(f"   ✓ imagenes: {n_fotos_ok}/{len(fotos) + (1 if cover_url else 0)} registradas")
 
         # Subir unidades vía Excel sintético + /excel/upload (upsert+baja seguro,
         # a diferencia de upload_unidades_direct que solo POSTea -- correcto para
