@@ -2470,6 +2470,19 @@ class JBImporter:
                 pass
         return {"inserted": inserted, "errors": errors}
 
+    @staticmethod
+    def _dorm_banos_from_tipologia(tipologia: Optional[str]) -> tuple[Optional[int], Optional[int]]:
+        """"1D - 1B" -> (1, 1). bc-api deriva extra tipologia de la columna Modelo
+        con un patrón "2D1B" que NO calza con modelos tipo letra sola (B, K, L...) --
+        sin Dormitorios/Baños explícitos, _parse_jb_excel() deja tipologia vacía
+        (bug real encontrado en producción: unidad 1402 con tipologia="")."""
+        if not tipologia:
+            return None, None
+        m = re.match(r"^\s*(\d+)\s*D\s*-\s*(\d+)\s*B", tipologia, re.IGNORECASE)
+        if not m:
+            return None, None
+        return int(m.group(1)), int(m.group(2))
+
     def build_jb_style_excel(self, jb_id: str, unidades: list[dict]) -> Path:
         """Construye un .xlsx formato JB (INSTRUCCIONES/UNIDAD/ESTACIONAMIENTOS/
         BODEGAS) a partir de unidades ya parseadas (shape UnidadIn-compatible,
@@ -2484,15 +2497,17 @@ class JBImporter:
         wb.create_sheet("INSTRUCCIONES")
 
         ws = wb.create_sheet("UNIDAD")
-        ws.append(["REQ"] * 14)  # fila 1: marcadores REQ/OPC (no se parsean valores)
+        ws.append(["REQ"] * 16)  # fila 1: marcadores REQ/OPC (no se parsean valores)
         ws.append([
-            "Unidad Número", "Modelo", "Orientacion", "Sup Interior", "Sup Terraza",
-            "Sup Logia", "Sup Jardin", "Sup Total", "ValorUF", "Descuento", "Bonopie",
+            "Unidad Número", "Modelo", "Dormitorios", "Baños", "Orientacion",
+            "Sup Interior", "Sup Terraza", "Sup Logia", "Sup Jardin", "Sup Total",
+            "ValorUF", "Descuento", "Bonopie",
             "Cotiza Estacionamiento", "Cotiza Bodega", "Cotiza Pack",
         ])
         for u in unidades:
+            dorm, banos = self._dorm_banos_from_tipologia(u.get("tipologia"))
             ws.append([
-                u.get("numero"), u.get("modelo"), u.get("orientacion"),
+                u.get("numero"), u.get("modelo"), dorm, banos, u.get("orientacion"),
                 u.get("sup_interior"), u.get("sup_terraza"), u.get("sup_logia"),
                 u.get("sup_jardin"), u.get("sup_total"), u.get("precio_lista_uf"),
                 u.get("descuento_pct"), u.get("bono_pie_pct"),

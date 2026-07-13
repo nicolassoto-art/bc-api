@@ -57,6 +57,33 @@ def test_roundtrip_una_unidad():
     assert r["orientacion"] == "SO"
     assert r["precio_lista_uf"] == 3034.0
     assert r["sup_total"] == 39.56
+    assert r["tipologia"] == "1D - 1B"
+
+
+def test_roundtrip_tipologia_sobrevive_con_modelo_letra_sola():
+    """Regresión: encontrado en producción (unidad 1402, modelo "B") -- el
+    modelo de marketplace/workview es una letra (B, K, L...), no un código
+    "2D1B" como Maestra. _parse_jb_excel() deriva tipologia del MODELO con ese
+    patrón; si no calza, cae a Dormitorios/Baños. Sin esas 2 columnas
+    (bug real: build_jb_style_excel no las mandaba) tipologia queda "" vacía
+    aunque el Excel tenga los datos correctos en todos los demás campos."""
+    imp = _imp()
+    u = _unidad("1402", modelo="B")  # "B" no matchea el regex NdMB de bc-api
+    xlsx_path = imp.build_jb_style_excel("TEST01", [u])
+    wb = load_workbook(xlsx_path, data_only=True)
+    rows, errors = _parse_jb_excel(wb)
+    assert errors == []
+    assert rows[0]["tipologia"] == "1D - 1B"
+    assert rows[0]["modelo"] == "B"
+
+
+def test_dorm_banos_from_tipologia():
+    imp = _imp()
+    assert imp._dorm_banos_from_tipologia("1D - 1B") == (1, 1)
+    assert imp._dorm_banos_from_tipologia("2D - 2B") == (2, 2)
+    assert imp._dorm_banos_from_tipologia("") == (None, None)
+    assert imp._dorm_banos_from_tipologia(None) == (None, None)
+    assert imp._dorm_banos_from_tipologia("Estudio") == (None, None)
 
 
 def test_roundtrip_multiples_unidades_preserva_todas():
