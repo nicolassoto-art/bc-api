@@ -36,6 +36,7 @@ print(f"extra._marketplace_workview: {extra.get('_marketplace_workview')}")
 print(f"extra keys: {sorted(extra.keys())}")
 print(f"extra.modelos: {json.dumps(extra.get('modelos'), ensure_ascii=False, default=str)}")
 print(f"imagenes: {len(p.get('imagenes') or [])} items")
+print(f"documentos (embebido en GET /proyectos/{PID}): {json.dumps(p.get('documentos'), ensure_ascii=False, default=str)}")
 if unidades:
     print(f"\nsample unidad[0]: {json.dumps(unidades[0], ensure_ascii=False, default=str)}")
 
