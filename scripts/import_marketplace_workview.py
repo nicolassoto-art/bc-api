@@ -100,14 +100,15 @@ async def run(jb_id: str, bc_base: str, jwt: str, dry_run: bool, headless: bool 
         modelos_dom = extra_scraped.get("modelos_dom") or []
         n_modelos_con_planta = sum(1 for m in modelos_dom if m.get("planta_url"))
         fotos_count = len(extra_scraped.get("_marketplace_fotos") or [])
+        docs_reales_count = len(extra_scraped.get("_marketplace_docs_reales") or [])
         cover_url = extra_scraped.get("_marketplace_cover_url")
         top = scraped.get("_top_level") or {}
         log.info(
             f"   resumen: nombre={top.get('nombre')!r} comuna={top.get('comuna')!r} "
             f"modalidad={top.get('modalidad')!r} unidades={len(unidades)} "
-            f"notas_html_chars={notas_chars} documentos={docs_count} "
+            f"notas_html_chars={notas_chars} documentos_meta={docs_count} "
             f"modelos={len(modelos_dom)} ({n_modelos_con_planta} con planta) "
-            f"fotos={fotos_count} cover={'sí' if cover_url else 'no'}"
+            f"fotos={fotos_count} docs_reales={docs_reales_count} cover={'sí' if cover_url else 'no'}"
         )
 
         if dry_run:
@@ -167,6 +168,30 @@ async def run(jb_id: str, bc_base: str, jwt: str, dry_run: bool, headless: bool 
                 else:
                     log.warning(f"   foto {f.get('id')} → HTTP {r.status_code} {r.text[:150]}")
             log.info(f"   ✓ imagenes: {n_fotos_ok}/{len(fotos) + (1 if cover_url else 0)} registradas")
+
+        # Documentos reales (brochure + fichas de plantas, PDF público de
+        # jetgallery.jetbrokers.io -- mismo mecanismo que las fotos, /documentos/url
+        # ya existe para esto). Idempotente: borra Brochure/Planos previos antes
+        # de re-registrar (documentos.py no tiene un helper tipo
+        # _delete_existing_jb_assets, así que se hace acá).
+        docs_reales = extra_scraped.get("_marketplace_docs_reales") or []
+        if docs_reales:
+            r_list = await imp._bc_client.get(f"/proyectos/{proyecto_id}/documentos")
+            if r_list.is_success:
+                for d in r_list.json():
+                    if d.get("tipo") in ("Brochure", "Planos"):
+                        await imp._bc_client.delete(f"/proyectos/{proyecto_id}/documentos/{d['id']}")
+            n_docs_ok = 0
+            for d in docs_reales:
+                r = await imp._bc_client.post(
+                    f"/proyectos/{proyecto_id}/documentos/url",
+                    json={"url": d["url"], "nombre": d["nombre"], "tipo": d["tipo"]},
+                )
+                if r.is_success:
+                    n_docs_ok += 1
+                else:
+                    log.warning(f"   documento {d.get('id')} → HTTP {r.status_code} {r.text[:150]}")
+            log.info(f"   ✓ documentos reales: {n_docs_ok}/{len(docs_reales)} registrados")
 
         # Subir unidades vía Excel sintético + /excel/upload (upsert+baja seguro,
         # a diferencia de upload_unidades_direct que solo POSTea -- correcto para

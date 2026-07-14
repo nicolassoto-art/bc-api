@@ -2069,17 +2069,30 @@ class JBImporter:
                         log.info(f"   📐 JetGallery: {len(modelos_out)} modelos, {n_con_planta} con planta real")
 
                     fotos_out = []
+                    docs_out = []
+                    DOC_TIPO_MAP = {"projectBrochure": "Brochure", "projectFloor": "Planos"}
                     for f in (gd.get("files") or []):
                         fid = f.get("id")
-                        if not fid or not (f.get("mime") or "").startswith("image/"):
+                        if not fid:
                             continue
-                        fotos_out.append({
-                            "id": fid, "url": f"{dl_base}/{fid}",
-                            "tipo": f.get("type"), "detalles": f.get("details"),
-                        })
+                        mime = f.get("mime") or ""
+                        if mime.startswith("image/"):
+                            fotos_out.append({
+                                "id": fid, "url": f"{dl_base}/{fid}",
+                                "tipo": f.get("type"), "detalles": f.get("details"),
+                            })
+                        elif f.get("type") in DOC_TIPO_MAP:
+                            docs_out.append({
+                                "id": fid, "url": f"{dl_base}/{fid}",
+                                "tipo": DOC_TIPO_MAP[f.get("type")],
+                                "nombre": f.get("details") or DOC_TIPO_MAP[f.get("type")],
+                            })
                     if fotos_out:
                         self._set_path(out, "extra._marketplace_fotos", fotos_out)
                         log.info(f"   🖼  JetGallery: {len(fotos_out)} fotos reales encontradas")
+                    if docs_out:
+                        self._set_path(out, "extra._marketplace_docs_reales", docs_out)
+                        log.info(f"   📎 JetGallery: {len(docs_out)} documentos reales (brochure/plantas) encontrados")
                 else:
                     log.warning(f"   jetgallery details → HTTP {r.status_code}")
         except _SkipSection:
