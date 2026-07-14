@@ -2457,6 +2457,18 @@ class JBImporter:
                 ".pdf": "application/pdf", ".webp": "image/webp"}.get(ext, "application/octet-stream")
 
     # ── Unidades: subir directo via POST /unidades ───────────────────────
+    async def _log_timeline_evento(self, proyecto_id: str, detalles: str, tipo: str = "Actualización automática") -> None:
+        """#93: deja traza en extra.timeline cuando el import corre por los
+        fallbacks API/DOM (upload_unidades*), que hacen N POSTs individuales a
+        /unidades y no pasan por /excel/upload (el único que ya logueaba solo)."""
+        try:
+            await self._bc_client.post(
+                f"/proyectos/{proyecto_id}/unidades/timeline/evento",
+                json={"tipo": tipo, "detalles": detalles},
+            )
+        except Exception as e:
+            log.warning(f"   timeline evento falló (no bloqueante): {e}")
+
     async def upload_unidades_direct(self, proyecto_id: str, units: list[dict]) -> dict:
         """POST de unidades que YA vienen en formato bc-api (del scrape DOM Unidades).
         No filtra ni transforma — las filas ya fueron parseadas por _parse_unidades_dom.
@@ -2480,6 +2492,12 @@ class JBImporter:
         log.info(f"   📦 Unidades DOM insertadas: {inserted}/{len(units)} (errors: {len(errors)})")
         if errors[:3]:
             log.warning(f"      primeros errores: {errors[:3]}")
+        await self._log_timeline_evento(
+            proyecto_id,
+            f"Actualización automática (JetBrokers · scraper, fallback tabla Unidades) — "
+            f"{inserted} unidad(es) cargadas de {len(units)}"
+            + (f", {len(errors)} error(es)" if errors else ""),
+        )
         return {"inserted": inserted, "errors": errors}
 
     async def upload_unidades(self, proyecto_id: str, units: list[dict]) -> dict:
@@ -2562,6 +2580,12 @@ class JBImporter:
                     log.warning(f"   🔍 SAMPLE unidad full data: {sample_full}")
             except Exception:
                 pass
+        await self._log_timeline_evento(
+            proyecto_id,
+            f"Actualización automática (JetBrokers · scraper, fallback API) — "
+            f"{inserted} unidad(es) cargadas de {len(units)}"
+            + (f", {len(errors)} error(es)" if errors else ""),
+        )
         return {"inserted": inserted, "errors": errors}
 
     @staticmethod
@@ -2636,6 +2660,7 @@ class JBImporter:
             r = await self._bc_client.post(
                 f"/proyectos/{proyecto_id}/unidades/excel/upload",
                 files=files,
+                params={"origen": "jb_importer"},  # #93: timeline dice "automático", no "carga manual"
                 timeout=120.0,
             )
             if r.is_success:

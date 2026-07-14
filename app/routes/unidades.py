@@ -1,9 +1,9 @@
 """Unidades de un proyecto: CRUD + upload/download Excel."""
-from typing import List
+from typing import List, Optional
 import io
 import uuid
 from datetime import datetime
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, UploadFile, File, status
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from sqlalchemy.orm import Session
@@ -812,6 +812,7 @@ async def subir_excel(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     permitir_sin_unidades: bool = False,
+    origen: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(stock_access),
 ):
@@ -1077,15 +1078,24 @@ async def subir_excel(
     proy.stock_updated_at = datetime.utcnow()  # 1.12 · marca el cambio de stock
 
     # ── Timeline: comentario "Sin cambios" o resumen de qué cambió ──
+    # #93: la detección NO puede depender solo del email — todos los workflows
+    # de GitHub Actions (import-jb.yml, sync-jb-stock.yml, etc.) autentican con
+    # la MISMA cuenta personal (nicolas.soto@bigcapital.cl), nunca con un email
+    # tipo "jb-scraper@..." — esa rama nunca disparaba en la práctica. El
+    # llamador automático (jb_importer.py) ahora manda `?origen=jb_importer`
+    # explícito; el email sigue de fallback por si algún día hay cuentas de
+    # servicio reales.
     _email_usuario = (getattr(usuario, "email", "") or "").lower()
-    if _email_usuario.startswith("mnk-scraper"):
+    if origen == "jb_importer":
+        _origen = "Actualización automática (JetBrokers · scraper)"
+    elif _email_usuario.startswith("mnk-scraper"):
         _origen = "Actualización automática (scraper MNK · PlanOk)"
     elif _email_usuario.startswith("maestra-scraper"):
         _origen = "Actualización automática (Maestra · Excel)"
     elif _email_usuario.startswith("jb-scraper") or "jb-importer" in _email_usuario:
         _origen = "Actualización automática (JetBrokers · scraper)"
     elif "scraper" in _email_usuario or "importer" in _email_usuario or _email_usuario.startswith("sistema"):
-        # Cualquier otro usuario de sistema/scraper → automático genérico (#93).
+        # Cualquier otro usuario de sistema/scraper → automático genérico.
         _origen = "Actualización automática (scraper)"
     else:
         _origen = "Carga de Excel de stock"
@@ -1223,6 +1233,44 @@ def crear_alerta_timeline(
         "titulo": titulo,
         "detalles": detalle or titulo,
         "usuario": getattr(usuario, "email", None) or "sistema",
+        "archivo_url": None,
+    }
+    _extra = {**(proy.extra or {})}
+    _tl = list(_extra.get("timeline") or [])
+    _tl.insert(0, evento)
+    _extra["timeline"] = _tl
+    proy.extra = _extra
+    db.commit()
+    return {"ok": True, "evento_id": evento["id"]}
+
+
+@router.post("/timeline/evento", status_code=status.HTTP_201_CREATED)
+def crear_evento_timeline(
+    proyecto_id: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(stock_access),
+):
+    """Inserta un evento informativo (no-alerta) en extra.timeline. #93: lo usa
+    jb_importer.py para dejar traza cuando sube unidades por los fallbacks
+    API/DOM (fuera de /excel/upload, que ya loguea internamente) — esas rutas
+    hacen N POSTs individuales a /unidades y hoy no dejaban registro.
+
+    Body esperado: {tipo?: str, detalles: str}
+    """
+    proy = _ensure_project(db, proyecto_id)
+    tipo = str(payload.get("tipo") or "Actualización automática").strip()
+    detalles = str(payload.get("detalles") or "").strip()
+    if not detalles:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Falta 'detalles'")
+
+    evento = {
+        "id": "tl-" + uuid.uuid4().hex[:10],
+        "fecha": datetime.utcnow().isoformat() + "Z",
+        "tipo": tipo,
+        "detalles": detalles,
+        "usuario": getattr(usuario, "email", None) or "sistema",
+        "origen_auto": True,
         "archivo_url": None,
     }
     _extra = {**(proy.extra or {})}
