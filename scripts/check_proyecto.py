@@ -38,3 +38,7 @@ print(f"extra.modelos: {json.dumps(extra.get('modelos'), ensure_ascii=False, def
 print(f"imagenes: {len(p.get('imagenes') or [])} items")
 if unidades:
     print(f"\nsample unidad[0]: {json.dumps(unidades[0], ensure_ascii=False, default=str)}")
+
+r_docs = cli.get(f"/proyectos/{PID}/documentos")
+print(f"\nGET /proyectos/{PID}/documentos -> HTTP {r_docs.status_code}")
+print(json.dumps(r_docs.json() if r_docs.is_success else r_docs.text[:500], indent=2, ensure_ascii=False, default=str))
