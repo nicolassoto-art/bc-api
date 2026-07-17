@@ -1,14 +1,16 @@
 # Eventos anómalos — registro automático
 
-Última actualización: Thu 16/07/2026 18:11 Chile · 287 eventos totales
+Última actualización: Thu 16/07/2026 20:06 Chile · 289 eventos totales
 
 Este archivo se regenera automáticamente desde `eventos_anomalos.jsonl`.
 Los eventos están deduplicados en ventanas de 24h.
 
-## 🚨 Fallos de workflow (8 en total, mostrando últimos 8)
+## 🚨 Fallos de workflow (10 en total, mostrando últimos 10)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-07-17 00:06:55 | `monitor-health.yml#29542094227` | created=Thu 16/07 19:24 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29542094227) |
+| 2026-07-17 00:06:55 | `monitor-health.yml#29539566571` | created=Thu 16/07 18:26 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29539566571) |
 | 2026-07-16 20:08:02 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 | 2026-07-15 19:25:21 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 | 2026-07-14 18:12:01 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
