@@ -19,6 +19,11 @@ class Proyecto(Base):
     __tablename__ = "proyectos"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)  # slug-like, ej. "pinar-1"
+    # Código corto para referencia humana (ej. "A22"). El id (slug) sigue siendo
+    # el PK real — usado en URLs/caché/keys, no se toca. codigo_corto es solo
+    # display: se asigna una vez al crear el proyecto (o por el backfill de los
+    # proyectos existentes) y nunca cambia.
+    codigo_corto: Mapped[Optional[str]] = mapped_column(String(8), unique=True, index=True)
     nombre: Mapped[str] = mapped_column(String(255), index=True)
     inmobiliaria: Mapped[Optional[str]] = mapped_column(String(255))
     comuna: Mapped[Optional[str]] = mapped_column(String(120), index=True)

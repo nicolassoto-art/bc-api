@@ -100,6 +100,7 @@ class ProyectoIn(ProyectoBase):
 class ProyectoOut(ProyectoBase):
     model_config = ConfigDict(from_attributes=True)
     id: str
+    codigo_corto: Optional[str] = None
     stock_last_upload: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
@@ -114,6 +115,7 @@ class ProyectoSummary(BaseModel):
     """Vista resumida para el listado — sin unidades/imagenes para no inflar el payload."""
     model_config = ConfigDict(from_attributes=True)
     id: str
+    codigo_corto: Optional[str] = None
     nombre: str
     inmobiliaria: Optional[str]
     comuna: Optional[str]

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func, Integer
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
@@ -20,6 +21,17 @@ router = APIRouter(prefix="/proyectos", tags=["proyectos"])
 def slugify(s: str) -> str:
     s = re.sub(r"[^a-zA-Z0-9]+", "-", s.lower()).strip("-")
     return s or "proyecto-" + uuid.uuid4().hex[:6]
+
+
+def _next_codigo_corto(db: Session) -> str:
+    """Próximo código corto secuencial ("A1", "A2", ...). El id (slug) sigue
+    siendo el identificador real — esto es solo una referencia humana corta."""
+    existentes = db.query(Proyecto.codigo_corto).filter(Proyecto.codigo_corto.isnot(None)).all()
+    max_n = 0
+    for (c,) in existentes:
+        if c and c[:1] == "A" and c[1:].isdigit():
+            max_n = max(max_n, int(c[1:]))
+    return f"A{max_n + 1}"
 
 
 # ── Catálogo público (Cloudflare Worker) ────────────────────────────────────
@@ -150,6 +162,7 @@ def _proyecto_public_dict(p: Proyecto) -> dict:
     extra = p.extra or {}
     d = {
         "id": p.id,
+        "codigo_corto": p.codigo_corto,
         "external_id": extra.get("external_id") or p.id,
         "publicar_en_catalogo": bool(extra.get("publicar_en_catalogo")),
         "nombre": p.nombre,
@@ -413,9 +426,18 @@ def crear(body: ProyectoIn, background_tasks: BackgroundTasks, db: Session = Dep
     if db.get(Proyecto, pid):
         raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Ya existe un proyecto con id '{pid}'")
     data = body.model_dump(exclude={"id"})
-    p = Proyecto(id=pid, **data)
+    p = Proyecto(id=pid, codigo_corto=_next_codigo_corto(db), **data)
     db.add(p)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        if "codigo_corto" not in str(e.orig):
+            raise  # conflicto real (ej. id), no es el código corto — propagar tal cual
+        # Colisión de codigo_corto por creación concurrente (raro) — reintenta 1 vez.
+        p.codigo_corto = _next_codigo_corto(db)
+        db.add(p)
+        db.commit()
     db.refresh(p)
     background_tasks.add_task(
         email_service.notify_change, "Nuevo proyecto en stock", p.nombre or pid,
