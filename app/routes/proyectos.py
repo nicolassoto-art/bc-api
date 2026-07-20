@@ -295,16 +295,17 @@ def listar(
     ).all()
     counts = {pid: (total or 0, disp or 0) for pid, total, disp in rows}
 
-    # Precio mínimo de unidades disponibles por proyecto (1 query, no N+1)
+    # Precio mínimo de unidades disponibles por proyecto (1 query, no N+1).
+    # SIEMPRE precio_lista_uf (nunca precio_final_uf) — el "desde" de catálogo/listados
+    # no debe reflejar descuento_pct de ninguna unidad, ese descuento solo se aplica
+    # y se muestra dentro de la cotización. (2026-07-20, decisión Nicolás)
     precio_rows = db.execute(
         select(
             Unidad.proyecto_id,
-            func.min(
-                func.coalesce(Unidad.precio_final_uf, Unidad.precio_lista_uf)
-            ),
+            func.min(Unidad.precio_lista_uf),
         )
         .where(Unidad.disponible == True)
-        .where(func.coalesce(Unidad.precio_final_uf, Unidad.precio_lista_uf) > 0)
+        .where(Unidad.precio_lista_uf > 0)
         .group_by(Unidad.proyecto_id)
     ).all()
     precios_min = {pid: precio for pid, precio in precio_rows if precio}
