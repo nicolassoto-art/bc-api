@@ -1,6 +1,6 @@
 # Eventos anómalos — registro automático
 
-Última actualización: Sun 19/07/2026 19:05 Chile · 306 eventos totales
+Última actualización: Sun 19/07/2026 20:08 Chile · 307 eventos totales
 
 Este archivo se regenera automáticamente desde `eventos_anomalos.jsonl`.
 Los eventos están deduplicados en ventanas de 24h.
@@ -188,3 +188,9 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-06-21 00:18:24 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
 | 2026-06-19 23:09:03 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
 | 2026-06-18 21:26:27 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
+
+## ℹ Errores leyendo GH CLI (1 en total, mostrando últimos 1)
+
+| Fecha (UTC) | Subject | Detalle |
+|---|---|---|
+| 2026-07-20 00:08:26 | `batch-import-jb.yml` | Command '['gh', '-R', 'nicolassoto-art/bc-api', 'run', 'list', '--workflow', 'batch-import-jb.yml', '--limit', '20', '-- |
