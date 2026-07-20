@@ -58,7 +58,7 @@ _PUBLIC_EXTRA_KEYS = {
 # Subcampos de `comercial` que el catálogo necesita; el resto (promo_broker,
 # márgenes, etc.) NO sale.
 _PUBLIC_COMERCIAL_KEYS = {
-    "pie_pct", "cuoton_inicial_pct", "cuoton_final_pct",
+    "pie_pct", "bono_pie_pct", "cuoton_inicial_pct", "cuoton_final_pct",
     "cuotas_pre_entrega", "cuotas_post_entrega", "valor_reserva_clp",
     # Unidad de los cuotones (% o UF) — el catálogo respeta cómo se cargó.
     "cuoton_inicial_unit", "cuoton_final_unit",
