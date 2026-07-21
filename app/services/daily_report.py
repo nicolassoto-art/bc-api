@@ -126,6 +126,10 @@ def _alertas_de_proyecto(p) -> dict:
         criticos.append("Sin inmobiliaria")
     if not p.comuna or not str(p.comuna).strip():
         criticos.append("Sin comuna")
+    if not p.direccion or not str(p.direccion).strip():
+        warnings.append("Sin dirección")
+    if not p.region or not str(p.region).strip():
+        warnings.append("Sin región")
     # Foto de fachada: MISMA semántica que _foto_principal_fallback del API (que es
     # lo que decide el cover real del catálogo): vale foto_principal_url, O una imagen
     # marcada es_principal, O una imagen fachada-like (jb-foto*/foto/fachada/exterior/

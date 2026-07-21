@@ -1,0 +1,8 @@
+# Backup diario del stock (proyectos+unidades+imagenes+documentos) a JSON
+# comprimido en /opt/bc-api/backups/stock/, ordenado por fecha y hora.
+# Motivo: bug real de import (Excel mezcló estac/bodega en Unidades, 2026-07-21)
+# — con esto cualquier corrupción futura se puede comparar/revertir a mano.
+# Retención 90 días (el propio script borra lo más viejo).
+CRON_TZ=America/Santiago
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+0 4 * * * root flock -n /tmp/backup_stock.lock bash -c 'cd /opt/bc-api && .venv/bin/python -m scripts.backup_stock_diario' >> /var/log/bc-backup-stock.log 2>&1

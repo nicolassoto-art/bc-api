@@ -392,6 +392,22 @@ def detalle(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depend
     return p
 
 
+@router.get("/{proyecto_id}/alertas")
+def alertas_proyecto(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
+    """Pendientes/errores de ESTE proyecto, calculados en vivo (misma lógica que
+    el informe diario). Permite verificar al toque si un fix se aplicó bien, sin
+    esperar al email de mañana."""
+    from ..services.daily_report import _alertas_de_proyecto
+    p = db.get(
+        Proyecto,
+        proyecto_id,
+        options=[selectinload(Proyecto.unidades), selectinload(Proyecto.imagenes)],
+    )
+    if not p or p.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
+    return _alertas_de_proyecto(p)
+
+
 @router.get("/{proyecto_id}/comercial")
 def comercial_broker(
     proyecto_id: str,
