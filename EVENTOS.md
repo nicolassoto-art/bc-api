@@ -1,6 +1,6 @@
 # Eventos anómalos — registro automático
 
-Última actualización: Tue 21/07/2026 02:37 Chile · 312 eventos totales
+Última actualización: Tue 21/07/2026 05:33 Chile · 332 eventos totales
 
 Este archivo se regenera automáticamente desde `eventos_anomalos.jsonl`.
 Los eventos están deduplicados en ventanas de 24h.
@@ -96,10 +96,30 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-05-28 13:49:55 | `jb-osnl3m1c · _Vista San Martin_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
 | 2026-05-28 13:49:55 | `jb-dx4rddfn · _Fuentes de Lomas II_` | 0 unidades, 0 modelos, 0 imágenes — JB no expone data para este proyecto |
 
-## ℹ Inmobiliaria sin asignar (12 en total, mostrando últimos 12)
+## ℹ Inmobiliaria sin asignar (32 en total, mostrando últimos 30)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-07-21 09:33:17 | `edificio-serrano-capital · _Edificio Serrano Capital_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:17 | `los-alerces · _Los Alerces_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:17 | `froilan-roa · _Froilan Roa_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:17 | `centenario-i · _Centenario I_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:17 | `tocornal · _Tocornal_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:16 | `nueva-esmeralda · _Nueva Esmeralda_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:16 | `coronel-godoy · _Coronel Godoy_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:16 | `los-lilenes · _Los lilenes_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:16 | `vivaceta-864 · _Vivaceta 864_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:16 | `diagonal-paraguay-240 · _Diagonal Paraguay 240_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:16 | `vespucio-capital · _Vespucio Capital_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:16 | `don-ignacio · _Don Ignacio _` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:15 | `vicu-a-mackenna-7589-etapa-i · _Vicuña Mackenna 7589 Etapa I _` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:15 | `edificio-carrera-capital · _Edificio Carrera Capital_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:15 | `vima · _ViMa_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:15 | `matta · _Matta_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:15 | `el-aromo · _El Aromo_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:15 | `brasil · _Brasil_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:14 | `vicu-a-mackenna-1796 · _Vicuña Mackenna 1796_` | inmobiliaria='' — JB no devolvió la real |
+| 2026-07-21 09:33:14 | `vicu-a-mackenna-7589-etapa-ii · _Vicuña Mackenna 7589 Etapa II_` | inmobiliaria='' — JB no devolvió la real |
 | 2026-07-11 17:08:40 | `jb-iquforoo · _JB-IquFoRoO_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
 | 2026-07-10 15:37:24 | `jb-iquforoo · _JB-IquFoRoO_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
 | 2026-06-01 19:11:35 | `jb-zohnfoqj · _Edificio Borja Plaza_` | inmobiliaria='BigCapital' — JB no devolvió la real |
@@ -110,8 +130,6 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-05-28 13:49:55 | `jb-c8r7vcvh · _Ferroparque_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
 | 2026-05-28 13:49:55 | `jb-q8rwqxao · _Almanova_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
 | 2026-05-28 13:49:55 | `jb-m9zxfnhe · _Pionera Parque Cerrillos_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
-| 2026-05-28 13:49:55 | `jb-osnl3m1c · _Vista San Martin_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
-| 2026-05-28 13:49:55 | `jb-dx4rddfn · _Fuentes de Lomas II_` | inmobiliaria='Sin asignar' — JB no devolvió la real |
 
 ## ℹ Nombre stub no actualizado (2 en total, mostrando últimos 2)
 
