@@ -73,6 +73,10 @@ _PUBLIC_COMERCIAL_KEYS = {
     # Modo de precio activo (lista|dcto|bono). El Worker lo expone en precioCotizacion
     # para que el catálogo muestre y cotice con el precio correcto por proyecto.
     "precio_cotizacion",
+    # Descuentos a nivel-proyecto (lista {nombre,pct} del editor, card "Descuentos").
+    # Igual de benigno que tipo_descuento — el catálogo/cotización lo necesita como
+    # respaldo cuando el % aún no se aplicó a cada unidad (botón "Aplicar a todas").
+    "descuentos", "descuentos_adicionales",
 }
 # Claves de `comercial` visibles para CUALQUIER corredor logueado (no solo
 # stock_access) vía GET /{id}/comercial. Es el "Plan de pago" COMPLETO del
