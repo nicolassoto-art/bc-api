@@ -445,6 +445,18 @@ def listar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends
     return db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).order_by(Unidad.numero).all()
 
 
+@router.post("/verificado", status_code=status.HTTP_204_NO_CONTENT)
+def marcar_verificado(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
+    """Para scrapers diff-based (ej. Ecasa): confirman el stock contra la fuente
+    pero solo llaman a alta/edición/borrado si algo cambió. Sin este endpoint,
+    una corrida exitosa sin diffs deja stock_updated_at congelado y el proyecto
+    se ve como 'desactualizado' aunque el scraper corrió bien y confirmó que
+    nada cambió. Llamar 1x al final de cada corrida exitosa, sin diffs o con."""
+    _ensure_project(db, proyecto_id)
+    _touch_stock(db, proyecto_id)
+    db.commit()
+
+
 @router.post("", response_model=UnidadOut, status_code=status.HTTP_201_CREATED)
 def crear(
     proyecto_id: str,
