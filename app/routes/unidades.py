@@ -1105,7 +1105,8 @@ async def subir_excel(
     def _corta(lst):
         return ", ".join(lst[:6]) + ("…" if len(lst) > 6 else "")
 
-    if not (inserted or dados_de_baja or modificadas):
+    _sin_cambios = not (inserted or dados_de_baja or modificadas)
+    if _sin_cambios:
         # Nada cambió respecto al estado anterior
         _depto_pl = "depto" if len(updated) == 1 else "deptos"
         _detalles = f"{_origen} — Sin cambios (stock idéntico: {len(updated)} {_depto_pl})"
@@ -1152,7 +1153,12 @@ async def subir_excel(
         else:
             _extra.pop("_deptos_con_warning", None)
     _tl = list(_extra.get("timeline") or [])
-    _tl.insert(0, _evento)
+    # Corridas automáticas (scraper) sin cambios reales NO generan entrada de
+    # timeline — a cadencia horaria, "Sin cambios" en cada corrida sería puro
+    # ruido (hasta 12 entradas/día por proyecto). Cargas manuales sin cambios
+    # sí se registran (son raras, sirven de confirmación).
+    if not (_es_auto and _sin_cambios):
+        _tl.insert(0, _evento)
     # Si hay warnings, agregar también un evento rojo destacado en la timeline.
     if is_jb and deptos_con_warning:
         _warn_evt = {
@@ -1178,12 +1184,15 @@ async def subir_excel(
 
     db.commit()
 
-    background_tasks.add_task(
-        email_service.notify_change, "Stock actualizado", proy.nombre or proyecto_id,
-        f"Subida de Excel: +{len(inserted)} nuevas, {len(updated)} actualizadas"
-        + (f", {len(dados_de_baja)} dadas de baja" if dados_de_baja else "") + ".",
-        proyecto_id,
-    )
+    # Mismo criterio que el timeline: corrida automática sin cambios reales no
+    # manda email — a cadencia horaria sería spam (hasta 12 correos/día/proyecto).
+    if not (_es_auto and _sin_cambios):
+        background_tasks.add_task(
+            email_service.notify_change, "Stock actualizado", proy.nombre or proyecto_id,
+            f"Subida de Excel: +{len(inserted)} nuevas, {len(updated)} actualizadas"
+            + (f", {len(dados_de_baja)} dadas de baja" if dados_de_baja else "") + ".",
+            proyecto_id,
+        )
     return {
         "format": "jb_v2.4" if is_jb else "bc_api",
         "inserted": len(inserted),
