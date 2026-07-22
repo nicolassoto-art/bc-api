@@ -59,7 +59,15 @@ _PUBLIC_EXTRA_KEYS = {
 # márgenes, etc.) NO sale.
 _PUBLIC_COMERCIAL_KEYS = {
     "pie_pct", "bono_pie_pct", "cuoton_inicial_pct", "cuoton_final_pct",
+    # % de la etapa construcción (nuevo, 2026-07-22): pie_pct = cuoton_inicial_pct +
+    # pago_construccion_pct + cuoton_final_pct + bono_pie_pct. Antes era un vacío
+    # implícito entre pie y cuotón — ahora explícito y validable por proyecto.
+    "pago_construccion_pct",
     "cuotas_pre_entrega", "cuotas_post_entrega", "valor_reserva_clp",
+    # Descuenta 1 cuota automáticamente cada mes desde cuotas_inicio_mes — antes
+    # excluidas de ambas allowlists, se perdían siempre en "cotizar desde catálogo"
+    # (bug preexistente, corregido al agregar el campo nuevo de arriba).
+    "cuotas_auto_decremento", "cuotas_inicio_mes",
     # Unidad de los cuotones (% o UF) — el catálogo respeta cómo se cargó.
     "cuoton_inicial_unit", "cuoton_final_unit",
     # Tipo de descuento / bono pie (ej. "Todo" / "Solo Unidad" / "No"). Benignos:
