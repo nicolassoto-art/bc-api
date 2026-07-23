@@ -12,6 +12,8 @@ class TicketOut(BaseModel):
     descripcion: str
     captura_url: Optional[str] = None
     estado: str
+    resolucion_texto: Optional[str] = None
+    resolucion_captura_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

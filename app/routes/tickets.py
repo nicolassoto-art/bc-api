@@ -108,13 +108,61 @@ def actualizar(
     db: Session = Depends(get_db),
     _: Usuario = Depends(super_admin),
 ):
-    """Cambia el estado de un ticket (abierto/cerrado). Solo super admin."""
+    """Cambia el estado de un ticket (abierto/cerrado) SIN tocar la resolución.
+    Lo usa 'Reabrir' — la resolución anterior queda visible como historial hasta
+    que se resuelva de nuevo vía /resolver."""
     t = db.get(Ticket, ticket_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ticket no encontrado")
     if body.estado not in ("abierto", "cerrado"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Estado inválido (abierto|cerrado)")
     t.estado = body.estado
+    db.commit()
+    db.refresh(t)
+    return t
+
+
+@router.post("/{ticket_id}/resolver", response_model=TicketOut)
+async def resolver(
+    ticket_id: str,
+    resolucion_texto: str = Form(...),
+    file: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(super_admin),
+):
+    """Marca resuelto CON evidencia: qué se hizo (texto, obligatorio) + captura
+    de prueba (opcional). Reemplaza al PATCH simple para el flujo "Marcar
+    resuelto" — el texto y la captura quedan visibles en el ticket cerrado."""
+    t = db.get(Ticket, ticket_id)
+    if not t:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ticket no encontrado")
+    texto = (resolucion_texto or "").strip()
+    if not texto:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="La resolución es obligatoria")
+
+    captura_url: Optional[str] = t.resolucion_captura_url
+    if file is not None and (file.filename or ""):
+        if file.content_type not in ALLOWED_MIMES:
+            raise HTTPException(
+                status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail=f"Captura no permitida: {file.content_type}. Solo imágenes (JPG/PNG/WEBP/GIF).",
+            )
+        body = await file.read()
+        if len(body) > settings.max_upload_bytes:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"La captura supera {settings.max_upload_mb} MB",
+            )
+        ext = ALLOWED_MIMES[file.content_type]
+        tdir: Path = settings.upload_path / "tickets"
+        tdir.mkdir(parents=True, exist_ok=True)
+        fname = f"{ticket_id}-resolucion-{uuid.uuid4().hex[:8]}{ext}"
+        (tdir / fname).write_bytes(body)
+        captura_url = f"/uploads/tickets/{fname}"
+
+    t.resolucion_texto = texto
+    t.resolucion_captura_url = captura_url
+    t.estado = "cerrado"
     db.commit()
     db.refresh(t)
     return t

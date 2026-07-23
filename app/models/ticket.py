@@ -23,5 +23,11 @@ class Ticket(Base):
     captura_url: Mapped[Optional[str]] = mapped_column(String(1000))    # /uploads/tickets/... o None
     estado: Mapped[str] = mapped_column(String(20), default="abierto", index=True)  # abierto|cerrado
 
+    # Resolución (2026-07-23): qué se hizo y captura de prueba, quedan visibles
+    # en el ticket cerrado — no solo el estado. Se setean al resolver, se
+    # conservan si se reabre y se vuelve a resolver (última resolución gana).
+    resolucion_texto: Mapped[Optional[str]] = mapped_column(Text)
+    resolucion_captura_url: Mapped[Optional[str]] = mapped_column(String(1000))
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
