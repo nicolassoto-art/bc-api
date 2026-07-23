@@ -105,6 +105,7 @@ class ProyectoOut(ProyectoBase):
     created_at: datetime
     updated_at: datetime
     stock_updated_at: Optional[datetime] = None
+    ultima_revision_at: Optional[datetime] = None
     deleted_at: Optional[datetime] = None
     unidades: List[UnidadOut] = []
     imagenes: List[ImagenOut] = []
@@ -128,6 +129,7 @@ class ProyectoSummary(BaseModel):
     external_url: Optional[str] = None
     updated_at: datetime
     stock_updated_at: Optional[datetime] = None
+    ultima_revision_at: Optional[datetime] = None
     unidades_total: int = 0
     unidades_disponibles: int = 0
     # Campos extraídos de extra.comercial para el listado

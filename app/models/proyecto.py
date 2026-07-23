@@ -60,6 +60,16 @@ class Proyecto(Base):
     # proyecto). El listado muestra "último stock actualizado" = stock_updated_at.
     stock_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
+    # Última vez que un scraper REVISÓ este proyecto contra su fuente, haya o no
+    # cambios (2026-07-23). Distinto de stock_updated_at: un scraper puede revisar
+    # cada hora y no tocar stock_updated_at ni una sola vez si el sanity-check
+    # bloquea la subida (ej. la fuente muestra una baja sospechosa) — sin este
+    # campo, el listado muestra "9 días desactualizado" para un proyecto que en
+    # realidad se revisó hace 40 minutos y está deliberadamente congelado por
+    # seguridad. Lo tocan _touch_stock() (cambio real = también revisión) y los
+    # endpoints /timeline/alerta y /timeline/evento (revisión sin cambio).
+    ultima_revision_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     # Soft-delete: papelera de 30 días. Si deleted_at != null el proyecto está en
     # la papelera (oculto de listados/catálogo, recuperable). NULL = activo normal.
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

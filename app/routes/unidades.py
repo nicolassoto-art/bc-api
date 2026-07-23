@@ -409,10 +409,11 @@ def _ensure_project(db: Session, proyecto_id: str) -> Proyecto:
 def _touch_stock(db: Session, proyecto_id: str) -> None:
     """Marca el proyecto como 'stock actualizado ahora'. Solo se llama desde las
     mutaciones de unidades (alta/edición/borrado), para que stock_updated_at refleje
-    SOLO cambios de stock. Bulk update (no dispara onupdate) → setea ambos a mano."""
+    SOLO cambios de stock. Bulk update (no dispara onupdate) → setea ambos a mano.
+    Un cambio real de stock también cuenta como revisión → toca ultima_revision_at."""
     now = datetime.utcnow()
     db.query(Proyecto).filter(Proyecto.id == proyecto_id).update(
-        {Proyecto.stock_updated_at: now, Proyecto.updated_at: now},
+        {Proyecto.stock_updated_at: now, Proyecto.updated_at: now, Proyecto.ultima_revision_at: now},
         synchronize_session=False,
     )
 
@@ -1261,6 +1262,9 @@ def crear_alerta_timeline(
     _tl.insert(0, evento)
     _extra["timeline"] = _tl
     proy.extra = _extra
+    # Un scraper que deja rastro en el timeline (alerta o evento informativo) SÍ
+    # revisó el proyecto contra su fuente, aunque no haya tocado stock_updated_at.
+    proy.ultima_revision_at = datetime.utcnow()
     db.commit()
     return {"ok": True, "evento_id": evento["id"]}
 
@@ -1299,5 +1303,8 @@ def crear_evento_timeline(
     _tl.insert(0, evento)
     _extra["timeline"] = _tl
     proy.extra = _extra
+    # Un scraper que deja rastro en el timeline (alerta o evento informativo) SÍ
+    # revisó el proyecto contra su fuente, aunque no haya tocado stock_updated_at.
+    proy.ultima_revision_at = datetime.utcnow()
     db.commit()
     return {"ok": True, "evento_id": evento["id"]}
