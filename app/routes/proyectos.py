@@ -189,6 +189,13 @@ def _proyecto_public_dict(p: Proyecto) -> dict:
         "fecha_entrega": p.fecha_entrega,
         "ano_entrega": p.ano_entrega,
         "foto_principal_url": _foto_principal_fallback(p),
+        # (2026-07-27) `notas` es columna real del modelo (Text), la que la pestaña
+        # "Notas comerciales" del editor SÍ actualiza — nunca salía acá, solo
+        # extra.notas_html/notas_text (legado, congelado desde la importación JB)
+        # vía _public_extra. Sin esto, el worker/catálogo/cotizador mostraban para
+        # siempre la nota vieja aunque el editor ya tuviera una actual (bug real:
+        # edificio-teatinos-750, notas="Up 2%..." nunca llegaba al worker).
+        "notas": p.notas,
         "unidades": [
             _unidad_dict(u, extra.get("arriendos") if isinstance(extra.get("arriendos"), dict) else None)
             for u in (p.unidades or [])
