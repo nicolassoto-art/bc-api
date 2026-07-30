@@ -1,0 +1,54 @@
+name: Audit frescura AJ Urbana (dead-man-switch)
+
+# Detecta si el sync de AJ Urbana (Drive -> bc-api, fuera de este repo) dejó de correr.
+# NO valida que los datos sean correctos campo por campo (precio/descuento/stock) —
+# solo que cada uno de los 7 proyectos haya recibido un Excel Stock reciente. Ver
+# scripts/audit_aj_urbana_freshness.py para el detalle y limitaciones.
+#
+# Falla el job a propósito (exit 1) si algo quedó desactualizado — GitHub notifica
+# por email al dueño del repo cuando un workflow programado falla.
+
+on:
+  schedule:
+    - cron: '0 13 * * 1-5'  # 09:00 Chile (UTC-4), Lun-Vie
+  workflow_dispatch: {}
+
+concurrency:
+  group: audit-aj-urbana-freshness
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install deps
+        run: pip install httpx
+
+      - name: Login bc-api → JWT
+        env:
+          BC_API_EMAIL: nicolas.soto@bigcapital.cl
+          BC_API_PASSWORD: ${{ secrets.BC_API_PASSWORD }}
+        run: |
+          set -euo pipefail
+          JWT=$(python3 -c "
+          import os, httpx, sys
+          r = httpx.post('https://bc-api.178-105-91-29.nip.io/auth/login',
+              json={'email': os.environ['BC_API_EMAIL'], 'password': os.environ['BC_API_PASSWORD']},
+              timeout=15.0)
+          if r.status_code != 200:
+              sys.stderr.write(f'HTTP {r.status_code}: {r.text[:300]}\n')
+              sys.exit(1)
+          print(r.json()['access_token'])
+          ")
+          if [ -z "$JWT" ]; then echo "JWT vacío"; exit 1; fi
+          echo "::add-mask::$JWT"
+          echo "BC_API_JWT=$JWT" >> "$GITHUB_ENV"
+
+      - name: Correr audit de frescura
+        run: python3 scripts/audit_aj_urbana_freshness.py
