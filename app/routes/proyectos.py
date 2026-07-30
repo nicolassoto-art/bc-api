@@ -119,11 +119,21 @@ def _unidad_dict(u: Unidad, arriendos: dict | None = None) -> dict:
         "descuento_pct": u.descuento_pct, "bono_pie_pct": u.bono_pie_pct,
         "disponible": u.disponible,
     }
-    # Arriendo garantizado (Euro): vive en extra.arriendos[numero] = {valor, moneda}.
-    # Se adjunta a la unidad SOLO si existe → viaja con la unidad y solo llega al
-    # transform de broker del worker (el transform público NO manda unidades → no
-    # se filtra a anónimos). Sensible: solo lo ve el corredor logueado en el catálogo.
-    if arriendos:
+    # Arriendo garantizado: columna real en Unidad desde la migración 006
+    # (2026-06-16) — la fuente de verdad actual, la que llena el editor y expone
+    # el endpoint /unidades. Antes esta función solo miraba extra.arriendos[numero]
+    # (mecanismo legado pre-columna, JSON a mano) y JAMÁS la columna → bug real
+    # confirmado en vivo (santa-elena-1670-mbi): catálogo mostraba arriendo
+    # garantizado en 20/87 unidades (las únicas con entrada legada) mientras la
+    # columna real ya lo tenía en 85/87. Se adjunta SOLO si existe → viaja con la
+    # unidad y solo llega al transform de broker del worker (el transform público
+    # NO manda unidades → no se filtra a anónimos). Sensible: solo lo ve el
+    # corredor logueado en el catálogo. Fallback al dict legado por si algún
+    # proyecto viejo solo tiene el dato ahí (no debería, tras la migración).
+    if u.arriendo_garantizado:
+        out["arriendo_garantizado"] = u.arriendo_garantizado
+        out["arriendo_moneda"] = u.arriendo_moneda
+    elif arriendos:
         ag = arriendos.get(str(u.numero)) or arriendos.get(u.numero)
         if isinstance(ag, dict) and ag.get("valor"):
             out["arriendo_garantizado"] = ag.get("valor")
