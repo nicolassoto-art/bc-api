@@ -206,6 +206,12 @@ def _proyecto_public_dict(p: Proyecto) -> dict:
         # siempre la nota vieja aunque el editor ya tuviera una actual (bug real:
         # edificio-teatinos-750, notas="Up 2%..." nunca llegaba al worker).
         "notas": p.notas,
+        # (2026-07-31) Fecha real de stock — antes solo la exponía /comercial (endpoint
+        # aparte, autenticado). El catálogo (worker → bcStockToCatalogoDetalle) necesita
+        # este mismo /public/{id} para no depender de un segundo fetch async que causaba
+        # una carrera visual con la hora de carga de la página (bug crónico reportado,
+        # bulnes-138). Con el dato acá, llega junto al resto — sin carrera posible.
+        "stock_updated_at": p.stock_updated_at,
         "unidades": [
             _unidad_dict(u, extra.get("arriendos") if isinstance(extra.get("arriendos"), dict) else None)
             for u in (p.unidades or [])

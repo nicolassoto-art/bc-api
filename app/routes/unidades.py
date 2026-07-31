@@ -487,9 +487,20 @@ def actualizar(
     u = db.get(Unidad, unidad_id)
     if not u or u.proyecto_id != proyecto_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Unidad no encontrada")
-    for k, v in body.model_dump().items():
+    # (2026-07-31) BUG real, causa raíz del chip "Última actualización de stock"
+    # crónicamente mal (reportado bulnes-138): este PUT llamaba _touch_stock() SIEMPRE,
+    # sin comparar si algún campo cambió de verdad. El editor manda un PUT de la unidad
+    # completa cada vez que se abre y guarda el modal (aunque no se toque nada), y
+    # replaceUnidades() del frontend reenvía TODAS las unidades del proyecto cuando
+    # _stockDirty queda prendido — cada una de esas llamadas bumpeaba stock_updated_at
+    # a "ahora", indistinguible de un cambio real de stock (Excel/scraper). Fix: solo
+    # tocar el timestamp si algo realmente cambió.
+    cambios = body.model_dump()
+    hubo_cambio = any(getattr(u, k) != v for k, v in cambios.items())
+    for k, v in cambios.items():
         setattr(u, k, v)
-    _touch_stock(db, proyecto_id)
+    if hubo_cambio:
+        _touch_stock(db, proyecto_id)
     db.commit()
     db.refresh(u)
     return u
