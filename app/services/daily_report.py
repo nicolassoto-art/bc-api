@@ -189,18 +189,20 @@ def _alertas_de_proyecto(p) -> dict:
                 "cuoton_inicial_uf", "cuoton_final_uf")):  # cuotones en UF también valen
         falta_pp.append("cuotas del pie (pre/post o cuotones)")
     # Condiciones comerciales (2026-07-06, pedido Nicolás: la ficha debe estar
-    # completa). Mismos 4 selects que muestra el editor bajo "Condiciones
-    # Comerciales" y que hoy NO se chequeaban. precio_cotizacion tiene default
-    # 'lista' en proyectos nuevos → en la práctica casi nunca falta; se chequea
-    # igual por consistencia con la ficha completa.
+    # completa). Selects que muestra el editor bajo "Condiciones Comerciales".
+    # (2026-08-01) Se SACA el chequeo de `precio_cotizacion`: el selector "Precio
+    # en cotizador" se eliminó a propósito de la ficha (tarea #98) porque la regla
+    # del proyecto es que el precio publicado es SIEMPRE precio_lista_uf. Al no
+    # tener input, la alerta era imposible de resolver para el admin — quedaba
+    # encendida de forma permanente en el panel "Pendientes" de la ficha. El mismo
+    # chequeo ya se sacó del listado (stock-interno/index.js), así que dejarlo acá
+    # solo generaba divergencia entre las dos pantallas.
     if com.get("tipo_pie") in (None, ""):
         falta_pp.append("tipo de pie")
     if com.get("tipo_descuento") in (None, ""):
         falta_pp.append("tipo de descuento")
     if com.get("tipo_bono_pie") in (None, ""):
         falta_pp.append("tipo de bono pie")
-    if com.get("precio_cotizacion") in (None, ""):
-        falta_pp.append("precio en cotizador")
     if falta_pp:
         criticos.append("Plan de pago incompleto: falta " + ", ".join(falta_pp))
 
