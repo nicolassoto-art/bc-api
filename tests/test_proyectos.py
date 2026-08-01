@@ -86,10 +86,11 @@ def test_public_dict_no_filtra_datos_sensibles():
     from app.routes.proyectos import _proyecto_public_dict
 
     p = SimpleNamespace(
-        id="test-leak", nombre="Edificio X", inmobiliaria="Inmobiliaria Real",
+        id="test-leak", codigo_corto="X1", nombre="Edificio X", inmobiliaria="Inmobiliaria Real",
         comuna="Ñuñoa", region="RM", direccion="Calle 1", gps_lat=None, gps_lon=None,
         fase="Verde", modalidad="Nuevo", fecha_entrega=None, ano_entrega=None,
         foto_principal_url=None, unidades=[], imagenes=[], documentos=[],
+        stock_updated_at=None, notas=None,
         extra={
             # --- seguros (deben salir) ---
             "external_id": "Sfp8j2Sq",
