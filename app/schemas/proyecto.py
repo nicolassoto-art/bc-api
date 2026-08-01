@@ -19,8 +19,17 @@ class UnidadIn(BaseModel):
     sup_logia: Optional[float] = None
     sup_jardin: Optional[float] = None
     precio_lista_uf: Optional[float] = None
-    descuento_pct: float = 0
-    bono_pie_pct: float = 0
+    # (2026-08-01) Optional: `None` = "esta unidad no tiene dato propio" y es un
+    # estado VÁLIDO y distinto de 0 en el resto del sistema — la columna en DB es
+    # nullable, la carga por Excel ya inserta None (PRESERVAR_SI_VACIO), y el
+    # editor lo distingue explícitamente (`u.descuento_pct != null` decide si
+    # muestra el dato de la unidad o cae al descuento de la ficha del proyecto).
+    # Solo este schema forzaba float, así que un PUT no podía dejar la unidad
+    # "sin dato" (422) y quedaba clavada en 0 → el editor mostraba 0% tapando el
+    # descuento real de la ficha. Regla: el dato por-unidad gana sobre el default
+    # de la matriz; sin dato por-unidad, manda la matriz.
+    descuento_pct: Optional[float] = None
+    bono_pie_pct: Optional[float] = None
     precio_final_uf: Optional[float] = None
     estac_flag: str = "optional"
     bodega_flag: str = "optional"
