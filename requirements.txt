@@ -21,6 +21,10 @@ reportlab>=4.0,<5  # PDF de pendientes adjunto al informe diario — puro Python
 # Playwright (scraper visual — solo en VPS/scripts, no en la API)
 playwright>=1.44,<2
 
+# scripts/audit_fotos_otro.py — clasificación de fotos por visión (solo CI, no la API)
+anthropic>=0.40,<1
+pillow>=10.0,<12
+
 # Dev / tests
 pytest>=8.0,<9
 pytest-asyncio>=0.23,<2

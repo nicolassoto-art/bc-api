@@ -1,0 +1,63 @@
+name: Auditar fotos categoría "Otro"
+
+# SOLO disparo manual. Nunca cron: se ejecuta a mano cada vez que se decide
+# revisar, nunca sola. No agregar `schedule:` a este workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'true = clasifica pero no escribe nada en bc-api'
+        type: boolean
+        default: true
+      max_fotos:
+        description: 'Tope de fotos a procesar en esta corrida'
+        default: '250'
+      solo_proyecto:
+        description: 'ID de un solo proyecto para probar aislado (vacío = todos)'
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-fotos-otro
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ejecutar auditoría
+        env:
+          BC_API_PASSWORD: ${{ secrets.BC_API_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ -n "${{ inputs.solo_proyecto }}" ]; then ARGS="$ARGS --solo-proyecto ${{ inputs.solo_proyecto }}"; fi
+          python3 scripts/audit_fotos_otro.py $ARGS --max-fotos "${{ inputs.max_fotos }}" --out auditoria_fotos.jsonl
+
+      - name: Subir resultado detallado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auditoria-fotos-${{ github.run_id }}
+          path: auditoria_fotos.jsonl
+          retention-days: 90
+          if-no-files-found: ignore
