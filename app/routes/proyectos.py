@@ -78,6 +78,15 @@ _PUBLIC_COMERCIAL_KEYS = {
     # paga el pie sobre el precio lista. El catalogo lo usa para prender Maestra solo
     # en el simulador al cotizar este proyecto.
     "bono_infla_tasacion",
+    # (2026-08-01) es_maestra: campo INDEPENDIENTE de bono_infla_tasacion (separados
+    # 2026-07-24) — decide la fórmula del pie que paga el cliente (esquema Maestra
+    # real), no la tasación. Faltaba acá desde que se creó: el checkbox se guardaba y
+    # se leía bien en la ficha (GET/PUT /proyectos/{id}, sin filtro), pero catálogo,
+    # worker y simulador usan /comercial, /public y /public/{id} — los 3 filtrados por
+    # esta lista — así que nunca lo veían. Bug confirmado con plata real: un proyecto
+    # Maestra (vistamar) cotizado por link directo calculaba el pie con la fórmula
+    # equivocada, cobrando ~943.000 CLP de más al cliente en una unidad de prueba.
+    "es_maestra",
     # Modo de precio activo (lista|dcto|bono). El Worker lo expone en precioCotizacion
     # para que el catálogo muestre y cotice con el precio correcto por proyecto.
     "precio_cotizacion",
