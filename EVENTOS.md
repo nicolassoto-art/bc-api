@@ -1,14 +1,15 @@
 # Eventos anómalos — registro automático
 
-Última actualización: Mon 03/08/2026 11:49 Chile · 398 eventos totales
+Última actualización: Mon 03/08/2026 14:00 Chile · 399 eventos totales
 
 Este archivo se regenera automáticamente desde `eventos_anomalos.jsonl`.
 Los eventos están deduplicados en ventanas de 24h.
 
-## 🚨 Fallos de workflow (30 en total, mostrando últimos 30)
+## 🚨 Fallos de workflow (31 en total, mostrando últimos 30)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-08-03 18:00:10 | `monitor-health.yml#30754718743` | created=Sun 02/08 11:36 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/30754718743) |
 | 2026-08-03 15:49:45 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 | 2026-08-02 17:10:44 | `monitor-health.yml#30754718743` | created=Sun 02/08 11:36 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/30754718743) |
 | 2026-08-02 13:47:06 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
@@ -38,7 +39,6 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-07-12 17:11:28 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 | 2026-07-11 17:08:50 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 | 2026-07-10 15:37:48 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
-| 2026-05-28 21:34:11 | `import-jb.yml#26596794924` | created=Thu 28/05 15:19 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26596794924) |
 
 ## ⚠ Proyectos con modelos pero sin unidades (117 en total, mostrando últimos 30)
 
