@@ -219,18 +219,11 @@ def _alertas_de_proyecto(p) -> dict:
         falta_fp.append("pago pre-entrega")
     if _pos(com.get("cuotas_post_entrega")) and com.get("pago_post_entrega") in (None, ""):
         falta_fp.append("pago post-entrega")
-    # BUG REAL (encontrado 2026-07-29 en mega-audit, confirmado contra la DB
-    # viva): a diferencia de sus 3 reglas hermanas de este mismo bloque, esta
-    # exigía solo `in (None, "")` en vez de `not _pos(...)` -- un valor_cuota_clp
-    # EXACTAMENTE 0 (no None) pasaba como "completo". 89/136 proyectos activos
-    # (65%) tienen cuotas_pre/post_entrega activas con valor_cuota_clp=0 -- una
-    # cuota de $0 CLP con 30+ pagos reales no es un dato real, es un default sin
-    # cargar (mismo patrón que bono_pie_pct=0 en Euro, ya documentado). Esto
-    # hacía que el informe SUBCONTARA el pendiente real en la mayoría de los
-    # proyectos con esta condición.
-    if (_pos(com.get("cuotas_pre_entrega")) or _pos(com.get("cuotas_post_entrega"))) \
-            and not _pos(com.get("valor_cuota_clp")):
-        falta_fp.append("valor de la cuota (CLP)")
+    # (2026-08-03) `valor_cuota_clp` deja de exigirse: es OPCIONAL — solo aplica
+    # cuando la inmobiliaria fija un monto parejo por cuota. El cotizador nunca
+    # llegó a leer este campo, y la exigencia era falso positivo en 107/138
+    # proyectos (ej. proyectos con "Cuotas construcción = No aplica" igual
+    # quedaban marcados como incompletos).
     if falta_fp:
         criticos.append("Forma de pago del pie incompleta: falta " + ", ".join(falta_fp))
 
