@@ -68,6 +68,9 @@ _PUBLIC_COMERCIAL_KEYS = {
     # excluidas de ambas allowlists, se perdían siempre en "cotizar desde catálogo"
     # (bug preexistente, corregido al agregar el campo nuevo de arriba).
     "cuotas_auto_decremento", "cuotas_inicio_mes",
+    # (2026-08-03) Mismo mecanismo, para el tramo Cuotón Final (cuotas_post_entrega) —
+    # par de campos separado a propósito, no comparte dato con el par de arriba.
+    "cuotas_post_auto_decremento", "cuotas_post_inicio_mes",
     # Unidad de los cuotones (% o UF) — el catálogo respeta cómo se cargó.
     "cuoton_inicial_unit", "cuoton_final_unit",
     # Tipo de descuento / bono pie (ej. "Todo" / "Solo Unidad" / "No"). Benignos:
