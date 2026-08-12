@@ -175,6 +175,7 @@ class JBImporter:
         self._jb_token: Optional[str] = None
         self._pending_plantas: list[dict] = []  # de modelos_dom para descargar luego
         self._pending_unidades: list[dict] = []  # de tab Unidades DOM (fallback c/superficie)
+        self._marketplace_stock_expected: Optional[int] = None  # contador propio de JB ("N Unidades")
 
         # Cliente bc-api
         self._bc_client = httpx.AsyncClient(
@@ -415,19 +416,46 @@ class JBImporter:
 
     async def _dismiss_popups(self) -> None:
         """Cierra el modal '¿Ya descargaste nuestra APP?' u otros que tapan el contenido.
-        Sin esto, los screenshots y scrapes pueden quedar bloqueados por el popup."""
+        Sin esto, los screenshots y scrapes pueden quedar bloqueados por el popup.
+
+        (2026-08-12) Bug real: JB mostró un modal 'Aviso' de promoción cuyo único botón
+        decía "OK" — no matcheaba el regex (solo cerrar/cancelar/close/×), así que el
+        modal quedó abierto, el click al tab Stock no llegó y el scrape devolvió
+        0 unidades EN SILENCIO (proyecto 1zVX7adn, ver tab-stock.png del run 31612197230).
+        Se agregan ok/aceptar/entendido/continuar + Escape + reintentos.
+        """
         try:
-            await self._page.evaluate("""() => {
-                document.querySelectorAll('mat-dialog-container button, .modal button, .cdk-overlay-container button').forEach(b => {
-                    const t = (b.innerText || '').trim().toLowerCase();
-                    if (/^(cerrar|cancelar|cancel|×|x|no gracias|ahora no|m[áa]s tarde|close)$/i.test(t)) {
-                        try { b.click(); } catch(e){}
-                    }
-                });
-                document.querySelectorAll('mat-dialog-container [mat-dialog-close], mat-dialog-container .close, mat-dialog-container [aria-label*="close" i]').forEach(b => { try { b.click(); } catch(e){} });
-                document.querySelectorAll('.cdk-overlay-backdrop').forEach(b => { try { b.click(); } catch(e){} });
-            }""")
-            await self._page.wait_for_timeout(400)
+            for _ in range(3):
+                closed = await self._page.evaluate(r"""() => {
+                    let n = 0;
+                    const CLOSE_TXT = /^(cerrar|cancelar|cancel|×|x|no gracias|ahora no|m[áa]s tarde|close|ok|okay|aceptar|entendido|continuar|got it|entendido!)$/i;
+                    document.querySelectorAll('mat-dialog-container button, .modal button, .cdk-overlay-container button, [role="dialog"] button').forEach(b => {
+                        const t = (b.innerText || '').trim().toLowerCase();
+                        if (CLOSE_TXT.test(t)) { try { b.click(); n++; } catch(e){} }
+                    });
+                    document.querySelectorAll('mat-dialog-container [mat-dialog-close], mat-dialog-container .close, mat-dialog-container [aria-label*="close" i], [role="dialog"] [aria-label*="close" i], .modal .close, .modal-header .close').forEach(b => { try { b.click(); n++; } catch(e){} });
+                    document.querySelectorAll('.cdk-overlay-backdrop, .modal-backdrop').forEach(b => { try { b.click(); n++; } catch(e){} });
+                    return n;
+                }""")
+                await self._page.wait_for_timeout(400)
+                try:
+                    await self._page.keyboard.press("Escape")
+                except Exception:
+                    pass
+                await self._page.wait_for_timeout(300)
+                # ¿Queda algún overlay tapando? Si no, listo.
+                still_open = await self._page.evaluate(r"""() => {
+                    const sels = ['mat-dialog-container', '.cdk-overlay-backdrop', '.modal.show', '.modal-backdrop', '[role="dialog"]'];
+                    return sels.some(s => [...document.querySelectorAll(s)].some(el => {
+                        const r = el.getBoundingClientRect();
+                        return r.width > 100 && r.height > 100;
+                    }));
+                }""")
+                if not still_open:
+                    return
+                if not closed:
+                    break
+            log.warning("   ⚠ _dismiss_popups: sigue habiendo un overlay tapando la página")
         except Exception:
             pass
 
@@ -1922,6 +1950,7 @@ class JBImporter:
         try:
             await self._click_tab("Stock")
             await self._page.wait_for_timeout(2_500)
+            await self._dismiss_popups()  # el modal puede aparecer DESPUÉS del goto inicial
             await self._page.screenshot(path=str(debug_dir / "tab-stock.png"), full_page=True)
             apt_rows = await self._page.evaluate(r"""() => {
                 const out = [];
@@ -1950,8 +1979,26 @@ class JBImporter:
             unidades = self._parse_marketplace_unidades(apt_rows)
             self._pending_unidades = unidades
             log.info(f"   🏠 Stock: {len(apt_rows)} cards → {len(unidades)} unidades parseadas")
+
+            # ── Anti-fallo-silencioso (2026-08-12) ──
+            # JB imprime su propio contador ("N Unidades") arriba del grid. Si ese
+            # contador dice que hay stock pero no parseamos ninguna card, algo tapó o
+            # rompió la vista (ej. modal 'Aviso' que dejó el click del tab sin efecto).
+            # Antes esto devolvía 0 unidades sin error y el sync "pasaba" en verde.
+            jb_count = await self._page.evaluate(r"""() => {
+                const m = (document.body.innerText || '').match(/(\d+)\s+Unidades/i);
+                return m ? parseInt(m[1], 10) : null;
+            }""")
+            self._marketplace_stock_expected = jb_count
+            if jb_count and len(apt_rows) == 0:
+                raise RuntimeError(
+                    f"Stock inconsistente: JB declara {jb_count} unidades pero se parsearon 0 cards. "
+                    f"Probable overlay/modal tapando la vista o cambio de layout — ver "
+                    f"{debug_dir / 'tab-stock.png'}"
+                )
         except Exception as e:
-            log.warning(f"   stock workview → {e}")
+            log.error(f"   ✗ stock workview → {e}")
+            raise
 
         # ── Notas: <app-marketplace-notes>, texto formateado (no quill) ──
         try:

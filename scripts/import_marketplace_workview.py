@@ -70,22 +70,29 @@ async def run(jb_id: str, bc_base: str, jwt: str, dry_run: bool, headless: bool 
 
         # Buscar proyecto existente por jb_id; si no existe, crear placeholder
         # (mismo patrón que run(), pero SIN wipe -- no es proyecto nuestro).
+        # (2026-08-12) En --dry-run NO se crea nada: antes el "dry" igual dejaba un
+        # proyecto vacío "JB-<id>" en bc-api, que aparecía en Stock propio como
+        # basura si después el scrape fallaba (caso real: 1zVX7adn).
         current = await imp.find_proyecto_by_jb_id(jb_id)
         if not current:
-            log.info(f"   📝 Proyecto extra.jb_id={jb_id} no existe — creando placeholder...")
-            stub_body = {
-                "nombre": f"JB-{jb_id}",
-                "inmobiliaria": "Sin asignar",
-                "modalidad": "Nuevo",
-                "activo": True,
-                "disponible": True,
-                "extra": {"jb_id": jb_id},
-            }
-            r = await imp._bc_client.post("/proyectos", json=stub_body)
-            if not r.is_success:
-                log.error(f"✗ No se pudo crear proyecto placeholder: HTTP {r.status_code} {r.text[:300]}")
-                return 1
-            current = r.json()
+            if dry_run:
+                log.info(f"   📝 Proyecto extra.jb_id={jb_id} no existe — (dry-run) NO se crea placeholder")
+                current = {"id": f"jb-{jb_id.lower()}", "nombre": f"(no existe aún) JB-{jb_id}"}
+            else:
+                log.info(f"   📝 Proyecto extra.jb_id={jb_id} no existe — creando placeholder...")
+                stub_body = {
+                    "nombre": f"JB-{jb_id}",
+                    "inmobiliaria": "Sin asignar",
+                    "modalidad": "Nuevo",
+                    "activo": True,
+                    "disponible": True,
+                    "extra": {"jb_id": jb_id},
+                }
+                r = await imp._bc_client.post("/proyectos", json=stub_body)
+                if not r.is_success:
+                    log.error(f"✗ No se pudo crear proyecto placeholder: HTTP {r.status_code} {r.text[:300]}")
+                    return 1
+                current = r.json()
         proyecto_id = current["id"]
         log.info(f"▶ proyecto_id={proyecto_id} (nombre actual: {current.get('nombre')!r})")
 
@@ -208,7 +215,13 @@ async def run(jb_id: str, bc_base: str, jwt: str, dry_run: bool, headless: bool 
                 f"{len(result.get('errors', []))} err"
             )
         else:
-            log.warning("   ⚠ sin unidades parseadas — revisar selectores de Stock")
+            # 0 unidades solo es legítimo si JB también declara 0 (proyecto agotado).
+            # Si JB declaraba stock, scrape_marketplace_workview ya habría lanzado.
+            esperadas = getattr(imp, "_marketplace_stock_expected", None)
+            if esperadas:
+                log.error(f"✗ JB declara {esperadas} unidades pero no se parseó ninguna — no se sube nada")
+                return 1
+            log.warning("   ⚠ sin unidades (JB también declara 0 — proyecto sin stock disponible)")
 
         live_check = await imp.verify_live(proyecto_id, {"unidades": len(unidades)})
         log.info(f"   verify_live: {live_check.get('live', {}).get('unidades')} unidades en bc-api")
