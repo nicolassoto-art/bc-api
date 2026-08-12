@@ -9,20 +9,27 @@ on:
   workflow_dispatch:
     inputs:
       jb_id:
-        description: 'JetBrokers id (ej: IquFoRoO)'
-        required: false
-        default: 'IquFoRoO'
+        description: 'JetBrokers id del proyecto marketplace a importar'
+        required: true
       dry_run:
         description: 'true = solo scrapea y muestra resumen, no sube nada'
         required: false
         default: 'true'
-  # L-V 11:00 Chile (UTC-4) = 15:00 UTC -- Laguna Centro Torre H (IquFoRoO).
-  # El trigger de schedule corre con --stock-only (ver step de abajo): salta
-  # Condiciones Comerciales/Notas/Documentos (no cambian día a día), solo
-  # entra a la tab Stock -- menos requests/tabs por corrida, menos carga en
-  # JB. Corridas manuales (workflow_dispatch) siguen trayendo todo por default.
-  schedule:
-    - cron: '0 15 * * 1-5'
+  # ⛔ SIN CRON A PROPÓSITO (2026-08-12, decisión de Nicolás).
+  #
+  # Este workflow es SOLO para el import inicial puntual de un proyecto que pasa
+  # de SJB (catálogo de reventa JetBrokers, servido en vivo por el worker) a SBC
+  # (stock propio en bc-api). Después del import, el proyecto queda DESCONECTADO
+  # de JetBrokers y se mantiene a mano desde herramientas.bigcapital.cl, igual
+  # que el resto del stock propio.
+  #
+  # Los proyectos que deben seguir actualizándose solos desde JB se dejan como
+  # SJB (fuera de bc-api) -- el worker ya los trae en vivo, sin cron nuestro.
+  # Caso de referencia: Laguna Centro Torre H (IquFoRoO) volvió a SJB el
+  # 2026-08-12 justamente para eso.
+  #
+  # NO reactivar el schedule sin pedido explícito: pisaría el stock editado a
+  # mano de los proyectos ya migrados a SBC.
 
 concurrency:
   group: import-jb-serial
@@ -70,12 +77,9 @@ jobs:
           HEADLESS:         '1'
         run: |
           set -euo pipefail
-          ARGS="${{ github.event.inputs.jb_id || 'IquFoRoO' }}"
+          ARGS="${{ github.event.inputs.jb_id }}"
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             ARGS="$ARGS --dry-run"
-          fi
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            ARGS="$ARGS --stock-only"
           fi
           python3 scripts/import_marketplace_workview.py $ARGS
 
@@ -83,7 +87,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: import-marketplace-${{ github.event.inputs.jb_id || 'IquFoRoO' }}-${{ github.run_id }}
+          name: import-marketplace-${{ github.event.inputs.jb_id }}-${{ github.run_id }}
           path: imports/
           retention-days: 14
           if-no-files-found: warn

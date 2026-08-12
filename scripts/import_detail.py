@@ -24,7 +24,7 @@ from pathlib import Path
 from collections import Counter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from app.services.jb_importer import JBImporter, JB_API_BASE, JB_HEADERS  # noqa: E402
+from app.services.jb_importer import JBImporter, JB_API_BASE, JB_HEADERS, _es_protegido  # noqa: E402
 import httpx  # noqa: E402
 
 OUT = Path("imports/_detail"); OUT.mkdir(parents=True, exist_ok=True)
@@ -491,17 +491,14 @@ async def main():
         print(f"   creado proyecto {current.get('id')}", flush=True)
     pid_bc = current["id"]
     print(f"   bc-api proyecto: {pid_bc}", flush=True)
-    # ── GUARD AJ URBANA: estos proyectos los administra el sync diario del Excel AJ
-    #    (Drive → bc-api, /opt/bigcapital-tests/sync_aj_to_bcapi.py). El import JB
-    #    NO debe pisar su stock (antes se pisaban entre sí: import JB borraba el stock
-    #    AJ y el sync lo restauraba, en loop). Forzar a propósito con FORCE_AJ=1.
-    AJ_PROTEGIDOS = {
-        "edificio-teatinos-750", "edificio-vista-amunategui", "edificio-vista-morand",
-        "vista-san-martin", "edificio-downtown-san-mart-n", "monjitas-690", "santa-ana",
-    }
-    if pid_bc in AJ_PROTEGIDOS and os.environ.get("FORCE_AJ", "").strip().lower() not in ("1", "true", "yes"):
-        print(f"   ⛔ {pid_bc} lo administra el sync del Excel AJ URBANA — import JB OMITIDO "
-              f"(usa FORCE_AJ=1 si de verdad quieres sobrescribirlo).", flush=True)
+    # ── GUARD: proyectos que NO se administran desde JetBrokers (AJ URBANA vía
+    #    Excel de Drive, marketplace migrados a SBC con mantención manual, etc).
+    #    La lista es única y vive en el servicio (app/services/jb_importer.py) para
+    #    que proteja TODOS los caminos de import, no solo este script.
+    #    Forzar a propósito con FORCE_IMPORT=1.
+    if _es_protegido(pid_bc):
+        print(f"   ⛔ {pid_bc} está PROTEGIDO: su stock no se administra desde JetBrokers "
+              f"— import OMITIDO (usa FORCE_IMPORT=1 si de verdad quieres sobrescribirlo).", flush=True)
         await imp.close(); return
     # wipe
     await imp._wipe_proyecto_full(pid_bc, current)

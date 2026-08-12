@@ -108,6 +108,39 @@ TABS_SELECTORS = {
     },
 }
 
+# ── Proyectos PROTEGIDOS del import JetBrokers ────────────────────────────────
+# run() hace wipe completo + reimport desde JB. Estos proyectos NO se administran
+# desde JetBrokers, así que un import los destruiría:
+#
+#  · AJ URBANA — stock viene del Excel de Drive (sync propio en el VPS,
+#    /opt/bigcapital-tests/sync_aj_to_bcapi.py). Antes se pisaban en loop:
+#    el import JB borraba el stock AJ y el sync lo restauraba.
+#  · Marketplace migrados a SBC — proyectos que estaban en el catálogo de reventa
+#    JB (SJB) y se pasaron a stock propio para editarlos a mano. Quedan
+#    DESCONECTADOS de JB por decisión explícita; su stock lo mantiene el equipo.
+#
+# El guard vivía SOLO en scripts/import_detail.py (script suelto), no en este
+# servicio — que es el que usan import-jb.yml, reimport-todos-84.yml y
+# batch-import-jb.yml. O sea, en la práctica no protegía nada. (2026-08-12)
+#
+# Escape hatch deliberado: FORCE_IMPORT=1 (acepta también el FORCE_AJ histórico).
+PROYECTOS_PROTEGIDOS = {
+    # AJ URBANA (sync Excel Drive → bc-api)
+    "edificio-teatinos-750", "edificio-vista-amunategui", "edificio-vista-morand",
+    "vista-san-martin", "edificio-downtown-san-mart-n", "monjitas-690", "santa-ana",
+    # Marketplace migrado a SBC, mantención manual
+    "jb-1zvx7adn",  # Edificio Aviador Acevedo (INSIGNE) — migrado 2026-08-12
+}
+
+
+def _es_protegido(proyecto_id: str) -> bool:
+    """True si el proyecto no debe tocarse desde el import JB (salvo forzado explícito)."""
+    if proyecto_id not in PROYECTOS_PROTEGIDOS:
+        return False
+    forzado = (os.environ.get("FORCE_IMPORT") or os.environ.get("FORCE_AJ") or "").strip().lower()
+    return forzado not in ("1", "true", "yes", "si", "sí")
+
+
 # Tabs especiales: scraping personalizado (no es solo input value)
 NOTAS_SELECTOR = 'quill-editor .ql-editor'
 ETIQUETAS_SELECTOR = 'mat-chip-list[formcontrolname="tags"] mat-chip-row, mat-chip-grid[formcontrolname="tags"] mat-chip-row'
@@ -3079,6 +3112,19 @@ class JBImporter:
                     current = r.json()
                 log.info(f"   ✓ Proyecto creado: id={current.get('id')}")
             rep.proyecto_id = current["id"]
+
+            # ── GUARD: proyectos que NO se administran desde JetBrokers ──
+            # run() hace wipe completo + reimport. Para un proyecto cuyo stock vive
+            # fuera de JB (sync de Excel propio, o carga manual del equipo), eso
+            # BORRA el dato bueno. Ver PROYECTOS_PROTEGIDOS arriba.
+            if _es_protegido(rep.proyecto_id):
+                msg = (f"⛔ {rep.proyecto_id} está PROTEGIDO: su stock no se administra desde "
+                       f"JetBrokers (ver PROYECTOS_PROTEGIDOS en jb_importer.py). Import OMITIDO "
+                       f"para no pisar el dato bueno. Forzar a propósito con FORCE_IMPORT=1.")
+                log.warning(f"   {msg}")
+                rep.warnings.append(msg)
+                rep.finished_at = time.time()
+                return rep
 
             # ── Snapshot pre-cambio: para guardrail anti-vacío ──
             pre_extra = current.get("extra") or {}
