@@ -71,6 +71,13 @@ _PUBLIC_COMERCIAL_KEYS = {
     # (2026-08-03) Mismo mecanismo, para el tramo Cuotón Final (cuotas_post_entrega) —
     # par de campos separado a propósito, no comparte dato con el par de arriba.
     "cuotas_post_auto_decremento", "cuotas_post_inicio_mes",
+    # (2026-08-12) UF mínima por cuota del tramo construcción. Estaba solo en
+    # _BROKER_COMERCIAL_KEYS, así que por el camino worker / link-directo llegaba
+    # vacía y la regla "si la cuota daría menos que el mínimo, baja el N° de
+    # cuotas" no podía activarse. Mismo bug de allow-list que ya mordió con
+    # es_maestra y cuotas_auto_decremento. Hoy la usan 8 proyectos (7 Maestra
+    # + Aviador Acevedo).
+    "cuota_pre_entrega_uf",
     # Unidad de los cuotones (% o UF) — el catálogo respeta cómo se cargó.
     "cuoton_inicial_unit", "cuoton_final_unit",
     # Tipo de descuento / bono pie (ej. "Todo" / "Solo Unidad" / "No"). Benignos:
