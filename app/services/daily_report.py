@@ -199,7 +199,17 @@ def _alertas_de_proyecto(p) -> dict:
     # solo generaba divergencia entre las dos pantallas.
     if com.get("tipo_pie") in (None, ""):
         falta_pp.append("tipo de pie")
-    if com.get("tipo_descuento") in (None, ""):
+    # (2026-08-25) `tipo_descuento` solo se exige cuando el proyecto TIENE descuentos.
+    # El campo perdió su selector propio el 2026-07-24: hoy se deriva del "Alcance" de la
+    # primera fila de Descuento principal, y esa sincronización solo corre cuando alguien
+    # toca una fila. Sin ninguna fila cargada no había forma de resolverlo desde la ficha
+    # — mismo caso que `precio_cotizacion` arriba: un pendiente permanente pidiendo un
+    # campo sin UI. Eran 28 proyectos de 139, los 28 sin una sola fila de descuento.
+    # Preguntar de qué tipo es un descuento que no existe no informa nada, y el cotizador
+    # ya trata el vacío igual que "Todo".
+    _descuentos = com.get("descuentos")
+    _hay_descuentos = isinstance(_descuentos, list) and len(_descuentos) > 0
+    if _hay_descuentos and com.get("tipo_descuento") in (None, ""):
         falta_pp.append("tipo de descuento")
     if com.get("tipo_bono_pie") in (None, ""):
         falta_pp.append("tipo de bono pie")
