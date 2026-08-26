@@ -722,9 +722,20 @@ def _pendientes_actuales(proyectos) -> dict:
     out = {}
     for p in proyectos:
         a = _alertas_de_proyecto(p)
+        # (2026-08-25) Marcar los pendientes de fichas que aún no están publicadas. Medido
+        # ese día: de 28 proyectos con "Plan de pago incompleto", 24 no estaban a la venta —
+        # son fichas a medio cargar, no urgencias, y mezcladas con las de proyectos
+        # publicados hacían difícil ver cuál importa. El stock-interno ya las distingue en
+        # pantalla; acá se anota el texto para que el informe se lea igual de claro.
+        # Es SOLO texto: no cambia qué se reporta, ni el conteo, ni la clasificación.
+        _pub = bool((p.extra or {}).get("publicar_en_catalogo"))
         for c in a.get("criticos", []):
+            # OJO: la clave se calcula con el texto ORIGINAL, sin la anotación. Si la
+            # anotación entrara en la clave, el informe siguiente vería TODOS los pendientes
+            # como "resueltos" (los viejos) y "nuevos" (los mismos, anotados) de una vez.
             out[f"{p.id}::{_critico_key(c)}"] = {
-                "proyecto": p.nombre or p.id, "id": p.id, "texto": c,
+                "proyecto": p.nombre or p.id, "id": p.id,
+                "texto": c if _pub else c + " · ficha sin publicar",
                 "inmobiliaria": (p.inmobiliaria or "").strip() or "Sin inmobiliaria",
             }
     return out
