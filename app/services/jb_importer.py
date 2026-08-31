@@ -130,6 +130,7 @@ PROYECTOS_PROTEGIDOS = {
     "vista-san-martin", "edificio-downtown-san-mart-n", "monjitas-690", "santa-ana",
     # Marketplace migrado a SBC, mantención manual
     "jb-1zvx7adn",  # Edificio Aviador Acevedo (INSIGNE) — migrado 2026-08-12
+    "jb-tvfylemz",  # PORTAL DEL PINAR — migrado a SBC, faltaba protegerlo (2026-08-25)
 }
 
 
