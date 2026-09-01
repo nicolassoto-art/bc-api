@@ -13,6 +13,7 @@ from ..deps.auth import stock_access
 from ..models import Proyecto, Unidad, Usuario
 from ..schemas import UnidadIn, UnidadOut
 from ..services import email_service
+from ..services.origen_stock import etiqueta_origen
 
 router = APIRouter(prefix="/proyectos/{proyecto_id}/unidades", tags=["unidades"])
 
@@ -1106,25 +1107,19 @@ async def subir_excel(
     # de GitHub Actions (import-jb.yml, sync-jb-stock.yml, etc.) autentican con
     # la MISMA cuenta personal (nicolas.soto@bigcapital.cl), nunca con un email
     # tipo "jb-scraper@..." — esa rama nunca disparaba en la práctica. El
-    # llamador automático (jb_importer.py) ahora manda `?origen=jb_importer`
-    # explícito; el email sigue de fallback por si algún día hay cuentas de
-    # servicio reales.
-    _email_usuario = (getattr(usuario, "email", "") or "").lower()
-    if origen == "jb_importer":
-        _origen = "Actualización automática (JetBrokers · scraper)"
-    elif _email_usuario.startswith("mnk-scraper"):
-        _origen = "Actualización automática (scraper MNK · PlanOk)"
-    elif _email_usuario.startswith("maestra-scraper"):
-        _origen = "Actualización automática (Maestra · Excel)"
-    elif _email_usuario.startswith("jb-scraper") or "jb-importer" in _email_usuario:
-        _origen = "Actualización automática (JetBrokers · scraper)"
-    elif "scraper" in _email_usuario or "importer" in _email_usuario or _email_usuario.startswith("sistema"):
-        # Cualquier otro usuario de sistema/scraper → automático genérico.
-        _origen = "Actualización automática (scraper)"
-    else:
-        _origen = "Carga de Excel de stock"
-    # Marca para que el frontend distinga import automático (robot) de carga manual.
-    _es_auto = _origen.startswith("Actualización automática")
+    # llamador automático (jb_importer.py) manda `?origen=jb_importer` explícito.
+    #
+    # 2026-09-01: la PLATAFORMA ya no se deduce del email. Casi todos los
+    # scrapers comparten la cuenta `mnk-scraper@bigcapital.cl`, así que la rama
+    # vieja rotulaba ~65 proyectos de 5 inmobiliarias como "scraper MNK · PlanOk"
+    # (un proyecto de Ingevec decía venir de PlanOk cuando viene de ecore.cl).
+    # Ahora la fuente sale del proyecto (o de un ?origen= registrado) y el
+    # booleano se decide por quién llama, NO por el prefijo del texto — de
+    # `_es_auto` cuelgan la supresión del evento de timeline (abajo), la del
+    # correo "Stock actualizado" y el flag `origen_auto` del informe diario.
+    _origen, _es_auto = etiqueta_origen(
+        origen, getattr(usuario, "email", "") or "", proy.inmobiliaria
+    )
 
     def _corta(lst):
         return ", ".join(lst[:6]) + ("…" if len(lst) > 6 else "")
