@@ -10,7 +10,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias, documentos, tickets
+from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias, documentos, tickets, capacitaciones
 from .settings import settings
 from .deps.auth import super_admin
 from fastapi.responses import HTMLResponse, Response
@@ -55,6 +55,7 @@ app.include_router(unidades.router)
 app.include_router(importador.router)
 app.include_router(inmobiliarias.router)
 app.include_router(tickets.router)
+app.include_router(capacitaciones.router)   # compresión de videos (taller, no bodega)
 
 
 # ── Scheduler · informe diario L-V 09am Chile ─────────────────────────────
