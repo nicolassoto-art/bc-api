@@ -249,9 +249,16 @@ async def _duracion(ruta: Path) -> float:
 async def _comprimir(trabajo_id: str, origen: Path, destino: Path, duracion: float, factor: float) -> None:
     """Un pase de ffmpeg apuntando a OBJETIVO_MB · factor. Avanza el progreso leyendo out_time."""
     t = _trabajos[trabajo_id]
-    objetivo_bits = OBJETIVO_MB * factor * 8 * 1024 ** 2
+    # El objetivo NUNCA supera al original: comprimir es achicar. En la primera prueba
+    # real, apuntar siempre a 185 MB convirtió un video de 5,4 MB en uno de 124,7 MB.
+    # Se apunta al menor entre el tope y el 85% del original, y además se topa la calidad
+    # (4.000 kbps a 720p ya es más de lo que cualquier capacitación necesita).
+    tam_original = max(1, origen.stat().st_size)
+    objetivo_bytes = min(OBJETIVO_MB * 1024 ** 2, int(tam_original * 0.85)) * factor
+    objetivo_bits = objetivo_bytes * 8
     audio_k = 96
-    video_k = max(250, int(objetivo_bits / max(1.0, duracion) / 1000) - audio_k)
+    video_k = int(objetivo_bits / max(1.0, duracion) / 1000) - audio_k
+    video_k = max(250, min(4000, video_k))
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-nostdin",
         "-i", str(origen),
