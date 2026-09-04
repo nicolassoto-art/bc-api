@@ -51,25 +51,42 @@ _candado = asyncio.Lock()
 
 
 # ── Permiso: administrador de Herramientas ───────────────────────────────────
+# api.php tiene una copia vieja en /backend/ con OTRO almacén de sesiones, y la dirección
+# configurada en el VPS puede apuntar ahí (le pasó al login de bc-api: rechazaba tokens
+# válidos). Se prueba primero la raíz —la del login del sitio— y después la configurada.
+# La que valide es la que se usa también para subir el resultado.
+_API_CANDIDATAS = ["https://herramientas.bigcapital.cl/api.php", settings.legacy_api_url]
+_api_valida: Dict[str, str] = {}   # token → url que lo reconoció
+
+
+def _api_url_para(token: str) -> str:
+    return _api_valida.get(token) or _API_CANDIDATAS[0]
+
+
 async def admin_herramientas(authorization: Optional[str] = Header(None)) -> str:
     """Devuelve el token si corresponde a un administrador de Herramientas."""
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Falta la sesión")
     token = authorization.split(" ", 1)[1].strip()
-    try:
-        async with httpx.AsyncClient(timeout=20) as cli:
-            r = await cli.post(
-                settings.legacy_api_url,
-                json={"action": "check-session"},
-                headers={"Authorization": f"Bearer {token}"},
-            )
-        datos = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-    except Exception:
+    ultimo: Dict[str, Any] = {}
+    for url in dict.fromkeys(u for u in _API_CANDIDATAS if u):
+        try:
+            async with httpx.AsyncClient(timeout=15) as cli:
+                r = await cli.post(url, json={"action": "check-session"},
+                                   headers={"Authorization": f"Bearer {token}"})
+            datos = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        except Exception:
+            continue
+        ultimo = datos or {}
+        if ultimo.get("ok"):
+            usuario = ultimo.get("user") or {}
+            if not usuario.get("isAdmin"):
+                raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Solo administradores")
+            _api_valida[token] = url
+            return token
+    if not ultimo:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="No se pudo verificar la sesión con Herramientas")
-    usuario = (datos or {}).get("user") or {}
-    if not datos.get("ok") or not usuario.get("isAdmin"):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Solo administradores")
-    return token
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Sesión inválida o expirada")
 
 
 # ── Utilidades ───────────────────────────────────────────────────────────────
@@ -272,7 +289,8 @@ async def _subir_al_hosting(trabajo_id: str, ruta: Path) -> Dict[str, Any]:
     nombre = re.sub(r"\.[^.]+$", "", t["nombre"]) + ".mp4"
     tam = ruta.stat().st_size
     async with httpx.AsyncClient(timeout=60) as cli:
-        r = await cli.post(settings.legacy_api_url, headers=cab, json={
+        api_url = _api_url_para(t["token"])
+        r = await cli.post(api_url, headers=cab, json={
             "action": "capacitaciones-subida-iniciar", "seccion_id": t["seccion_id"],
             "carpeta_id": t["carpeta_id"], "nombre": nombre, "tamano": tam, "mime": "video/mp4"})
         ini = r.json()
@@ -286,7 +304,7 @@ async def _subir_al_hosting(trabajo_id: str, ruta: Path) -> Dict[str, Any]:
                 if not trozo:
                     break
                 for intento in range(3):
-                    r = await cli.post(settings.legacy_api_url, headers=cab,
+                    r = await cli.post(api_url, headers=cab,
                                        data={"action": "capacitaciones-subida-pedazo",
                                              "subida_id": ini["subida_id"], "indice": str(idx)},
                                        files={"pedazo": ("p", trozo)})
@@ -300,7 +318,7 @@ async def _subir_al_hosting(trabajo_id: str, ruta: Path) -> Dict[str, Any]:
                 t["detalle"] = f"Subiendo al sitio · {t['progreso']}%"
                 # Pausa corta: el hosting bloquea la IP entera si ve muchos pedidos seguidos.
                 await asyncio.sleep(0.12)
-        r = await cli.post(settings.legacy_api_url, headers=cab, json={
+        r = await cli.post(api_url, headers=cab, json={
             "action": "capacitaciones-subida-terminar", "subida_id": ini["subida_id"],
             "title": t["title"], "descripcion": t["descripcion"]})
         fin = r.json()
