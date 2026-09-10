@@ -131,6 +131,12 @@ PROYECTOS_PROTEGIDOS = {
     # Marketplace migrado a SBC, mantención manual
     "jb-1zvx7adn",  # Edificio Aviador Acevedo (INSIGNE) — migrado 2026-08-12
     "jb-tvfylemz",  # PORTAL DEL PINAR — migrado a SBC, faltaba protegerlo (2026-08-25)
+    # Stock propio con sync no-JB: el scraper de MNK mantiene las unidades
+    "condominio-la-rioja",  # MNK · publicado en catálogo 2026-09-09; su stock lo
+                            # actualiza mnk-scraper (Excel semanal), NO JetBrokers.
+                            # Sin este guard, un import masivo de JB borraría el
+                            # stock bueno y lo reemplazaría por el de JB — y desde
+                            # que está publicado, ese daño lo ven los clientes.
 }
 
 
