@@ -289,8 +289,18 @@ def detalle_publico(external_id: str, db: Session = Depends(get_db), _: bool = D
     for p in proys:
         if not _is_publicable(p):
             continue
-        ext = (p.extra or {}).get("external_id")
-        if external_id in (ext, p.id):
+        extra = p.extra or {}
+        # (2026-09-10) Se acepta también extra.jb_id. La ficha del catálogo se abre
+        # con el id de JetBrokers (paginas/catalogo-proyecto.html?id=<jbid>), y una
+        # auditoría de los 140 encontró 92 proyectos publicados con jb_id pero
+        # external_id vacío: esa URL les devolvía 404 y el catálogo caía a los datos
+        # de JB. La alternativa era escribir external_id en los 92, pero eso cambia
+        # el id de la tarjeta y borra los proyectos fijados (📌) de cada corredor
+        # (catalogo.html usa pinned.includes(p.id)). Resolverlo acá los arregla
+        # todos de una, sin tocar un solo dato ni cambiar ninguna URL existente.
+        ext = extra.get("external_id")
+        jb = extra.get("jb_id")
+        if external_id in (ext, jb, p.id):
             return _proyecto_public_dict(p)
     raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no publicado")
 

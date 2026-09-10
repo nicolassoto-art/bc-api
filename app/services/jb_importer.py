@@ -148,6 +148,44 @@ def _es_protegido(proyecto_id: str) -> bool:
     return forzado not in ("1", "true", "yes", "si", "sí")
 
 
+# ── Bajada de stock desde JetBrokers: APAGADA (decisión de Nicolás, 2026-09-10) ──
+# "No traemos más stock de JetBrokers."
+#
+# El stock de los proyectos publicados lo mantienen fuentes propias: el scraper de
+# MNK (56 proyectos), el de Maestra (14) y el sync del Excel de Drive de AJ URBANA.
+# JetBrokers ya no es fuente de stock.
+#
+# Por qué se apaga en el código y no solo en los workflows: PROYECTOS_PROTEGIDOS
+# solo cubría 10 proyectos, y una auditoría de los 140 (2026-09-10) encontró 69
+# publicados con stock de scraper propio SIN blindar. run() hace wipe completo +
+# reimport, así que una corrida a mano les reemplazaba el stock bueno por el de JB
+# — y estando publicados, el daño lo veían los clientes.
+#
+# Esto invierte el default: antes se permitía salvo lista de protegidos; ahora se
+# bloquea siempre. Protege los 140, no una lista que hay que recordar actualizar
+# cada vez que se publica un proyecto nuevo.
+#
+# Escape hatch para un caso puntual y consciente (ej. dar de alta un proyecto
+# nuevo del marketplace): JB_STOCK_IMPORT=1
+def _bajada_jb_habilitada() -> bool:
+    return (os.environ.get("JB_STOCK_IMPORT") or "").strip().lower() in ("1", "true", "yes", "si", "sí")
+
+
+class BajadaJBApagada(RuntimeError):
+    """Se intentó bajar stock de JetBrokers con la bajada apagada."""
+
+
+def _exigir_bajada_habilitada(que: str) -> None:
+    if _bajada_jb_habilitada():
+        log.warning(f"⚠️  {que}: bajada de JB habilitada a mano (JB_STOCK_IMPORT=1)")
+        return
+    raise BajadaJBApagada(
+        f"{que}: la bajada de stock desde JetBrokers está apagada — no traemos más stock de JB. "
+        f"El stock lo mantienen los scrapers propios (MNK, Maestra) y el sync de AJ URBANA. "
+        f"Para un caso puntual y consciente: JB_STOCK_IMPORT=1"
+    )
+
+
 # Tabs especiales: scraping personalizado (no es solo input value)
 NOTAS_SELECTOR = 'quill-editor .ql-editor'
 ETIQUETAS_SELECTOR = 'mat-chip-list[formcontrolname="tags"] mat-chip-row, mat-chip-grid[formcontrolname="tags"] mat-chip-row'
@@ -1712,6 +1750,7 @@ class JBImporter:
         condiciones comerciales, fotos, planos) se sigue trayendo con `run()` en
         la importación inicial — eso no cambia día a día.
         """
+        _exigir_bajada_habilitada("sync liviano de stock")
         log.info(f"📦 Sync liviano de stock para {jb_id}...")
         edit_url = f"https://app.jetbrokers.io/projects/edit/{jb_id}"
         await self._page.goto(edit_url, wait_until="networkidle", timeout=60_000)
@@ -1758,6 +1797,7 @@ class JBImporter:
         por corrida = menos carga en JB. El nombre/comuna/modalidad del
         breadcrumb sí se lee siempre (ya está en la página, sin costo extra).
         """
+        _exigir_bajada_habilitada("scrape del marketplace")
         log.info(f"🛒 Scrapeando marketplace/workview de {jb_id}...")
         url = f"https://app.jetbrokers.io/marketplace/workview/{jb_id}"
         await self._page.goto(url, wait_until="networkidle", timeout=60_000)
@@ -3076,6 +3116,7 @@ class JBImporter:
 
     # ── Pipeline completo ────────────────────────────────────────────────
     async def run(self, jb_id: str, skip_assets: bool = False, dry_run: bool = False) -> ImportReport:
+        _exigir_bajada_habilitada("import completo (wipe + reimport)")
         rep = ImportReport(jb_id=jb_id, started_at=time.time())
         try:
             # 1. Buscar proyecto en bc-api por extra.jb_id; si no existe, CREARLO.
