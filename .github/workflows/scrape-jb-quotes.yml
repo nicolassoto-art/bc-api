@@ -10,15 +10,26 @@ name: Scrape JB Quotes to VPS (Informe Comercial)
 
 on:
   workflow_dispatch:
-  # Semanal, lunes 08:30 UTC (~04:30-05:30 Chile) -- antes del informe.
-  # Cada LUNES ~08:13 UTC (~04:13-05:13 Chile) -- antes del informe comercial
-  # (10:37 UTC en Herramientas). Minuto NO redondo a propósito -- GitHub
-  # congestiona sus schedules en horas/minutos redondos (:00/:15/:30/:45),
-  # empeorando el retraso (ya documentado, no garantiza hora exacta). El
-  # scrape tarda ~30 min (bisección de fechas), termina ~08:45 UTC, con
-  # margen antes del informe.
-  schedule:
-    - cron: '13 8 * * 1'
+  # ── CRON APAGADO (decisión de Nicolás, 2026-09-10) ────────────────────────
+  # "No tomes más JetBrokers." Ya no traemos NADA desde JetBrokers: ni stock
+  # (ver la guarda _exigir_bajada_habilitada en app/services/jb_importer.py) ni
+  # cotizaciones (esto).
+  #
+  # Contexto: la cuenta de JetBrokers está baneada desde fines de agosto. Este
+  # workflow venía fallando en el login desde el 31-ago (última corrida buena:
+  # 24-ago), así que el Informe Comercial arrastra cotizaciones congeladas en
+  # esa fecha sin avisarlo.
+  #
+  # OJO: apagar el cron detiene la ENTRADA, pero no saca el dato viejo del
+  # informe. El archivo ya copiado sigue en el VPS
+  # (/var/www/herramientas/data/cotizaciones_jb/quotes_jb.json) y
+  # actualizar_cotizaciones_historico.py lo sigue leyendo como fuente
+  # "JetBroker". Para sacarlo de verdad hay que quitar esa fuente allá; quedan
+  # los PDFs importados a mano.
+  #
+  # Se deja workflow_dispatch por si algún día se decide reactivarlo a mano.
+  # schedule:
+  #   - cron: '13 8 * * 1'   # lunes 08:13 UTC, antes del informe
 
 concurrency:
   group: scrape-jb-quotes
