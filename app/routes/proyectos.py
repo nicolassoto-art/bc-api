@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timedelta
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
 from pydantic import BaseModel
-from sqlalchemy import select, func, Integer
+from sqlalchemy import select, func, Integer, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -427,11 +427,43 @@ def listar(
     return out
 
 
+def _resolver_proyecto(db: Session, ident: str, options=None):
+    """Busca un proyecto por CUALQUIERA de sus ids: el nuestro (clave primaria),
+    extra.external_id o extra.jb_id. Devuelve None si no existe.
+
+    (2026-09-15) Por que existe: cada endpoint resolvia el id con reglas distintas.
+    /proyectos/public/{id} aceptaba 3 formas y /proyectos/{id} + /{id}/comercial solo
+    la clave primaria. Eso convirtio un cambio de datos en una regresion con plata en
+    juego: al ponerle external_id a Cordillera Oriente y La Rioja, la ficha del catalogo
+    empezo a abrirse con el id de JetBrokers, /{id}/comercial devolvia 404, y el
+    catalogo perdia en SILENCIO los descuentos, el bono pie y las condiciones al
+    cotizar (2 descuentos de 100 UF en Cordillera). El sintoma no era un error: era
+    un formulario con campos vacios.
+
+    La regla, ahora en un solo lugar: un proyecto responde por todos sus ids.
+
+    Solo para LECTURA. Las mutaciones (PUT/DELETE/restaurar) siguen exigiendo la clave
+    primaria a proposito: escribir por un id alternativo no tiene caso de uso aca y es
+    justo la forma de terminar modificando el registro equivocado.
+    """
+    if not ident:
+        return None
+    p = db.get(Proyecto, ident, options=options) if options else db.get(Proyecto, ident)
+    if p:
+        return p
+    stmt = select(Proyecto).where(or_(
+        Proyecto.extra["external_id"].astext == ident,
+        Proyecto.extra["jb_id"].astext == ident,
+    ))
+    if options:
+        stmt = stmt.options(*options)
+    return db.execute(stmt).scalars().first()
+
+
 @router.get("/{proyecto_id}", response_model=ProyectoOut)
 def detalle(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
-    p = db.get(
-        Proyecto,
-        proyecto_id,
+    p = _resolver_proyecto(
+        db, proyecto_id,
         options=[selectinload(Proyecto.unidades), selectinload(Proyecto.imagenes), selectinload(Proyecto.documentos)],
     )
     if not p or p.deleted_at is not None:
@@ -458,9 +490,8 @@ def alertas_proyecto(proyecto_id: str, db: Session = Depends(get_db), _: Usuario
     el informe diario). Permite verificar al toque si un fix se aplicó bien, sin
     esperar al email de mañana."""
     from ..services.daily_report import _alertas_de_proyecto
-    p = db.get(
-        Proyecto,
-        proyecto_id,
+    p = _resolver_proyecto(
+        db, proyecto_id,
         options=[selectinload(Proyecto.unidades), selectinload(Proyecto.imagenes)],
     )
     if not p or p.deleted_at is not None:
@@ -481,7 +512,7 @@ def comercial_broker(
     _BROKER_COMERCIAL_KEYS; NO sale promo_broker / comisiones / márgenes / cuenta
     de reserva. Misma fuente para admin y corredor → vista idéntica en el catálogo.
     """
-    p = db.get(Proyecto, proyecto_id)
+    p = _resolver_proyecto(db, proyecto_id)
     if not p or p.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
     com = (p.extra or {}).get("comercial")
