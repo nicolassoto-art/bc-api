@@ -135,3 +135,48 @@ def test_public_dict_no_filtra_datos_sensibles():
     assert d["comercial"]["pie_pct"] == 20
     assert d["comercial"]["valor_reserva_clp"] == 500000
     assert "promo_broker" not in d["comercial"]  # comercial sanitizado
+
+
+def test_public_dict_trae_puntos_de_interes_y_porque_si():
+    """(23-sep-2026) Las dos listas que se cargan a mano en la ficha deben llegar al worker:
+    puntos_interes para el catálogo y porque_si para el Análisis de Factores del simulador
+    (el worker decide que porque_si solo lo vea un corredor con sesión). Si no están en la
+    allow-list, el editor las guarda pero nadie las ve, en silencio."""
+    from types import SimpleNamespace
+    from app.routes.proyectos import _proyecto_public_dict
+
+    p = SimpleNamespace(
+        id="test-listas", codigo_corto="X2", nombre="Edificio Prueba", inmobiliaria="Inmobiliaria",
+        comuna="Ñuñoa", region="RM", direccion="Calle 1", gps_lat=None, gps_lon=None,
+        fase="Verde", modalidad="Nuevo", fecha_entrega=None, ano_entrega=None,
+        foto_principal_url=None, unidades=[], imagenes=[], documentos=[],
+        stock_updated_at=None, notas=None,
+        extra={
+            "external_id": "ext-listas",
+            "publicar_en_catalogo": True,
+            "puntos_interes": ["Prueba punto de interés 1", "Prueba punto de interés 2"],
+            "porque_si": ["Prueba por qué sí 1"],
+        },
+    )
+    d = _proyecto_public_dict(p)
+    assert d["puntos_interes"] == ["Prueba punto de interés 1", "Prueba punto de interés 2"]
+    assert d["porque_si"] == ["Prueba por qué sí 1"]
+
+
+def test_public_dict_sin_listas_no_rompe():
+    """Un proyecto que nunca cargó las listas nuevas sale igual que antes (sin las claves)."""
+    from types import SimpleNamespace
+    from app.routes.proyectos import _proyecto_public_dict
+
+    p = SimpleNamespace(
+        id="test-sin-listas", codigo_corto="X3", nombre="Edificio Viejo", inmobiliaria="Inmobiliaria",
+        comuna="Ñuñoa", region="RM", direccion="Calle 1", gps_lat=None, gps_lon=None,
+        fase="Verde", modalidad="Nuevo", fecha_entrega=None, ano_entrega=None,
+        foto_principal_url=None, unidades=[], imagenes=[], documentos=[],
+        stock_updated_at=None, notas=None,
+        extra={"external_id": "ext-viejo", "entorno": ["Supermercados"]},
+    )
+    d = _proyecto_public_dict(p)
+    assert "puntos_interes" not in d
+    assert "porque_si" not in d
+    assert d["entorno"] == ["Supermercados"]

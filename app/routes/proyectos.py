@@ -54,6 +54,12 @@ _PUBLIC_EXTRA_KEYS = {
     # con service token); el worker decide si reenviarlas al navegador solo en
     # bcStockToCatalogoDetalle (broker logueado), NO en bcStockToCatalogoPublic.
     "notas_html", "notas_text",
+    # (23-sep-2026) Listas que se cargan A MANO en la ficha del proyecto (editor de stock
+    # propio). puntos_interes: máximo 10 líneas, se muestran en el catálogo junto al mapa.
+    # porque_si: argumentos del proyecto para el "Análisis de Factores" del simulador; es
+    # material interno, así que el worker lo reenvía SOLO en bcStockToCatalogoDetalle
+    # (broker logueado), igual que las notas.
+    "puntos_interes", "porque_si",
 }
 # Subcampos de `comercial` que el catálogo necesita; el resto (promo_broker,
 # márgenes, etc.) NO sale.
