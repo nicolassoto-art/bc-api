@@ -8,9 +8,9 @@ viven como JSONB para flexibilidad sin migrar el schema en cada cambio.
 from __future__ import annotations
 from typing import List, Optional
 from datetime import datetime
-from sqlalchemy import String, Boolean, Integer, Float, DateTime, ForeignKey, Text, JSON
+from sqlalchemy import String, Boolean, Integer, Float, DateTime, ForeignKey, Text, JSON, event
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from ..db import Base
 
@@ -110,7 +110,32 @@ class Unidad(Base):
 
     disponible: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 
+    # Marca "reservada por BigCapital" (2026-09-24): correlativo de la reserva de la
+    # intranet (RES-…) que sacó la unidad del stock. Nuestro stock y el de la
+    # inmobiliaria son dos: al reservar, la unidad sale del nuestro pero sigue libre en
+    # PlanOk hasta que la inmobiliaria la registra, y la lectura horaria ("aparece en el
+    # Excel = disponible") la volvía a abrir. Mientras exista la marca la unidad NO
+    # puede quedar disponible (lo fuerza _respetar_reserva_bc en cada flush, venga del
+    # camino que venga). Solo la ponen y la quitan PUT /unidades/{id}/reserva-bc; el PUT
+    # normal no la toca, porque el editor reenvía copias viejas de la unidad.
+    reserva_bc: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
+    reserva_bc_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     proyecto: Mapped["Proyecto"] = relationship(back_populates="unidades")
+
+
+@event.listens_for(Session, "before_flush")
+def _respetar_reserva_bc(session, flush_context, instances):
+    """Red final: una unidad con marca de reserva nunca se guarda disponible.
+
+    Cubre todos los caminos que escriben `disponible` (subida de Excel, importador de
+    JetBrokers, packs, PUT del editor) sin tener que acordarse de cada uno. Los que
+    llevan registro de cambios (la subida de Excel) además ajustan el valor antes de
+    comparar, para no anotar un "volvió a disponible" que no ocurre.
+    """
+    for obj in list(session.new) + list(session.dirty):
+        if isinstance(obj, Unidad) and obj.reserva_bc and obj.disponible:
+            obj.disponible = False
 
 
 class Imagen(Base):

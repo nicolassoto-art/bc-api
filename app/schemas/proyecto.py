@@ -43,6 +43,25 @@ class UnidadOut(UnidadIn):
     model_config = ConfigDict(from_attributes=True)
     id: str
     proyecto_id: str
+    # Solo salida: la marca se pone y se quita por PUT /unidades/{id}/reserva-bc.
+    # UnidadIn no la trae a propósito: el editor reenvía la unidad completa desde
+    # copias viejas y, si el PUT normal la aceptara, borraría una reserva recién hecha.
+    reserva_bc: Optional[str] = None
+    reserva_bc_at: Optional[datetime] = None
+
+
+class ReservaBcIn(BaseModel):
+    """Poner o quitar la marca "reservada por BigCapital".
+
+    Poner: `reserva_bc` = correlativo de la reserva (RES-…).
+    Quitar: `reserva_bc` = null y `esperado` = el correlativo que se libera; solo se
+    quita si la marca vigente es esa (una reserva nunca libera la de otra).
+    `reabrir`: al quitar, vuelve a dejar la unidad disponible (solo si esa reserva fue
+    la que la sacó del stock; lo decide quien llama).
+    """
+    reserva_bc: Optional[str] = Field(default=None, max_length=40)
+    esperado: Optional[str] = Field(default=None, max_length=40)
+    reabrir: bool = False
 
 
 # ── Imagen ────────────────────────────────────────────────────

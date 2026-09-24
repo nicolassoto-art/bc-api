@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps.auth import stock_access
 from ..models import Proyecto, Unidad, Usuario
-from ..schemas import UnidadIn, UnidadOut
+from ..schemas import ReservaBcIn, UnidadIn, UnidadOut
 from ..services import email_service
 from ..services.origen_stock import etiqueta_origen
 
@@ -505,6 +505,52 @@ def actualizar(
     db.commit()
     db.refresh(u)
     return u
+
+
+@router.put("/{unidad_id}/reserva-bc")
+def marcar_reserva_bc(
+    proyecto_id: str,
+    unidad_id: str,
+    body: ReservaBcIn,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(stock_access),
+):
+    """Pone o quita la marca "reservada por BigCapital" (2026-09-24).
+
+    La usa la intranet al reservar y al anular. Poner deja la unidad no disponible y
+    así se queda aunque la lectura horaria de la inmobiliaria la traiga libre. Quitar
+    exige `esperado` = la marca vigente, para que una reserva nunca libere la de otra.
+    Devuelve la unidad y `estaba_disponible` (cómo estaba antes), para que quien llama
+    sepa si esta reserva fue la que la sacó del stock.
+    """
+    u = db.get(Unidad, unidad_id)
+    if not u or u.proyecto_id != proyecto_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Unidad no encontrada")
+    estaba_disponible = bool(u.disponible)
+    nueva = (body.reserva_bc or "").strip() or None
+    if nueva:
+        if u.reserva_bc and u.reserva_bc != nueva:
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                detail=f"La unidad ya está reservada por {u.reserva_bc}")
+        if u.reserva_bc != nueva:
+            u.reserva_bc = nueva
+            u.reserva_bc_at = datetime.utcnow()
+        u.disponible = False
+    else:
+        esperado = (body.esperado or "").strip() or None
+        if u.reserva_bc and u.reserva_bc != esperado:
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                detail=f"La marca es de otra reserva ({u.reserva_bc})")
+        u.reserva_bc = None
+        u.reserva_bc_at = None
+        if body.reabrir:
+            u.disponible = True
+    if bool(u.disponible) != estaba_disponible:
+        _touch_stock(db, proyecto_id)
+    db.commit()
+    db.refresh(u)
+    return {"unidad": UnidadOut.model_validate(u).model_dump(mode="json"),
+            "estaba_disponible": estaba_disponible}
 
 
 @router.patch("/arriendos", status_code=status.HTTP_200_OK)
@@ -1032,6 +1078,12 @@ async def subir_excel(
 
         if num in by_num:
             u = by_num[num]
+            # Reservada en la intranet (marca reserva_bc, 2026-09-24): el Excel es el
+            # stock de la inmobiliaria, que todavía no la registra, y no debe volver a
+            # abrirla. Se ajusta ANTES de comparar para que el timeline no anote un
+            # "volvió a disponible" que no ocurre (el flush lo forzaría igual).
+            if u.reserva_bc:
+                data["disponible"] = False
             # Upsert parcial: campos manuales que el origen (PlanOk/MNK) NO provee
             # se preservan si vienen vacíos, para no pisar datos cargados a mano.
             # Ej: orientación — PlanOk no la expone, es manual en BC.

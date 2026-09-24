@@ -292,8 +292,18 @@ def batch_import(
 
             db.flush()
 
-            # Unidades: limpiar las existentes si overwrite, sino agregar solo nuevas
+            # Unidades: limpiar las existentes si overwrite, sino agregar solo nuevas.
+            # Las marcas "reservada por BigCapital" (reserva_bc) sobreviven al
+            # reemplazo: el borrado en bloque se salta los eventos del ORM y una
+            # reimportación dejaría otra vez disponible una unidad reservada en la
+            # intranet. Se guardan por número y se reponen en la unidad recreada.
+            marcas_reserva = {}
             if existing and body.overwrite:
+                marcas_reserva = {
+                    u.numero: (u.reserva_bc, u.reserva_bc_at)
+                    for u in db.query(Unidad).filter(Unidad.proyecto_id == pid,
+                                                      Unidad.reserva_bc.isnot(None)).all()
+                }
                 db.query(Unidad).filter(Unidad.proyecto_id == pid).delete()
                 db.flush()
 
@@ -301,6 +311,9 @@ def batch_import(
             new_units = [u for u in _make_unidades(jb.get("units") or [], pid)
                          if u.numero not in existing_nums]
             for u in new_units:
+                if u.numero in marcas_reserva:
+                    u.reserva_bc, u.reserva_bc_at = marcas_reserva[u.numero]
+                    u.disponible = False
                 db.add(u)
 
             details.append(ImportDetail(
