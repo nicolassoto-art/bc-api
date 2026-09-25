@@ -1,14 +1,15 @@
 # Eventos anómalos — registro automático
 
-Última actualización: Fri 25/09/2026 14:29 Chile · 642 eventos totales
+Última actualización: Fri 25/09/2026 18:13 Chile · 647 eventos totales
 
 Este archivo se regenera automáticamente desde `eventos_anomalos.jsonl`.
 Los eventos están deduplicados en ventanas de 24h.
 
-## 🚨 Fallos de workflow (82 en total, mostrando últimos 30)
+## 🚨 Fallos de workflow (83 en total, mostrando últimos 30)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-09-25 22:13:04 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 | 2026-09-24 19:01:36 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 | 2026-09-23 16:46:42 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 | 2026-09-22 14:41:13 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
@@ -38,12 +39,12 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-08-26 09:52:11 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 | 2026-08-25 09:45:23 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 | 2026-08-24 08:58:18 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
-| 2026-08-23 08:41:08 | `import-jb.yml#29096923834` | created=Fri 10/07 09:40 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/29096923834) |
 
-## ⚠ Proyectos con modelos pero sin unidades (165 en total, mostrando últimos 30)
+## ⚠ Proyectos con modelos pero sin unidades (166 en total, mostrando últimos 30)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-09-25 22:12:47 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
 | 2026-09-24 19:01:20 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
 | 2026-09-23 16:46:31 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
 | 2026-09-22 14:41:04 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
@@ -73,7 +74,6 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-08-26 09:51:52 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
 | 2026-08-25 09:45:05 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
 | 2026-08-24 08:58:06 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
-| 2026-08-23 08:40:57 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
 
 ## ⚠ Proyectos huérfanos (JB sin data) (30 en total, mostrando últimos 30)
 
@@ -152,10 +152,12 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-07-11 17:08:40 | `jb-iquforoo · _JB-IquFoRoO_` | Nombre quedó como JB-{id} (no se sobreescribió desde JB) |
 | 2026-07-10 15:37:24 | `jb-iquforoo · _JB-IquFoRoO_` | Nombre quedó como JB-{id} (no se sobreescribió desde JB) |
 
-## ℹ Workflows cancelados (220 en total, mostrando últimos 30)
+## ℹ Workflows cancelados (222 en total, mostrando últimos 30)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-09-25 22:13:03 | `batch-import-jb.yml#26588554656` | created=Thu 28/05 12:42 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26588554656) |
+| 2026-09-25 22:13:03 | `batch-import-jb.yml#26539837724` | created=Wed 27/05 17:29 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26539837724) |
 | 2026-09-24 19:01:35 | `batch-import-jb.yml#26588554656` | created=Thu 28/05 12:42 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26588554656) |
 | 2026-09-24 19:01:35 | `batch-import-jb.yml#26539837724` | created=Wed 27/05 17:29 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26539837724) |
 | 2026-09-23 16:46:42 | `batch-import-jb.yml#26588554656` | created=Thu 28/05 12:42 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26588554656) |
@@ -184,13 +186,12 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-09-11 18:23:18 | `batch-import-jb.yml#26539837724` | created=Wed 27/05 17:29 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26539837724) |
 | 2026-09-10 18:19:08 | `batch-import-jb.yml#26588554656` | created=Thu 28/05 12:42 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26588554656) |
 | 2026-09-10 18:19:08 | `batch-import-jb.yml#26539837724` | created=Wed 27/05 17:29 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26539837724) |
-| 2026-09-09 14:25:49 | `batch-import-jb.yml#26588554656` | created=Thu 28/05 12:42 Chile · trigger=workflow_dispatch · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26588554656) |
-| 2026-09-09 14:25:49 | `batch-import-jb.yml#26539837724` | created=Wed 27/05 17:29 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26539837724) |
 
-## ℹ Batches fuera de ventana L-V 10-18 (110 en total, mostrando últimos 30)
+## ℹ Batches fuera de ventana L-V 10-18 (111 en total, mostrando últimos 30)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-09-25 22:13:03 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
 | 2026-09-24 19:01:35 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
 | 2026-09-23 16:46:42 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
 | 2026-09-22 14:41:12 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
@@ -220,7 +221,6 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-08-26 09:52:10 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
 | 2026-08-25 09:45:22 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
 | 2026-08-24 08:58:17 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
-| 2026-08-23 08:41:07 | `batch-import-jb.yml#26573015038` | corrió @ Thu 28/05 07:53 Chile (fuera de L-V 10-18) · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/26573015038) |
 
 ## ℹ Errores leyendo GH CLI (1 en total, mostrando últimos 1)
 
