@@ -1112,11 +1112,13 @@ async def subir_excel(
             if cambios_campos:
                 modificadas.append((num, cambios_campos))
         else:
-            # Unidad NUEVA: descuento/bono None (celda vacía) → 0 (default limpio).
-            data_nueva = dict(data)
-            if data_nueva.get("descuento_pct") is None: data_nueva["descuento_pct"] = 0
-            if data_nueva.get("bono_pie_pct") is None: data_nueva["bono_pie_pct"] = 0
-            u = Unidad(id="u-" + uuid.uuid4().hex[:10], proyecto_id=proyecto_id, **data_nueva)
+            # Unidad NUEVA: descuento/bono con celda vacía quedan None ("sin dato"),
+            # NO 0 (2026-09-30). El editor distingue: null = hereda el % de la ficha
+            # del proyecto; 0 = cero real de ESA unidad, que tapa la ficha. Con el 0
+            # por defecto que había acá (desde 2026-06-10), cada alta de un scraper
+            # sin fuente de bono (Euro/Mobysuite) quedaba cotizando bono 0% aunque la
+            # ficha dijera 5-15%. Un 0 que SÍ viene en el Excel se sigue guardando 0.
+            u = Unidad(id="u-" + uuid.uuid4().hex[:10], proyecto_id=proyecto_id, **data)
             db.add(u)
             inserted.append(num)
             nuevos_info[num] = (data.get("modelo") or "", data.get("precio_lista_uf"))

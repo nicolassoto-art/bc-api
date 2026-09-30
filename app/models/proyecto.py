@@ -97,8 +97,12 @@ class Unidad(Base):
     sup_jardin: Mapped[Optional[float]] = mapped_column(Float)
 
     precio_lista_uf: Mapped[Optional[float]] = mapped_column(Float)
-    descuento_pct: Mapped[float] = mapped_column(Float, default=0)
-    bono_pie_pct: Mapped[float] = mapped_column(Float, default=0)
+    # Sin default (2026-09-30): None = "sin dato" (hereda la ficha del proyecto),
+    # 0 = cero real de la unidad. Con default=0, SQLAlchemy omite el None al
+    # insertar y el default volvía a inventar el 0 en cada alta. La columna ya
+    # es nullable en la BD (miles de unidades con null), no requiere migración.
+    descuento_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    bono_pie_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     precio_final_uf: Mapped[Optional[float]] = mapped_column(Float)
 
     estac_flag: Mapped[str] = mapped_column(String(20), default="optional")
