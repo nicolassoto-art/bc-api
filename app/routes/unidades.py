@@ -1112,11 +1112,10 @@ async def subir_excel(
             if cambios_campos:
                 modificadas.append((num, cambios_campos))
         else:
-            # Unidad NUEVA: descuento/bono None (celda vacía) → 0 (default limpio).
-            data_nueva = dict(data)
-            if data_nueva.get("descuento_pct") is None: data_nueva["descuento_pct"] = 0
-            if data_nueva.get("bono_pie_pct") is None: data_nueva["bono_pie_pct"] = 0
-            u = Unidad(id="u-" + uuid.uuid4().hex[:10], proyecto_id=proyecto_id, **data_nueva)
+            # Unidad NUEVA: celda vacía de descuento/bono queda None ("sin dato", hereda
+            # la ficha). Antes se fabricaba un 0 que tapaba el bono de la ficha
+            # (2026-09-30: 3.595 unidades disponibles cotizando bono 0%).
+            u = Unidad(id="u-" + uuid.uuid4().hex[:10], proyecto_id=proyecto_id, **data)
             db.add(u)
             inserted.append(num)
             nuevos_info[num] = (data.get("modelo") or "", data.get("precio_lista_uf"))

@@ -97,8 +97,10 @@ class Unidad(Base):
     sup_jardin: Mapped[Optional[float]] = mapped_column(Float)
 
     precio_lista_uf: Mapped[Optional[float]] = mapped_column(Float)
-    descuento_pct: Mapped[float] = mapped_column(Float, default=0)
-    bono_pie_pct: Mapped[float] = mapped_column(Float, default=0)
+    # Sin default: None = "sin dato" → editor/cotizador caen a la ficha. Con
+    # default=0 el ORM omitía el None del INSERT y guardaba un 0 que tapa la ficha.
+    descuento_pct: Mapped[Optional[float]] = mapped_column(Float)
+    bono_pie_pct: Mapped[Optional[float]] = mapped_column(Float)
     precio_final_uf: Mapped[Optional[float]] = mapped_column(Float)
 
     estac_flag: Mapped[str] = mapped_column(String(20), default="optional")
