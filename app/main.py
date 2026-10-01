@@ -121,7 +121,7 @@ def _start_scheduler():
                 misfire_grace_time=3600,
             )
             log.info("Scheduler · daily_stock_report L-V 09:00 America/Santiago")
-        # Informe de las 13:00 L-V: solo los avances de HOY de Cristofer (manual).
+        # Informe de las 13:00 L-V: solo los avances de HOY del operador de carga (manual).
         if settings.operador_report_enabled:
             _scheduler.add_job(
                 send_operador_today_report,
@@ -206,7 +206,7 @@ def preview_pendientes_pdf(_: Usuario = Depends(super_admin)):
 
 @app.get("/admin/operador-today/preview", response_class=HTMLResponse, tags=["meta"])
 def preview_operador_today(_: Usuario = Depends(super_admin)):
-    """HTML del informe de las 13:00 (avances de HOY de Cristofer) con datos REALES,
+    """HTML del informe de las 13:00 (avances de HOY del operador de carga) con datos REALES,
     SIN enviarlo. Solo super_admin."""
     with SessionLocal() as db:
         data = build_operador_today(db)

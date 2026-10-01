@@ -49,20 +49,25 @@ class Settings(BaseSettings):
     emails_per_change: bool = False  # False → notify_change es no-op silencioso
     daily_report_enabled: bool = True  # Informe diario L-V 09:00 AM America/Santiago
     # Destinatarios del INFORME DIARIO (2026-06-17, pedido del usuario):
-    #   To = Cristopher Jaramillo (responsable de la carga de stock SBC).
-    #   Cc = Nicolás Soto.
+    #   To = el operador de carga de stock SBC. Desde 2026-10-01 es Beatriz Vinet:
+    #   Cristopher Jaramillo dejó la empresa y el informe le siguió llegando un mes.
+    #   Cc = ver daily_report_cc.
+    # El PRIMER correo de daily_report_to es también el operador cuyos cambios
+    # manuales cuentan "Mejoras del día" y el informe de las 13:00
+    # (daily_report._operador_email). Al cambiar de operador, cambiar este valor.
     # Override por DAILY_REPORT_TO / DAILY_REPORT_CC en el .env del VPS. Si
     # daily_report_to queda vacío, cae a notify_to (nicolas.soto) por seguridad.
-    daily_report_to: str = "cristopher.jaramillo@bigcapital.cl"
+    daily_report_to: str = "beatriz.vinet@bigcapital.cl"
     # Cc del informe 09:00: Nicolás + Álvaro (pedido 2026-06-24). Coma-separado.
     daily_report_cc: str = "nicolas.soto@bigcapital.cl, alvaro.meneses@bigcapital.cl"
     # Nombre del operador para la sección "Los avances de X el día anterior".
     # Si queda vacío se deriva del email (primer segmento, title-case).
-    daily_report_operator_name: str = "Cristofer"
+    daily_report_operator_name: str = "Beatriz"
     # Informe ADICIONAL de las 13:00 (L-V Chile): SOLO los avances de HOY del operador
-    # humano (Cristofer), acciones manuales sin scraper. Destinatarios coma-separados.
+    # humano (el primer correo de daily_report_to), acciones manuales sin scraper.
+    # Destinatarios coma-separados.
     operador_report_enabled: bool = True
-    operador_report_to: str = "cristopher.jaramillo@bigcapital.cl, nicolas.soto@bigcapital.cl, alvaro.meneses@bigcapital.cl"
+    operador_report_to: str = "beatriz.vinet@bigcapital.cl, nicolas.soto@bigcapital.cl, alvaro.meneses@bigcapital.cl"
 
     # ── Inbox processor · 2026-06-08 ─────────────────────────────────────────
     # Lee adjuntos Excel reenviados desde nicolas.soto@bigcapital.cl al buzón

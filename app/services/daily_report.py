@@ -301,7 +301,7 @@ def _alertas_de_proyecto(p) -> dict:
         if not k: continue
         # planta_no_disponible: la INMOBILIARIA no publica la planta de este modelo
         # (lo marca el operador en el editor). No es un pendiente accionable → no
-        # cuenta como "sin planta" (Cristofer no puede subir lo que la fuente no tiene).
+        # cuenta como "sin planta" (el operador no puede subir lo que la fuente no tiene).
         if m.get("planta_no_disponible"):
             continue
         bid = _blueprint_id(m)
@@ -471,7 +471,7 @@ def _eventos_ventana(p, cutoff):
 
 
 def _operador_email() -> str:
-    """Email del operador humano (Cristofer) = destinatario To del informe diario.
+    """Email del operador humano de carga = destinatario To del informe diario.
     Si DAILY_REPORT_TO trae varios emails coma-separados, el operador es el PRIMERO
     (antes el match exacto fallaba y los informes decían "sin cambios" para siempre)."""
     return (settings.daily_report_to or "").split(",")[0].strip().lower()
@@ -488,7 +488,7 @@ def _operador_nombre() -> str:
 
 
 def _operador_actividad(proyectos, cutoff, end=None):
-    """Cambios MANUALES del operador humano (Cristofer) por proyecto en [cutoff, end).
+    """Cambios MANUALES del operador humano de carga por proyecto en [cutoff, end).
 
     `end` (aware UTC) acota por arriba: el informe 09:00 usa día-CALENDARIO exacto
     [ayer 00:00, hoy 00:00) Chile, así "el día anterior" es realmente el día anterior
@@ -496,7 +496,7 @@ def _operador_actividad(proyectos, cutoff, end=None):
     informe 13:00 pasa end=None → hasta ahora ("hoy").
 
     Filtro doble anti-scraper: (1) usuario == email exacto del operador (el scraper
-    entra como mnk-scraper@/jb-scraper, NUNCA con el email de Cristofer) Y (2) descarta
+    entra como mnk-scraper@/jb-scraper, NUNCA con el email del operador) Y (2) descarta
     cualquier evento con origen_auto=True (importación automática). Así el informe SOLO
     refleja lo que hizo la persona logueada con su usuario y contraseña.
 
@@ -517,7 +517,7 @@ def _operador_actividad(proyectos, cutoff, end=None):
                 if ev.get("origen_auto"):  # scraper / importación automática
                     continue
                 if (ev.get("usuario") or "").strip().lower() != op_email:
-                    continue  # solo el usuario humano de Cristofer
+                    continue  # solo el usuario humano del operador
                 key = p.nombre or p.id
                 g = grupos.setdefault(key, {
                     "id": p.id, "nombre": key,
@@ -953,8 +953,8 @@ def build_daily_report(db: Session, forzar_semana: bool = False) -> dict:
     actividad.sort(key=lambda x: x["fecha"], reverse=True)
     actividad_resumen = dict(collections.Counter(a["tipo"] or "Cambio" for a in actividad))
 
-    # ─── Cambios del operador HUMANO (Cristofer) — detalle por proyecto ─────
-    # SOLO acciones del usuario logueado de Cristofer (email exacto) y NUNCA del
+    # ─── Cambios del operador HUMANO de carga — detalle por proyecto ─────
+    # SOLO acciones del usuario logueado del operador (email exacto) y NUNCA del
     # scraper: _operador_actividad filtra por email + descarta origen_auto. Misma
     # ventana que la actividad general (24h, o 72h los lunes).
     _op_nombre = _operador_nombre()
@@ -1609,7 +1609,7 @@ def send_daily_report(forzar_semana: bool = False, guardar_snapshot: bool = True
         msg["Subject"] = f"📊 Stock · {data['n_disponibles_total']} disp · {data['n_cambios_24h']} cambios 24h{warn}"
         from_addr = settings.smtp_from or settings.smtp_user
         msg["From"] = formataddr((settings.smtp_from_name, from_addr))
-        # Destinatarios (2026-06-17): To = Cristopher (responsable de carga),
+        # Destinatarios (2026-06-17): To = el operador de carga,
         # Cc = Nicolás. Fallback a notify_to si daily_report_to queda vacío.
         to_addr = (settings.daily_report_to or settings.notify_to).strip()
         msg["To"] = to_addr
@@ -1647,11 +1647,11 @@ def send_daily_report(forzar_semana: bool = False, guardar_snapshot: bool = True
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Informe de las 13:00 · SOLO los avances de Cristofer HOY (acciones manuales)
+# Informe de las 13:00 · SOLO los avances del operador HOY (acciones manuales)
 # ════════════════════════════════════════════════════════════════════════════
 
 def build_operador_today(db: Session) -> dict:
-    """Cambios MANUALES del operador humano (Cristofer) HOY: desde la medianoche de
+    """Cambios MANUALES del operador humano de carga HOY: desde la medianoche de
     Chile hasta el momento de correr. SOLO su usuario (email exacto), sin scraper
     (mismo filtro doble que _operador_actividad: email + descarta origen_auto)."""
     proyectos = _proyectos_activos(db)
@@ -1701,7 +1701,7 @@ def _build_operador_html(data: dict) -> str:
 
 def send_operador_today_report() -> str:
     """Disparado por APScheduler L-V 13:00 Chile. Envía SOLO los avances de hoy de
-    Cristofer a operador_report_to. Retorna el estado real del envío."""
+    operador de carga a operador_report_to. Retorna el estado real del envío."""
     if not _configured():
         log.info("operador_today: SMTP no configurado — informe NO enviado.")
         return "smtp_no_configurado"
@@ -1716,8 +1716,8 @@ def send_operador_today_report() -> str:
         msg["Subject"] = f"📋 Mejoras de hoy · {data['n_operador']} cambio(s) en {data['n_operador_proyectos']} proyecto(s)"
         from_addr = settings.smtp_from or settings.smtp_user
         msg["From"] = formataddr((settings.smtp_from_name, from_addr))
-        # Destinatarios del informe de las 13:00 (pedido 2026-06-24): los 3 (Cristofer,
-        # Nicolás, Álvaro). Coma-separados.
+        # Destinatarios del informe de las 13:00 (pedido 2026-06-24): el operador de
+        # carga, Nicolás y Álvaro. Coma-separados.
         dests = [e.strip() for e in (settings.operador_report_to or "").split(",") if e.strip()]
         if not dests:
             log.warning("operador_today: sin destinatarios (operador_report_to vacío).")
