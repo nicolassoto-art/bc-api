@@ -1,8 +1,9 @@
 """CRUD de proyectos."""
 from typing import List, Optional
+import logging
 import re
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func, Integer, or_
@@ -15,8 +16,10 @@ from ..models import Proyecto, Unidad, Usuario
 from ..schemas import ProyectoIn, ProyectoOut, ProyectoSummary
 from ..services import email_service
 from ..services.timeline import fusionar_timeline
+from ..services.estado_stock import estado_stock
 
 router = APIRouter(prefix="/proyectos", tags=["proyectos"])
+log = logging.getLogger(__name__)
 
 
 def slugify(s: str) -> str:
@@ -407,6 +410,7 @@ def listar(
     img_url_by_pid = {**img_url_by_pid, **img_facade_by_pid}
 
     out = []
+    _ahora = datetime.now(timezone.utc)
     for p in proys:
         total, disp = counts.get(p.id, (0, 0))
         extra = p.extra or {}
@@ -428,10 +432,21 @@ def listar(
                     "publicar_en_catalogo": bool(extra.get("publicar_en_catalogo")),
                     "gps_verificado": bool(extra.get("gps_verificado")),
                     "foto_principal_url": foto,
+                    "estado_stock": _estado_stock_seguro(p, _ahora),
                 }
             )
         )
     return out
+
+
+def _estado_stock_seguro(p, ahora):
+    """estado_stock sin tumbar el listado: si un proyecto trae datos raros, el listado
+    del editor cae a su lógica de siempre (estado_stock = None)."""
+    try:
+        return estado_stock(p, ahora)
+    except Exception:  # noqa: BLE001
+        log.warning("estado_stock falló para %s", getattr(p, "id", "?"), exc_info=True)
+        return None
 
 
 def _resolver_proyecto(db: Session, ident: str, options=None):
@@ -497,13 +512,20 @@ def alertas_proyecto(proyecto_id: str, db: Session = Depends(get_db), _: Usuario
     el informe diario). Permite verificar al toque si un fix se aplicó bien, sin
     esperar al email de mañana."""
     from ..services.daily_report import _alertas_de_proyecto
+    from ..services.fallas import fallas_seguras
     p = _resolver_proyecto(
         db, proyecto_id,
-        options=[selectinload(Proyecto.unidades), selectinload(Proyecto.imagenes)],
+        options=[selectinload(Proyecto.unidades), selectinload(Proyecto.imagenes),
+                 selectinload(Proyecto.documentos)],
     )
     if not p or p.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
-    return _alertas_de_proyecto(p)
+    out = _alertas_de_proyecto(p)
+    # (2026-10-05) `items`: las mismas fallas del correo "fallas en fichas", con código,
+    # gravedad y pestaña. `criticos`/`warnings` quedan iguales que siempre.
+    out["items"] = fallas_seguras(p)
+    out["estado_stock"] = _estado_stock_seguro(p, datetime.now(timezone.utc))
+    return out
 
 
 @router.get("/{proyecto_id}/comercial")

@@ -182,3 +182,46 @@ def test_send(to: str | None = None) -> dict:
         return {**st, "sent": True, "error": None, "dest": dest}
     except Exception as e:
         return {**st, "sent": False, "error": f"{type(e).__name__}: {e}", "dest": dest}
+
+
+# ── Correos al equipo de stock · 2026-10-05 ─────────────────────────────────
+
+def destinatarios_equipo() -> list:
+    """Los cuatro del equipo de stock (settings.equipo_stock_to), sin repetidos."""
+    out, vistos = [], set()
+    for e in (settings.equipo_stock_to or "").split(","):
+        e = e.strip()
+        if e and e.lower() not in vistos:
+            vistos.add(e.lower())
+            out.append(e)
+    return out
+
+
+def enviar_html(asunto: str, html: str, texto: str, para: list, adjuntos: tuple = ()) -> str:
+    """Envía un correo HTML. Devuelve el estado REAL: 'enviado' | 'smtp_no_configurado'
+    | 'sin_destinatarios' | 'error: …'. adjuntos = [(bytes, maintype, subtype, nombre)].
+    Nunca lanza: quien llama decide qué hacer con el estado."""
+    if not _configured():
+        return "smtp_no_configurado"
+    para = [e for e in (para or []) if e and e.strip()]
+    if not para:
+        return "sin_destinatarios"
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = asunto
+        from_addr = settings.smtp_from or settings.smtp_user
+        msg["From"] = formataddr((settings.smtp_from_name, from_addr))
+        msg["To"] = ", ".join(para)
+        msg["Reply-To"] = from_addr
+        msg.set_content(texto or asunto)
+        msg.add_alternative(html, subtype="html")
+        for contenido, maintype, subtype, nombre in adjuntos or ():
+            msg.add_attachment(contenido, maintype=maintype, subtype=subtype, filename=nombre)
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as s:
+            s.starttls()
+            s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))
+            s.send_message(msg)
+        return "enviado"
+    except Exception as e:  # noqa: BLE001
+        log.error("enviar_html falló (%s): %s", asunto, e, exc_info=True)
+        return f"error: {e}"

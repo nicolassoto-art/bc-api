@@ -69,6 +69,21 @@ class Settings(BaseSettings):
     operador_report_enabled: bool = True
     operador_report_to: str = "beatriz.vinet@bigcapital.cl, nicolas.soto@bigcapital.cl, alvaro.meneses@bigcapital.cl"
 
+    # ── Equipo de stock y correos "Stock interno" · 2026-10-05 ──────────────
+    # Decisión de Nicolás (30/09/2026): los cuatro van en "Para" en el informe de
+    # las 09:00 y en los dos correos nuevos. Coma-separado.
+    equipo_stock_to: str = (
+        "beatriz.vinet@bigcapital.cl, alvaro.meneses@bigcapital.cl, "
+        "pamela.scheel@bigcapital.cl, nicolas.soto@bigcapital.cl"
+    )
+    # Correos nuevos (L-V 09:02 y 09:04). Parten apagados: se encienden después de
+    # medir con las vistas previas cuántas fichas toca cada regla.
+    stock_sin_revisar_enabled: bool = False
+    fallas_fichas_enabled: bool = False
+    # Estado de los correos (fallas ya vistas, marca de envío) y la foto del informe.
+    # FUERA de upload_dir: todo lo de uploads/ se sirve público en /uploads.
+    state_dir: str = "./estado"
+
     # ── Inbox processor · 2026-06-08 ─────────────────────────────────────────
     # Lee adjuntos Excel reenviados desde nicolas.soto@bigcapital.cl al buzón
     # sistema@bigcapital.cl, identifica el proyecto destino y aplica el stock
@@ -86,6 +101,12 @@ class Settings(BaseSettings):
     @property
     def upload_path(self) -> Path:
         p = Path(self.upload_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def state_path(self) -> Path:
+        p = Path(self.state_dir)
         p.mkdir(parents=True, exist_ok=True)
         return p
 

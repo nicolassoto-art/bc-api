@@ -28,3 +28,7 @@ uploads/*
 .jb_session
 .jetbroker_*
 *.session
+
+# Estado de los correos "Stock interno" (settings.state_dir), fuera de uploads/ porque
+# uploads/ se sirve público en /uploads.
+estado/

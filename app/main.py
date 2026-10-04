@@ -18,7 +18,11 @@ from .services import email_service
 from .services.daily_report import (
     send_daily_report, build_daily_report, _build_html,
     send_operador_today_report, build_operador_today, _build_operador_html,
-    _pendientes_pdf_bytes,
+    _pendientes_pdf_bytes, migrar_snapshot_viejo,
+)
+from .services.stock_emails import (
+    build_sin_revisar, html_sin_revisar, asunto_sin_revisar, send_sin_revisar,
+    build_fallas, html_fallas_acotado, asunto_fallas, pdf_fallas, send_fallas,
 )
 from .services.inbox_processor import process_inbox
 from .models import Usuario
@@ -93,6 +97,47 @@ def _acquire_scheduler_lock() -> bool:
         return True
 
 
+def _registrar_jobs(scheduler) -> list:
+    """Registra los jobs del programador según los flags. Devuelve los ids registrados.
+
+    L-V, hora de Chile: 09:00 informe diario · 09:02 «proyectos sin revisar» · 09:04
+    «fallas en fichas» (2026-10-05) · 13:00 avances del operador · inbox cada N min.
+    """
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
+    comunes = dict(replace_existing=True, max_instances=1, coalesce=True)
+    ids = []
+
+    def _cron(func, hora, minuto, job_id):
+        scheduler.add_job(
+            func,
+            CronTrigger(day_of_week="mon-fri", hour=hora, minute=minuto, timezone="America/Santiago"),
+            id=job_id, misfire_grace_time=3600, **comunes,
+        )
+        ids.append(job_id)
+        log.info("Scheduler · %s L-V %02d:%02d America/Santiago", job_id, hora, minuto)
+
+    if settings.daily_report_enabled:
+        _cron(send_daily_report, 9, 0, "daily_stock_report")
+    if settings.stock_sin_revisar_enabled:
+        _cron(send_sin_revisar, 9, 2, "stock_sin_revisar")
+    if settings.fallas_fichas_enabled:
+        _cron(send_fallas, 9, 4, "fallas_fichas")
+    # Informe de las 13:00 L-V: solo los avances de HOY del operador de carga (manual).
+    if settings.operador_report_enabled:
+        _cron(send_operador_today_report, 13, 0, "operador_today_report")
+    # Inbox processor: cada N minutos lee emails con Excel adjunto y los aplica.
+    if settings.inbox_processor_enabled:
+        scheduler.add_job(
+            process_inbox,
+            IntervalTrigger(minutes=max(1, settings.inbox_poll_minutes)),
+            id="inbox_processor", **comunes,
+        )
+        ids.append("inbox_processor")
+        log.info("Scheduler · inbox_processor cada %d min", settings.inbox_poll_minutes)
+    return ids
+
+
 @app.on_event("startup")
 def _start_scheduler():
     global _scheduler
@@ -100,7 +145,8 @@ def _start_scheduler():
     # las 09:00 — NO el de las 13:00 ni el inbox processor (antes un early-return
     # apagaba el scheduler entero y todos los jobs caían juntos).
     if not (settings.daily_report_enabled or settings.operador_report_enabled
-            or settings.inbox_processor_enabled):
+            or settings.inbox_processor_enabled or settings.stock_sin_revisar_enabled
+            or settings.fallas_fichas_enabled):
         log.info("Scheduler: todos los jobs deshabilitados, no se inicia.")
         return
     if not _acquire_scheduler_lock():
@@ -108,43 +154,10 @@ def _start_scheduler():
         return
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
-        from apscheduler.triggers.cron import CronTrigger
+        # Solo el dueño del candado: la foto del informe sale de uploads/ (público).
+        migrar_snapshot_viejo()
         _scheduler = BackgroundScheduler(timezone="America/Santiago")
-        if settings.daily_report_enabled:
-            _scheduler.add_job(
-                send_daily_report,
-                CronTrigger(day_of_week="mon-fri", hour=9, minute=0, timezone="America/Santiago"),
-                id="daily_stock_report",
-                replace_existing=True,
-                max_instances=1,
-                coalesce=True,
-                misfire_grace_time=3600,
-            )
-            log.info("Scheduler · daily_stock_report L-V 09:00 America/Santiago")
-        # Informe de las 13:00 L-V: solo los avances de HOY del operador de carga (manual).
-        if settings.operador_report_enabled:
-            _scheduler.add_job(
-                send_operador_today_report,
-                CronTrigger(day_of_week="mon-fri", hour=13, minute=0, timezone="America/Santiago"),
-                id="operador_today_report",
-                replace_existing=True,
-                max_instances=1,
-                coalesce=True,
-                misfire_grace_time=3600,
-            )
-            log.info("Scheduler · operador_today_report L-V 13:00 America/Santiago")
-        # Inbox processor: cada N minutos lee emails con Excel adjunto y los aplica.
-        if settings.inbox_processor_enabled:
-            from apscheduler.triggers.interval import IntervalTrigger
-            _scheduler.add_job(
-                process_inbox,
-                IntervalTrigger(minutes=max(1, settings.inbox_poll_minutes)),
-                id="inbox_processor",
-                replace_existing=True,
-                max_instances=1,
-                coalesce=True,
-            )
-            log.info("Scheduler · inbox_processor cada %d min", settings.inbox_poll_minutes)
+        _registrar_jobs(_scheduler)
         _scheduler.start()
         log.info("Scheduler iniciado.")
     except Exception as e:
@@ -219,6 +232,58 @@ def trigger_operador_today(_: Usuario = Depends(super_admin)):
     Reporta el estado REAL del envío."""
     estado = send_operador_today_report()
     return {"ok": estado == "enviado", "estado": estado, "sent_to": settings.operador_report_to}
+
+
+# ── Correos "Stock interno" (2026-10-05): vistas previas de SOLO LECTURA ────────
+# No envían nada ni escriben el estado (NUEVA, resueltas): sirven para revisar el
+# contenido y medir cuántas fichas toca cada regla antes de encender los correos.
+
+@app.get("/admin/stock-sin-revisar/preview", response_class=HTMLResponse, tags=["meta"])
+def preview_stock_sin_revisar(_: Usuario = Depends(super_admin)):
+    """HTML del correo «proyectos sin revisar» con datos reales, SIN enviarlo."""
+    with SessionLocal() as db:
+        data = build_sin_revisar(db)
+    return HTMLResponse(html_sin_revisar(data))
+
+
+@app.get("/admin/fallas-fichas/preview", response_class=HTMLResponse, tags=["meta"])
+def preview_fallas_fichas(_: Usuario = Depends(super_admin)):
+    """HTML del correo «fallas en fichas» con datos reales, SIN enviarlo ni guardar estado."""
+    with SessionLocal() as db:
+        data = build_fallas(db)
+    return HTMLResponse(html_fallas_acotado(data))
+
+
+@app.get("/admin/fallas-fichas/pdf", tags=["meta"])
+def preview_fallas_pdf(_: Usuario = Depends(super_admin)):
+    """PDF completo del correo «fallas en fichas», SIN enviarlo ni guardar estado."""
+    with SessionLocal() as db:
+        data = build_fallas(db)
+    return Response(content=pdf_fallas(data), media_type="application/pdf")
+
+
+@app.get("/admin/stock-interno/conteo", tags=["meta"])
+def conteo_stock_interno(_: Usuario = Depends(super_admin)):
+    """Números para decidir el encendido: fichas por regla (y % del total), fallas por
+    sección, proyectos sin revisar por categoría, peso de cada correo y asuntos."""
+    with SessionLocal() as db:
+        f = build_fallas(db)
+        s = build_sin_revisar(db)
+    return {
+        "fallas": {
+            "asunto": asunto_fallas(f), "n_fichas": f["n_fichas"], "n_criticas": f["n_criticas"],
+            "por_seccion": {sec["clave"]: {"fichas": len(sec["proyectos"]), "fallas": sec["n_fallas"]}
+                            for sec in f["secciones"]},
+            "por_regla": f["conteo_por_regla"], "textos": f["resumen_textos"],
+            "bytes_correo": len(html_fallas_acotado(f).encode("utf-8")),
+        },
+        "sin_revisar": {
+            "asunto": asunto_sin_revisar(s), "n": s["n"], "por_categoria": s["cuenta"],
+            "n_urgentes": s["n_urgentes"], "bytes_correo": len(html_sin_revisar(s).encode("utf-8")),
+        },
+        "encendidos": {"stock_sin_revisar": settings.stock_sin_revisar_enabled,
+                       "fallas_fichas": settings.fallas_fichas_enabled},
+    }
 
 
 @app.post("/admin/inmobiliarias/normalize", tags=["meta"])

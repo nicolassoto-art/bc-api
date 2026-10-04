@@ -4,14 +4,14 @@ import io
 import uuid
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, UploadFile, File, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from openpyxl import Workbook, load_workbook
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps.auth import stock_access
 from ..models import Proyecto, Unidad, Usuario
-from ..schemas import ReservaBcIn, UnidadIn, UnidadOut
+from ..schemas import ReservaBcIn, RevisionStockIn, UnidadIn, UnidadOut
 from ..services import email_service
 from ..services.origen_stock import etiqueta_origen
 from ..services.timeline import recortar_timeline
@@ -408,16 +408,20 @@ def _ensure_project(db: Session, proyecto_id: str) -> Proyecto:
     return p
 
 
-def _touch_stock(db: Session, proyecto_id: str) -> None:
+def _touch_stock(db: Session, proyecto_id: str, revision: bool = True) -> None:
     """Marca el proyecto como 'stock actualizado ahora'. Solo se llama desde las
     mutaciones de unidades (alta/edición/borrado), para que stock_updated_at refleje
     SOLO cambios de stock. Bulk update (no dispara onupdate) → setea ambos a mano.
-    Un cambio real de stock también cuenta como revisión → toca ultima_revision_at."""
+    Un cambio real de stock también cuenta como revisión → toca ultima_revision_at.
+
+    revision=True (2026-10-05) además pone stock_ok_at = "se revisó el stock y salió
+    bien" (base del correo de proyectos sin revisar). La marca de reserva de la
+    intranet pasa revision=False: una reserva no revisa el resto del stock."""
     now = datetime.utcnow()
-    db.query(Proyecto).filter(Proyecto.id == proyecto_id).update(
-        {Proyecto.stock_updated_at: now, Proyecto.updated_at: now, Proyecto.ultima_revision_at: now},
-        synchronize_session=False,
-    )
+    campos = {Proyecto.stock_updated_at: now, Proyecto.updated_at: now, Proyecto.ultima_revision_at: now}
+    if revision:
+        campos[Proyecto.stock_ok_at] = now
+    db.query(Proyecto).filter(Proyecto.id == proyecto_id).update(campos, synchronize_session=False)
 
 
 def _num_or_none(v):
@@ -449,15 +453,63 @@ def listar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends
 
 
 @router.post("/verificado", status_code=status.HTTP_204_NO_CONTENT)
-def marcar_verificado(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
+def marcar_verificado(
+    proyecto_id: str,
+    body: Optional[RevisionStockIn] = Body(None),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(stock_access),
+):
     """Para scrapers diff-based (ej. Ecasa): confirman el stock contra la fuente
     pero solo llaman a alta/edición/borrado si algo cambió. Sin este endpoint,
     una corrida exitosa sin diffs deja stock_updated_at congelado y el proyecto
     se ve como 'desactualizado' aunque el scraper corrió bien y confirmó que
-    nada cambió. Llamar 1x al final de cada corrida exitosa, sin diffs o con."""
-    _ensure_project(db, proyecto_id)
-    _touch_stock(db, proyecto_id)
+    nada cambió. Llamar 1x al final de cada corrida exitosa, sin diffs o con.
+
+    (2026-10-05) Con cuerpo es la revisión de una PERSONA: el botón «Revisé el stock:
+    sin cambios» del editor, o el Excel de la inmobiliaria subido sin cambios. Pone
+    stock_ok_at y ultima_revision_at, pero NO stock_updated_at (esa es la fecha que ve
+    el corredor en el catálogo y solo la mueven cambios reales). Con
+    registrar_evento=true deja "Stock revisado" en la historia y lo devuelve (200).
+    Sin cuerpo: 204 y exactamente lo de siempre (lo usan los robots)."""
+    proy = _ensure_project(db, proyecto_id)
+    persona = body is not None and bool(body.registrar_evento or body.archivo or body.detalles)
+    if not persona:
+        _touch_stock(db, proyecto_id)
+        db.commit()
+        return None
+    if proy.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
+    now = datetime.utcnow()
+    proy.stock_ok_at = now
+    proy.ultima_revision_at = now
+    evento = None
+    if body.registrar_evento:
+        detalle = (body.detalles or "").strip()
+        if not detalle:
+            archivo = (body.archivo or "").strip()
+            detalle = (f"Revisé el stock con el Excel «{archivo}»: sin cambios" if archivo
+                       else "Revisé el stock: sin cambios")
+        evento = {
+            "id": "tl-" + uuid.uuid4().hex[:10],
+            "fecha": now.isoformat() + "Z",
+            "tipo": "Stock revisado",
+            "detalles": detalle[:300],
+            "usuario": getattr(usuario, "email", None) or "sistema",
+            "origen_auto": False,
+            "archivo_url": None,
+        }
+        _extra = {**(proy.extra or {})}
+        _tl = list(_extra.get("timeline") or [])
+        _tl.insert(0, evento)
+        _extra["timeline"] = recortar_timeline(_tl)
+        proy.extra = _extra
     db.commit()
+    return JSONResponse(status_code=status.HTTP_200_OK, content={
+        "ok": True,
+        "evento": evento,
+        "stock_ok_at": now.isoformat() + "Z",
+        "ultima_revision_at": now.isoformat() + "Z",
+    })
 
 
 @router.post("", response_model=UnidadOut, status_code=status.HTTP_201_CREATED)
@@ -547,7 +599,8 @@ def marcar_reserva_bc(
         if body.reabrir:
             u.disponible = True
     if bool(u.disponible) != estaba_disponible:
-        _touch_stock(db, proyecto_id)
+        # revision=False: una reserva de la intranet no revisa el resto del stock.
+        _touch_stock(db, proyecto_id, revision=False)
     db.commit()
     db.refresh(u)
     return {"unidad": UnidadOut.model_validate(u).model_dump(mode="json"),
@@ -1156,6 +1209,7 @@ async def subir_excel(
         "format": "jb_v2.4" if is_jb else "bc_api",
     }
     proy.stock_updated_at = datetime.utcnow()  # 1.12 · marca el cambio de stock
+    proy.stock_ok_at = proy.stock_updated_at  # subida completa = revisión que salió bien
 
     # ── Timeline: comentario "Sin cambios" o resumen de qué cambió ──
     # #93: la detección NO puede depender solo del email — todos los workflows
@@ -1367,5 +1421,7 @@ def crear_evento_timeline(
     # Un scraper que deja rastro en el timeline (alerta o evento informativo) SÍ
     # revisó el proyecto contra su fuente, aunque no haya tocado stock_updated_at.
     proy.ultima_revision_at = datetime.utcnow()
+    # Un evento informativo (no alerta) = corrida que salió bien → cuenta como revisión.
+    proy.stock_ok_at = proy.ultima_revision_at
     db.commit()
     return {"ok": True, "evento_id": evento["id"]}

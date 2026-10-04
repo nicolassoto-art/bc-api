@@ -64,6 +64,20 @@ class ReservaBcIn(BaseModel):
     reabrir: bool = False
 
 
+class RevisionStockIn(BaseModel):
+    """Revisión de stock hecha por una PERSONA (2026-10-05), cuerpo opcional de
+    POST /proyectos/{id}/unidades/verificado.
+
+    `registrar_evento`: deja "Stock revisado" en la historia (botón «Revisé el stock:
+    sin cambios»). `archivo`: nombre del Excel de la inmobiliaria subido en el editor
+    (cuenta como revisión aunque no haya cambiado nada; el editor ya anota su propio
+    evento "Excel Stock", por eso ahí va registrar_evento=false).
+    """
+    archivo: Optional[str] = Field(default=None, max_length=200)
+    detalles: Optional[str] = Field(default=None, max_length=300)
+    registrar_evento: bool = False
+
+
 # ── Imagen ────────────────────────────────────────────────────
 
 class ImagenOut(BaseModel):
@@ -169,3 +183,6 @@ class ProyectoSummary(BaseModel):
     # "Sin ubicación verificada". Sin exponerlo, la alerta nunca se borraba aunque
     # el usuario confirmara la ubicación en el editor (el summary no lo traía).
     gps_verificado: bool = False
+    # (2026-10-05) Estado del stock con el mismo cálculo del correo "proyectos sin
+    # revisar" (app/services/estado_stock.py). Sin declararlo, la respuesta lo descarta.
+    estado_stock: Optional[Dict[str, Any]] = None

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from .proyecto import (  # noqa: F401
     ProyectoIn, ProyectoOut, ProyectoSummary,
-    UnidadIn, UnidadOut, ReservaBcIn,
+    UnidadIn, UnidadOut, ReservaBcIn, RevisionStockIn,
     ImagenOut, ImagenUpdate,
     DocumentoOut,
 )

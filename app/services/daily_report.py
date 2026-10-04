@@ -678,12 +678,41 @@ _SNAP_LOCK = _threading.Lock()
 
 
 def _snap_path():
+    # (2026-10-05) Vive en state_dir: en upload_path quedaba público en /uploads.
+    return settings.state_path / "report_snapshots.json"
+
+
+def _snap_path_viejo():
     return settings.upload_path / "report_snapshots.json"
+
+
+def migrar_snapshot_viejo() -> None:
+    """Saca report_snapshots.json de uploads/ (público) y lo deja en state_dir. Lo
+    llama solo el proceso que tiene el candado del programador. Nunca borra datos: si
+    ya existe la copia nueva, la vieja (más antigua) se descarta."""
+    try:
+        viejo, nuevo = _snap_path_viejo(), _snap_path()
+        if not viejo.exists():
+            return
+        with _SNAP_LOCK:
+            if nuevo.exists():
+                viejo.unlink()
+            else:
+                try:
+                    _os.replace(viejo, nuevo)
+                except OSError:  # otro disco: copiar y borrar
+                    nuevo.write_text(viejo.read_text("utf-8"), "utf-8")
+                    viejo.unlink()
+        log.info("report_snapshots.json movido fuera de uploads/")
+    except Exception as e:  # noqa: BLE001
+        log.warning("No se pudo mover report_snapshots.json: %s", e)
 
 
 def _snap_load() -> dict:
     try:
         p = _snap_path()
+        if not p.exists() and _snap_path_viejo().exists():
+            p = _snap_path_viejo()  # todavía no se movió (arranque sin candado)
         if p.exists():
             return _json.loads(p.read_text("utf-8"))
     except Exception as e:
@@ -1170,7 +1199,8 @@ def _tab_for(msg: str) -> str:
     return "general"
 
 
-def _pendientes_pdf_bytes(items: list[dict], fecha_cl: str) -> bytes:
+def _pendientes_pdf_bytes(items: list[dict], fecha_cl: str,
+                          titulo: str = "Pendientes de ficha · Stock BigCapital") -> bytes:
     """PDF con TODOS los pendientes vigentes, uno por fila, CADA FILA es un link
     clickeable directo a la pestaña del editor donde se arregla (pedido Nicolás
     2026-07-06). A diferencia del cuerpo del email (limitado a ~102KB antes de que
@@ -1204,7 +1234,7 @@ def _pendientes_pdf_bytes(items: list[dict], fecha_cl: str) -> bytes:
     ))
 
     elems = [
-        Paragraph("Pendientes de ficha · Stock BigCapital", title_style),
+        Paragraph(escape(titulo), title_style),
         Paragraph(
             f"{escape(fecha_cl)} &middot; {len(items_sorted)} pendiente(s) en total &middot; "
             f"clic en cualquier fila para arreglarlo directo en el editor",
@@ -1226,7 +1256,7 @@ def _pendientes_pdf_bytes(items: list[dict], fecha_cl: str) -> bytes:
             last_inmob = inmob
         n += 1
         pid = it.get("id") or ""
-        url = _editor_url(pid, _tab_for(it.get("texto") or ""))
+        url = _editor_url(pid, it.get("tab") or _tab_for(it.get("texto") or ""))
         proy = escape(it.get("proyecto") or pid)
         texto = escape(it.get("texto") or "")
         # Inmobiliaria SIEMPRE en la fila (no solo en el encabezado de grupo): si la

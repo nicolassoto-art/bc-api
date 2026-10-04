@@ -112,3 +112,37 @@ def etiqueta_origen(
         return "Actualización automática ({})".format(fuente), True
 
     return "Carga de Excel de stock", False
+
+
+# ── Correo "Stock interno · proyectos sin revisar" · 2026-10-05 ──────────────
+
+# Inmobiliarias que mandan su stock en un archivo SEMANAL (Vellatrix por correo,
+# Las Palmas en un Excel de Drive): sus robots no dejan marca cuando no llega archivo
+# nuevo, así que el correo las espera 8 días en vez de 3 (decisión de Nicolás).
+FUENTES_SEMANALES = {"vellatrix", "inmobiliaria las palmas"}
+
+
+def norm_inmobiliaria(s: Optional[str]) -> str:
+    """Nombre de inmobiliaria normalizado (sin tildes, minúsculas, espacios colapsados)."""
+    return _norm(s)
+
+
+def robot_de(inmobiliaria: Optional[str]) -> Optional[str]:
+    """Nombre corto del robot de una inmobiliaria para mostrar a personas
+    ("robot Ingevec", "robot AJ Urbana"), o None si su stock se sube a mano."""
+    fuente = FUENTE_POR_INMOBILIARIA.get(_norm(inmobiliaria))
+    if not fuente:
+        return None
+    nombre = fuente.split("·")[0].strip()
+    for prefijo in ("scraper ", "sync "):
+        if nombre.lower().startswith(prefijo):
+            nombre = nombre[len(prefijo):]
+    return f"robot {nombre.strip()}"
+
+
+def es_cuenta_robot(email: Optional[str]) -> bool:
+    """Como es_cuenta_automatica, más las cuentas de sincronización (aj-urbana-sync@…).
+    Solo para LEER la historia (estado del stock, actividad manual del informe): no se
+    usa al subir stock, así que no cambia cómo se rotula ni qué se suprime ahí."""
+    e = (email or "").lower()
+    return es_cuenta_automatica(e) or "-sync@" in e
