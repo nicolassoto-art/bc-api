@@ -70,6 +70,14 @@ class Proyecto(Base):
     # endpoints /timeline/alerta y /timeline/evento (revisión sin cambio).
     ultima_revision_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
+    # Última revisión de stock que SALIÓ BIEN, con o sin cambios (2026-10-05, migración
+    # 012). Base del correo "proyectos sin revisar" (app/services/estado_stock.py). La
+    # ponen _touch_stock(revision=True), /verificado (robots y el botón "Revisé el
+    # stock: sin cambios"), /excel/upload y /timeline/evento. NO la ponen la marca de
+    # reserva de la intranet (no revisa el resto del stock) ni /timeline/alerta (un
+    # robot que bloquea una subida no confirmó nada).
+    stock_ok_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     # Soft-delete: papelera de 30 días. Si deleted_at != null el proyecto está en
     # la papelera (oculto de listados/catálogo, recuperable). NULL = activo normal.
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
