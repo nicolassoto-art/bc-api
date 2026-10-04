@@ -17,7 +17,6 @@ from fastapi.responses import HTMLResponse, Response
 from .services import email_service
 from .services.daily_report import (
     send_daily_report, build_daily_report, _build_html,
-    send_operador_today_report, build_operador_today, _build_operador_html,
     _pendientes_pdf_bytes, migrar_snapshot_viejo,
 )
 from .services.stock_emails import (
@@ -101,7 +100,7 @@ def _registrar_jobs(scheduler) -> list:
     """Registra los jobs del programador según los flags. Devuelve los ids registrados.
 
     L-V, hora de Chile: 09:00 informe diario · 09:02 «proyectos sin revisar» · 09:04
-    «fallas en fichas» (2026-10-05) · 13:00 avances del operador · inbox cada N min.
+    «fallas en fichas» (2026-10-05) · inbox cada N min. El de las 13:00 se eliminó.
     """
     from apscheduler.triggers.cron import CronTrigger
     from apscheduler.triggers.interval import IntervalTrigger
@@ -123,9 +122,6 @@ def _registrar_jobs(scheduler) -> list:
         _cron(send_sin_revisar, 9, 2, "stock_sin_revisar")
     if settings.fallas_fichas_enabled:
         _cron(send_fallas, 9, 4, "fallas_fichas")
-    # Informe de las 13:00 L-V: solo los avances de HOY del operador de carga (manual).
-    if settings.operador_report_enabled:
-        _cron(send_operador_today_report, 13, 0, "operador_today_report")
     # Inbox processor: cada N minutos lee emails con Excel adjunto y los aplica.
     if settings.inbox_processor_enabled:
         scheduler.add_job(
@@ -144,9 +140,8 @@ def _start_scheduler():
     # Cada job tiene su PROPIO flag: daily_report_enabled solo apaga el informe de
     # las 09:00 — NO el de las 13:00 ni el inbox processor (antes un early-return
     # apagaba el scheduler entero y todos los jobs caían juntos).
-    if not (settings.daily_report_enabled or settings.operador_report_enabled
-            or settings.inbox_processor_enabled or settings.stock_sin_revisar_enabled
-            or settings.fallas_fichas_enabled):
+    if not (settings.daily_report_enabled or settings.inbox_processor_enabled
+            or settings.stock_sin_revisar_enabled or settings.fallas_fichas_enabled):
         log.info("Scheduler: todos los jobs deshabilitados, no se inicia.")
         return
     if not _acquire_scheduler_lock():
@@ -181,17 +176,15 @@ def _stop_scheduler():
 
 
 @app.post("/admin/daily-report/test", tags=["meta"])
-def trigger_daily_report(semana: bool = False, _: Usuario = Depends(super_admin)):
-    """Dispara el informe diario manualmente (solo super_admin) y lo ENVÍA a los
-    destinatarios reales (To=daily_report_to, Cc=daily_report_cc). Para revisar el
-    contenido SIN enviar, usar GET /admin/daily-report/preview.
+def trigger_daily_report(semana: bool = False, usuario: Usuario = Depends(super_admin)):
+    """Dispara el informe diario manualmente (solo super_admin) y lo ENVÍA SOLO A QUIEN
+    LO PIDE (2026-10-05: antes iba a los destinatarios reales). Para revisar el
+    contenido sin enviar nada, usar GET /admin/daily-report/preview.
     semana=true fuerza la sección 'Resumen de la semana anterior' (normalmente solo lunes).
-    NO guarda el snapshot del cruce (solo el cron real de las 09:00 lo guarda) — así un
-    test a cualquier hora no corrompe la línea base de 'Solucionados/Pendientes'."""
-    estado = send_daily_report(forzar_semana=semana, guardar_snapshot=False)
-    return {"ok": estado == "enviado", "estado": estado,
-            "sent_to": settings.daily_report_to or settings.notify_to,
-            "cc": settings.daily_report_cc, "forzar_semana": semana}
+    NO guarda el snapshot del cruce ni anota el resultado del día."""
+    para = [usuario.email]
+    estado = send_daily_report(forzar_semana=semana, guardar_snapshot=False, para=para)
+    return {"ok": estado == "enviado", "estado": estado, "sent_to": para, "forzar_semana": semana}
 
 
 @app.get("/admin/daily-report/preview", response_class=HTMLResponse, tags=["meta"])
@@ -215,23 +208,6 @@ def preview_pendientes_pdf(_: Usuario = Depends(super_admin)):
     items = (cruce.get("persisten") or []) + (cruce.get("nuevos") or [])
     pdf_bytes = _pendientes_pdf_bytes(items, data["fecha_cl"])
     return Response(content=pdf_bytes, media_type="application/pdf")
-
-
-@app.get("/admin/operador-today/preview", response_class=HTMLResponse, tags=["meta"])
-def preview_operador_today(_: Usuario = Depends(super_admin)):
-    """HTML del informe de las 13:00 (avances de HOY del operador de carga) con datos REALES,
-    SIN enviarlo. Solo super_admin."""
-    with SessionLocal() as db:
-        data = build_operador_today(db)
-    return HTMLResponse(_build_operador_html(data))
-
-
-@app.post("/admin/operador-today/test", tags=["meta"])
-def trigger_operador_today(_: Usuario = Depends(super_admin)):
-    """Dispara y ENVÍA el informe de las 13:00 a operador_report_to (solo super_admin).
-    Reporta el estado REAL del envío."""
-    estado = send_operador_today_report()
-    return {"ok": estado == "enviado", "estado": estado, "sent_to": settings.operador_report_to}
 
 
 # ── Correos "Stock interno" (2026-10-05): vistas previas de SOLO LECTURA ────────

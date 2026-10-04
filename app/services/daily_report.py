@@ -21,6 +21,7 @@ import re as _re
 import smtplib
 import threading as _threading
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 from email.message import EmailMessage
 from email.utils import formataddr
 from html import escape
@@ -30,7 +31,8 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models.proyecto import Proyecto
-from app.services.email_service import _configured, _fecha_cl
+from app.services.email_service import _configured, _fecha_cl, destinatarios_equipo
+from app.services.origen_stock import es_cuenta_robot
 from app.settings import settings
 
 log = logging.getLogger(__name__)
@@ -470,62 +472,51 @@ def _eventos_ventana(p, cutoff):
     return out
 
 
-def _operador_email() -> str:
-    """Email del operador humano de carga = destinatario To del informe diario.
-    Si DAILY_REPORT_TO trae varios emails coma-separados, el operador es el PRIMERO
-    (antes el match exacto fallaba y los informes decían "sin cambios" para siempre)."""
-    return (settings.daily_report_to or "").split(",")[0].strip().lower()
+def _es_cambio_manual(ev: dict) -> bool:
+    """Cambio hecho a mano por una persona del equipo: no es Alerta, no es automático
+    (origen_auto) y no lo firmó una cuenta de robot (aj-urbana-sync@, mnk-scraper@…,
+    que a veces llegan con origen_auto nulo)."""
+    if ev.get("tipo") == "Alerta" or ev.get("origen_auto"):
+        return False
+    usuario = (ev.get("usuario") or "").strip().lower()
+    return bool(usuario) and usuario != "sistema" and not es_cuenta_robot(usuario)
 
 
-def _operador_nombre() -> str:
-    """Nombre para mostrar del operador. Del setting explícito o derivado del email."""
-    n = (settings.daily_report_operator_name or "").strip()
-    if not n:
-        e = _operador_email()
-        if e:
-            n = e.split("@")[0].split(".")[0].title()
-    return n or "el operador"
+def _nombre_persona(email: str) -> str:
+    local = (email or "").split("@")[0]
+    partes = [x for x in local.replace("_", ".").split(".") if x]
+    return " ".join(x.capitalize() for x in partes) or (email or "")
 
 
 def _operador_actividad(proyectos, cutoff, end=None):
-    """Cambios MANUALES del operador humano de carga por proyecto en [cutoff, end).
+    """Cambios MANUALES de cualquier persona del equipo por proyecto en [cutoff, end).
+
+    (2026-10-05) Antes contaba solo al "operador" (el primer correo del informe); con
+    el equipo de cuatro, cuenta a todos y cada cambio dice quién lo hizo. Nunca cuenta
+    robots ni alertas (_es_cambio_manual).
 
     `end` (aware UTC) acota por arriba: el informe 09:00 usa día-CALENDARIO exacto
-    [ayer 00:00, hoy 00:00) Chile, así "el día anterior" es realmente el día anterior
-    (no una ventana móvil de 24h que se mete en hoy o pierde temprano de ayer). El
-    informe 13:00 pasa end=None → hasta ahora ("hoy").
-
-    Filtro doble anti-scraper: (1) usuario == email exacto del operador (el scraper
-    entra como mnk-scraper@/jb-scraper, NUNCA con el email del operador) Y (2) descarta
-    cualquier evento con origen_auto=True (importación automática). Así el informe SOLO
-    refleja lo que hizo la persona logueada con su usuario y contraseña.
+    [ayer 00:00, hoy 00:00) Chile.
 
     Devuelve (grupos_ordenados, n_total, n_proyectos). Cada grupo:
-    {id, nombre, eventos:[{tipo,fecha,detalles,usuario,origen_auto}]} con eventos
-    del más reciente al más antiguo.
+    {id, nombre, eventos:[{tipo,fecha,detalles,usuario,origen_auto}]}.
     """
-    op_email = _operador_email()
     grupos: dict[str, dict] = {}
     n = 0
-    if op_email:
-        for p in proyectos:
-            for ev in _eventos_ventana(p, cutoff):
-                if end is not None and ev["fecha"] >= end:
-                    continue  # fuera del día-calendario (p.ej. acciones de hoy)
-                if ev["tipo"] == "Alerta":
-                    continue
-                if ev.get("origen_auto"):  # scraper / importación automática
-                    continue
-                if (ev.get("usuario") or "").strip().lower() != op_email:
-                    continue  # solo el usuario humano del operador
-                key = p.nombre or p.id
-                g = grupos.setdefault(key, {
-                    "id": p.id, "nombre": key,
-                    "inmobiliaria": (p.inmobiliaria or "").strip() or "Sin inmobiliaria",
-                    "eventos": [],
-                })
-                g["eventos"].append(ev)
-                n += 1
+    for p in proyectos:
+        for ev in _eventos_ventana(p, cutoff):
+            if end is not None and ev["fecha"] >= end:
+                continue  # fuera del día-calendario (p.ej. acciones de hoy)
+            if not _es_cambio_manual(ev):
+                continue
+            key = p.nombre or p.id
+            g = grupos.setdefault(key, {
+                "id": p.id, "nombre": key,
+                "inmobiliaria": (p.inmobiliaria or "").strip() or "Sin inmobiliaria",
+                "eventos": [],
+            })
+            g["eventos"].append(ev)
+            n += 1
     # Orden CRONOLÓGICO ascendente: eventos del más antiguo al más reciente dentro de
     # cada proyecto, y los proyectos ordenados por su primer cambio del día.
     for g in grupos.values():
@@ -540,6 +531,13 @@ _TIPO_LBL = {
     "Importación": "Importación", "Cambio": "Cambio", "Foto": "Foto",
     "Modelo": "Modelo", "Unidad": "Unidad", "Documento": "Documento",
 }
+
+
+def _quien_html(ev) -> str:
+    u = (ev.get("usuario") or "").strip()
+    if not u or u == "sistema":
+        return ""
+    return f' <span style="color:#6b7280;font-size:11px">· {escape(_nombre_persona(u))}</span>'
 
 
 def _operador_section_html(op_nombre, op_grupos, n_op, n_op_proj, periodo, titulo=None) -> str:
@@ -572,7 +570,8 @@ def _operador_section_html(op_nombre, op_grupos, n_op, n_op_proj, periodo, titul
             f'<span style="color:#9ca3af">·</span> '
             f'<b style="color:#1f7a3d">{escape(proy)}</b> '
             f'<span style="color:#9ca3af;font-size:11px">({escape(inmob)})</span> '
-            f'<span style="color:#9ca3af">—</span> {det}</div>'
+            f'<span style="color:#9ca3af">—</span> {det}'
+            f'{_quien_html(ev)}</div>'
         )
     # Los build_* truncan op_grupos ([:20]/[:40]) pero pasan los TOTALES: si se
     # muestran menos movimientos que n_op, avisar en vez de truncar en silencio.
@@ -593,21 +592,17 @@ _MES_FULL = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "ag
 
 
 def _operador_eventos_planos(proyectos, cutoff, end):
-    """Todos los movimientos MANUALES del operador en [cutoff, end), aplanados con su
+    """Todos los movimientos MANUALES del equipo en [cutoff, end), aplanados con su
     proyecto y ordenados por hora ascendente (sin agrupar por proyecto)."""
-    op_email = _operador_email()
     out = []
-    if op_email:
-        for p in proyectos:
-            for ev in _eventos_ventana(p, cutoff):
-                if end is not None and ev["fecha"] >= end:
-                    continue
-                if ev["tipo"] == "Alerta" or ev.get("origen_auto"):
-                    continue
-                if (ev.get("usuario") or "").strip().lower() != op_email:
-                    continue
-                out.append({**ev, "proyecto": p.nombre or p.id,
-                            "inmobiliaria": (p.inmobiliaria or "").strip() or "Sin inmobiliaria"})
+    for p in proyectos:
+        for ev in _eventos_ventana(p, cutoff):
+            if end is not None and ev["fecha"] >= end:
+                continue
+            if not _es_cambio_manual(ev):
+                continue
+            out.append({**ev, "proyecto": p.nombre or p.id,
+                        "inmobiliaria": (p.inmobiliaria or "").strip() or "Sin inmobiliaria"})
     out.sort(key=lambda e: e["fecha"])
     return out
 
@@ -644,7 +639,8 @@ def _resumen_semana_html(eventos) -> str:
                 f'<span style="color:#9ca3af">·</span> '
                 f'<b style="color:#1f7a3d">{escape(ev["proyecto"])}</b> '
                 f'<span style="color:#9ca3af;font-size:11px">({escape(ev.get("inmobiliaria") or "Sin inmobiliaria")})</span> '
-                f'<span style="color:#9ca3af">—</span> {det}</div>'
+                f'<span style="color:#9ca3af">—</span> {det}'
+                f'{_quien_html(ev)}</div>'
             )
         if len(lst) > DIA_CAP:
             filas.append(
@@ -986,7 +982,7 @@ def build_daily_report(db: Session, forzar_semana: bool = False) -> dict:
     # SOLO acciones del usuario logueado del operador (email exacto) y NUNCA del
     # scraper: _operador_actividad filtra por email + descarta origen_auto. Misma
     # ventana que la actividad general (24h, o 72h los lunes).
-    _op_nombre = _operador_nombre()
+    _op_nombre = "el equipo"
     # Ventana día-CALENDARIO Chile: [ayer 00:00, hoy 00:00). Lunes = vie+sáb+dom.
     _tz_cl = TZ_CL
     _hoy_cl_00 = datetime.now(_tz_cl).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -1607,10 +1603,14 @@ def _build_html(data: dict) -> str:
     """
 
 
-def send_daily_report(forzar_semana: bool = False, guardar_snapshot: bool = True) -> str:
+def send_daily_report(forzar_semana: bool = False, guardar_snapshot: bool = True,
+                      para: Optional[list] = None) -> str:
     """Disparado por APScheduler L-V 09am. Retorna el estado real del envío
     ('enviado' | 'smtp_no_configurado' | 'deshabilitado' | 'error: …') para que
-    los endpoints /test no digan ok:true cuando en realidad no salió nada."""
+    los endpoints /test no digan ok:true cuando en realidad no salió nada.
+
+    (2026-10-05) Va a los cuatro del equipo (equipo_stock_to), todos en "Para". `para`
+    lo usa solo la prueba manual (/admin/daily-report/test), que manda a quien la pide."""
     if not _configured():
         log.info("daily_report: SMTP no configurado — informe NO enviado.")
         return "smtp_no_configurado"
@@ -1639,15 +1639,9 @@ def send_daily_report(forzar_semana: bool = False, guardar_snapshot: bool = True
         msg["Subject"] = f"📊 Stock · {data['n_disponibles_total']} disp · {data['n_cambios_24h']} cambios 24h{warn}"
         from_addr = settings.smtp_from or settings.smtp_user
         msg["From"] = formataddr((settings.smtp_from_name, from_addr))
-        # Destinatarios (2026-06-17): To = el operador de carga,
-        # Cc = Nicolás. Fallback a notify_to si daily_report_to queda vacío.
-        to_addr = (settings.daily_report_to or settings.notify_to).strip()
+        dests = list(para) if para else (destinatarios_equipo() or [settings.notify_to])
+        to_addr = ", ".join(dests)
         msg["To"] = to_addr
-        cc_raw = (settings.daily_report_cc or "")
-        to_lower = to_addr.lower()
-        cc_list = [e.strip() for e in cc_raw.split(",") if e.strip() and e.strip().lower() != to_lower]
-        if cc_list:
-            msg["Cc"] = ", ".join(cc_list)
         msg["Reply-To"] = from_addr
         msg.set_content(f"Informe diario de stock · {data['fecha_cl']}\nActivos: {data['n_activos']} · Disp: {data['n_disponibles_total']} · Cambios 24h: {data['n_cambios_24h']}")
         msg.add_alternative(html, subtype="html")
@@ -1663,9 +1657,11 @@ def send_daily_report(forzar_semana: bool = False, guardar_snapshot: bool = True
         # de las 09:00 y los "Solucionados" del día desaparecerían del informe).
         if guardar_snapshot:
             _snap_set("morning", data.get("pend_actual", {}), datetime.utcnow().isoformat())
+        if guardar_snapshot:
+            _registrar_resultado_informe("enviado")
         log.info(
-            "daily_report enviado → To:%s Cc:%s · activos:%d disp:%d inmob:%d crit:%d warn:%d sinCargar:%d staleStock:%d",
-            to_addr, ", ".join(cc_list) or "—",
+            "daily_report enviado → To:%s · activos:%d disp:%d inmob:%d crit:%d warn:%d sinCargar:%d staleStock:%d",
+            to_addr,
             data["n_activos"], data["n_disponibles_total"], len(data["inmobiliarias"]),
             data["n_con_critico"], data["n_con_warning"],
             len(data["sin_cargar"]), len(data["sin_actualizar"]),
@@ -1673,105 +1669,23 @@ def send_daily_report(forzar_semana: bool = False, guardar_snapshot: bool = True
         return "enviado"
     except Exception as e:
         log.error("daily_report falló: %s", e, exc_info=True)
+        if guardar_snapshot:
+            _registrar_resultado_informe(f"error: {e}")
         return f"error: {e}"
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# Informe de las 13:00 · SOLO los avances del operador HOY (acciones manuales)
-# ════════════════════════════════════════════════════════════════════════════
-
-def build_operador_today(db: Session) -> dict:
-    """Cambios MANUALES del operador humano de carga HOY: desde la medianoche de
-    Chile hasta el momento de correr. SOLO su usuario (email exacto), sin scraper
-    (mismo filtro doble que _operador_actividad: email + descarta origen_auto)."""
-    proyectos = _proyectos_activos(db)
-    tz_cl = TZ_CL  # Chile con DST real
-    medianoche_cl = datetime.now(tz_cl).replace(hour=0, minute=0, second=0, microsecond=0)
-    grupos, n, n_proj = _operador_actividad(proyectos, medianoche_cl)
-    # Cruce: qué de los pendientes de la MAÑANA (informe 09:00 de hoy) se solucionó.
-    pend_actual = _pendientes_actuales(proyectos)
-    cruce = _resolucion_cruce("morning", pend_actual)
-    _enriquecer_resueltos(cruce, proyectos)
-    return {
-        "fecha_cl": _fecha_cl(),
-        "operador_nombre": _operador_nombre(),
-        "operador_grupos": grupos[:40],
-        "n_operador": n,
-        "n_operador_proyectos": n_proj,
-        "cruce": cruce,
-        "pend_actual": pend_actual,
-    }
-
-
-def _build_operador_html(data: dict) -> str:
-    """Email compacto: cabecera + mejoras de HOY + resolución de pendientes (sin nombres)."""
-    seccion = _operador_section_html(
-        data.get("operador_nombre") or "el operador",
-        data.get("operador_grupos", []),
-        data.get("n_operador", 0), data.get("n_operador_proyectos", 0),
-        "hoy", titulo="📋 Mejoras de hoy",
-    )
-    resolucion = _resolucion_html(data.get("cruce", {}), "desde el informe de la mañana")
-    return f"""
-    <!doctype html><html><body style="margin:0;background:#f3f4f6;padding:0;font-family:-apple-system,'Segoe UI',Roboto,sans-serif">
-      <div style="max-width:720px;margin:0 auto;padding:24px 16px">
-        <div style="background:#7DC242;color:#0a0d12;padding:16px 20px;border-radius:12px 12px 0 0">
-          <div style="font-weight:800;font-size:18px">📋 Mejoras de hoy · stock SBC</div>
-          <div style="font-weight:400;font-size:12.5px;color:#0a0d12;opacity:.78;margin-top:3px">{escape(data["fecha_cl"])} · BigCapital · corte 13:00</div>
-        </div>
-        <div style="background:#fff;padding:18px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none">
-          {_disclaimer_html()}
-          {seccion}
-          {resolucion}
-        </div>
-      </div>
-    </body></html>
-    """
-
-
-def send_operador_today_report() -> str:
-    """Disparado por APScheduler L-V 13:00 Chile. Envía SOLO los avances de hoy de
-    operador de carga a operador_report_to. Retorna el estado real del envío."""
-    if not _configured():
-        log.info("operador_today: SMTP no configurado — informe NO enviado.")
-        return "smtp_no_configurado"
-    if not settings.operador_report_enabled:
-        log.info("operador_today: deshabilitado (OPERADOR_REPORT_ENABLED=false).")
-        return "deshabilitado"
+def _registrar_resultado_informe(resultado: str) -> None:
     try:
-        with SessionLocal() as db:
-            data = build_operador_today(db)
-        html = _build_operador_html(data)
-        msg = EmailMessage()
-        msg["Subject"] = f"📋 Mejoras de hoy · {data['n_operador']} cambio(s) en {data['n_operador_proyectos']} proyecto(s)"
-        from_addr = settings.smtp_from or settings.smtp_user
-        msg["From"] = formataddr((settings.smtp_from_name, from_addr))
-        # Destinatarios del informe de las 13:00 (pedido 2026-06-24): el operador de
-        # carga, Nicolás y Álvaro. Coma-separados.
-        dests = [e.strip() for e in (settings.operador_report_to or "").split(",") if e.strip()]
-        if not dests:
-            log.warning("operador_today: sin destinatarios (operador_report_to vacío).")
-            return "sin_destinatarios"
-        msg["To"] = ", ".join(dests)
-        msg["Reply-To"] = from_addr
-        msg.set_content(
-            f"Mejoras de hoy · {data['fecha_cl']}\n"
-            f"{data['n_operador']} cambio(s) en {data['n_operador_proyectos']} proyecto(s)."
-        )
-        msg.add_alternative(html, subtype="html")
-        _attach_pendientes_pdf(msg, data.get("cruce", {}), data["fecha_cl"])
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as s:
-            s.starttls()
-            s.login(settings.smtp_user, settings.smtp_pass.replace(" ", ""))
-            s.send_message(msg)
-        # (el slot 'afternoon' se eliminó: se escribía en cada envío de las 13:00
-        # pero ningún cruce lo leía — solo 'morning' es línea base.)
-        log.info("operador_today enviado → %s · %d cambios / %d proyectos",
-                 ", ".join(dests), data["n_operador"], data["n_operador_proyectos"])
-        return "enviado"
-    except Exception as e:
-        log.error("operador_today falló: %s", e, exc_info=True)
-        return f"error: {e}"
+        from app.services.stock_emails import registrar_resultado
+        registrar_resultado("informe", resultado)
+    except Exception:  # noqa: BLE001
+        log.warning("no se pudo anotar el resultado del informe", exc_info=True)
+
+
+
+
+# (2026-10-05) El informe de las 13:00 ("Mejoras de hoy" del operador) se eliminó por
+# decisión de Nicolás: el equipo recibe los correos "Stock interno" de las 09:00.
 
 
 def send_error_alert(titulo: str, detalle: str, proyecto: str = "") -> None:
