@@ -14,6 +14,7 @@ from ..deps.auth import service_token, stock_access, current_user
 from ..models import Proyecto, Unidad, Usuario
 from ..schemas import ProyectoIn, ProyectoOut, ProyectoSummary
 from ..services import email_service
+from ..services.timeline import fusionar_timeline
 
 router = APIRouter(prefix="/proyectos", tags=["proyectos"])
 
@@ -574,7 +575,19 @@ def actualizar(
     p = db.get(Proyecto, proyecto_id)
     if not p:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
-    for k, v in body.model_dump(exclude={"id"}).items():
+    datos = body.model_dump(exclude={"id"})
+    # (2026-10-05) La historia NO se reemplaza con la copia del navegador: se une por
+    # id con la del servidor. Antes, una alerta de robot publicada mientras la ficha
+    # estaba abierta se perdía en el siguiente autoguardado (ver services/timeline.py).
+    extra_in = dict(datos.get("extra") or {})
+    extra_srv = p.extra or {}
+    if "timeline" in extra_in or extra_srv.get("timeline"):
+        extra_in["timeline"] = fusionar_timeline(
+            extra_in["timeline"] if "timeline" in extra_in else None,
+            extra_srv.get("timeline"),
+        )
+        datos["extra"] = extra_in
+    for k, v in datos.items():
         setattr(p, k, v)
     p.updated_at = datetime.utcnow()
     db.commit()

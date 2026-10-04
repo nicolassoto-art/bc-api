@@ -14,6 +14,7 @@ from ..models import Proyecto, Unidad, Usuario
 from ..schemas import ReservaBcIn, UnidadIn, UnidadOut
 from ..services import email_service
 from ..services.origen_stock import etiqueta_origen
+from ..services.timeline import recortar_timeline
 
 router = APIRouter(prefix="/proyectos/{proyecto_id}/unidades", tags=["unidades"])
 
@@ -1252,7 +1253,7 @@ async def subir_excel(
             "archivo_url": None,
         }
         _tl.insert(0, _warn_evt)
-    _extra["timeline"] = _tl
+    _extra["timeline"] = recortar_timeline(_tl)
     proy.extra = _extra
 
     db.commit()
@@ -1320,7 +1321,7 @@ def crear_alerta_timeline(
     _extra = {**(proy.extra or {})}
     _tl = list(_extra.get("timeline") or [])
     _tl.insert(0, evento)
-    _extra["timeline"] = _tl
+    _extra["timeline"] = recortar_timeline(_tl)
     proy.extra = _extra
     # Un scraper que deja rastro en el timeline (alerta o evento informativo) SÍ
     # revisó el proyecto contra su fuente, aunque no haya tocado stock_updated_at.
@@ -1361,7 +1362,7 @@ def crear_evento_timeline(
     _extra = {**(proy.extra or {})}
     _tl = list(_extra.get("timeline") or [])
     _tl.insert(0, evento)
-    _extra["timeline"] = _tl
+    _extra["timeline"] = recortar_timeline(_tl)
     proy.extra = _extra
     # Un scraper que deja rastro en el timeline (alerta o evento informativo) SÍ
     # revisó el proyecto contra su fuente, aunque no haya tocado stock_updated_at.
