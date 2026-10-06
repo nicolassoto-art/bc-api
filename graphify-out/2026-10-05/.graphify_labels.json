@@ -280,12 +280,5 @@
   "278": "Path",
   "279": "Path",
   "280": "AsyncClient",
-  "281": "__init__.py",
-  "282": "diag_etiquetas_jb.py",
-  "283": "diag_filtros_unidades.py",
-  "284": "diag_headers.py",
-  "285": "diag_rosas.py",
-  "286": "diag_workview.py",
-  "287": "normalize_inmobiliarias",
-  "288": "get_db"
+  "281": "__init__.py"
 }

@@ -20,8 +20,8 @@
     "semantic_hash": "2bf97e69e903addf7513645794d9cc31"
   },
   "app/main.py": {
-    "mtime": 1791158126.9635656,
-    "ast_hash": "42cbfe71d37df5aa53a34877636e80d9",
+    "mtime": 1790242861.5046246,
+    "ast_hash": "7d3fe9712659d80a8c2cae789169046e",
     "semantic_hash": ""
   },
   "app/models/__init__.py": {
@@ -35,8 +35,8 @@
     "semantic_hash": "9a1df71820b1c84e9f1b1e6a11db1932"
   },
   "app/models/proyecto.py": {
-    "mtime": 1791157139.281874,
-    "ast_hash": "e69a92565a9a4ffff9a395775983ebc1",
+    "mtime": 1790243328.3649843,
+    "ast_hash": "b48ed48b9f28b305743d0d71216789fc",
     "semantic_hash": ""
   },
   "app/models/ticket.py": {
@@ -80,8 +80,8 @@
     "semantic_hash": "9b981a728f3b5da6c820c95ff135b8f3"
   },
   "app/routes/proyectos.py": {
-    "mtime": 1791157728.3514843,
-    "ast_hash": "01f6520ec1269c80ffe1b424f8730e20",
+    "mtime": 1790242861.5057437,
+    "ast_hash": "4a6dc0e30ce937acb971f67b39beb5c1",
     "semantic_hash": ""
   },
   "app/routes/tickets.py": {
@@ -90,13 +90,13 @@
     "semantic_hash": ""
   },
   "app/routes/unidades.py": {
-    "mtime": 1791157318.846066,
-    "ast_hash": "b7da3b0a638d76288ed7c2dbadf99234",
+    "mtime": 1790243330.3175206,
+    "ast_hash": "ac82d06718ebf79bf113fd5336f4a5ff",
     "semantic_hash": ""
   },
   "app/schemas/__init__.py": {
-    "mtime": 1791157330.2126102,
-    "ast_hash": "05239c8c56055f4a6cb2491845df9293",
+    "mtime": 1790243131.3188775,
+    "ast_hash": "89bf28dedcf334920a8964f5c567a1a8",
     "semantic_hash": ""
   },
   "app/schemas/auth.py": {
@@ -110,8 +110,8 @@
     "semantic_hash": "879d2703c2a23c14addd9d2c245447e6"
   },
   "app/schemas/proyecto.py": {
-    "mtime": 1791157330.2122107,
-    "ast_hash": "54493d6c8d629000843a1a91916881e2",
+    "mtime": 1790243123.3841157,
+    "ast_hash": "18b35a0095b12f3856d49c5661ca8576",
     "semantic_hash": ""
   },
   "app/schemas/ticket.py": {
@@ -130,14 +130,14 @@
     "semantic_hash": "8529f516c300feea5fe2c99f58bc4c8f"
   },
   "app/services/daily_report.py": {
-    "mtime": 1791158126.586781,
-    "ast_hash": "7511fe55efb6eb61b0721b8cd3c97866",
+    "mtime": 1790242861.506677,
+    "ast_hash": "7c3a339ceaec4daf79e762806bd02833",
     "semantic_hash": ""
   },
   "app/services/email_service.py": {
-    "mtime": 1791157742.6872797,
-    "ast_hash": "917339b593dbc12c7168cba4790870a3",
-    "semantic_hash": ""
+    "mtime": 1790242861.5067866,
+    "ast_hash": "c8d767e15dc699a4e367bfb85f83a3b4",
+    "semantic_hash": "c8d767e15dc699a4e367bfb85f83a3b4"
   },
   "app/services/inbox_processor.py": {
     "mtime": 1790242861.5068836,
@@ -150,9 +150,9 @@
     "semantic_hash": ""
   },
   "app/settings.py": {
-    "mtime": 1791158126.3779886,
-    "ast_hash": "ac905fa85b25efba84f7d833e6efdf39",
-    "semantic_hash": ""
+    "mtime": 1790242861.508129,
+    "ast_hash": "047a05b6de9720d1924ca094e5c54970",
+    "semantic_hash": "047a05b6de9720d1924ca094e5c54970"
   },
   "migrations/env.py": {
     "mtime": 1790242861.55307,
@@ -1205,8 +1205,8 @@
     "semantic_hash": "27c0cef1e4022e2b49ae4650bce05c1c"
   },
   "EVENTOS.md": {
-    "mtime": 1791246324.7775197,
-    "ast_hash": "e6db7f1825ed937d23dd1866ff1240e8",
+    "mtime": 1790246986.57518,
+    "ast_hash": "86391ab12011eb4f91aac4c1888f8573",
     "semantic_hash": ""
   },
   "IMPORT_LOG.md": {
@@ -1395,13 +1395,13 @@
     "semantic_hash": ""
   },
   "app/routes/capacitaciones.py": {
-    "mtime": 1791246324.7983673,
-    "ast_hash": "e6c208bd4c6cf39015d042874594d998",
+    "mtime": 1790242861.5052578,
+    "ast_hash": "af30380f0745224fdd56b5198b80337a",
     "semantic_hash": ""
   },
   "app/services/origen_stock.py": {
-    "mtime": 1791157342.2203465,
-    "ast_hash": "1276ce422b4e07a9b61a1be9bfa86c2a",
+    "mtime": 1790242861.5080419,
+    "ast_hash": "9e9e4c1c6de6285f9e9651dabd6956ad",
     "semantic_hash": ""
   },
   "migrations/versions/2026_09_24_0000-010_reserva_bc.py": {
@@ -1437,66 +1437,6 @@
   "docs/fuentes-de-stock.md": {
     "mtime": 1790242861.508463,
     "ast_hash": "d1ff89e58ca7290ced5c6c6a19ef0793",
-    "semantic_hash": ""
-  },
-  "app/services/estado_stock.py": {
-    "mtime": 1791157406.196934,
-    "ast_hash": "c1de73454eafbb034f64871c2dedfa4e",
-    "semantic_hash": ""
-  },
-  "app/services/fallas.py": {
-    "mtime": 1791157660.2311666,
-    "ast_hash": "c142c155e6e8378f45870bdd5cad1c3c",
-    "semantic_hash": ""
-  },
-  "app/services/stock_emails.py": {
-    "mtime": 1791158039.0181062,
-    "ast_hash": "af246df733ef189c2ead5897e1118b29",
-    "semantic_hash": ""
-  },
-  "app/services/timeline.py": {
-    "mtime": 1791157164.6357048,
-    "ast_hash": "66dc3d669b299c6ae0221e6b5423cf4d",
-    "semantic_hash": ""
-  },
-  "migrations/versions/2026_09_30_0000-011_descuento_bono_sin_default.py": {
-    "mtime": 1791156955.892261,
-    "ast_hash": "970711dc7016cf2e3ee225cc68600935",
-    "semantic_hash": ""
-  },
-  "migrations/versions/2026_10_05_0000-012_stock_ok_at.py": {
-    "mtime": 1791157139.0645423,
-    "ast_hash": "7a694bbcbb5a2e1056a34fcef4346a7f",
-    "semantic_hash": ""
-  },
-  "tests/test_estado_stock.py": {
-    "mtime": 1791157456.8482738,
-    "ast_hash": "220db5e9d3409feeb47816a2220be809",
-    "semantic_hash": ""
-  },
-  "tests/test_fallas.py": {
-    "mtime": 1791157718.4162767,
-    "ast_hash": "f027a3bb489a65fd5f82b7e26474f69f",
-    "semantic_hash": ""
-  },
-  "tests/test_informe_equipo.py": {
-    "mtime": 1791158152.2742422,
-    "ast_hash": "3e4ee1d487566446d35c11b38a65fcdb",
-    "semantic_hash": ""
-  },
-  "tests/test_stock_emails.py": {
-    "mtime": 1791158053.8938327,
-    "ast_hash": "97d7aee9c31f853d3d68f786dd17f6b4",
-    "semantic_hash": ""
-  },
-  "tests/test_timeline.py": {
-    "mtime": 1791157215.897757,
-    "ast_hash": "4dcb14a04212e9ce43f87011dc25919a",
-    "semantic_hash": ""
-  },
-  "tests/test_unidad_nueva_sin_dato.py": {
-    "mtime": 1791156955.8923564,
-    "ast_hash": "4292dcea6203da8e8b991679d3ce3ac7",
     "semantic_hash": ""
   }
 }
