@@ -2,8 +2,8 @@ name: Registrar eventos anómalos
 
 on:
   schedule:
-    # Cada hora durante el día, todos los días
-    - cron: '5 * * * *'
+    # Cada 3 horas (antes cada hora): ahorra minutos de Actions, 12-oct-2026
+    - cron: '5 */3 * * *'
   workflow_dispatch: {}
 
 concurrency:
