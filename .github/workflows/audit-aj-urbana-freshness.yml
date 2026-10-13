@@ -8,9 +8,11 @@ name: Audit frescura AJ Urbana (dead-man-switch)
 # Falla el job a propósito (exit 1) si algo quedó desactualizado — GitHub notifica
 # por email al dueño del repo cuando un workflow programado falla.
 
+# (13-oct-2026) SIN horario automático: fallaba en TODAS las corridas desde el 25-sep (12 de 12) aunque el sync
+# del servidor corre cada hora sin errores (aj_salud.txt dice «SALUD OK»). Mide cuándo cambió el stock de cada
+# proyecto, no si el sync está vivo: un proyecto sin movimiento por 3 días lo dispara, y vista-san-martin lleva 63.
+# Eran los correos de «Run failed» que llegaban a cada rato. Queda solo el botón manual.
 on:
-  schedule:
-    - cron: '0 13 * * 1-5'  # 09:00 Chile (UTC-4), Lun-Vie
   workflow_dispatch: {}
 
 concurrency:
