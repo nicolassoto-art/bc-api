@@ -342,7 +342,16 @@ def listar(
     db: Session = Depends(get_db),
     _: Usuario = Depends(stock_access),
 ):
-    stmt = select(Proyecto).where(Proyecto.deleted_at.is_(None))  # la papelera va aparte (#papelera)
+    # (2026-10-18) El listado tardaba ~8 s: cargaba `extra` completo (unidades_dom, etc.)
+    # de los 142 proyectos para usar 4 claves. Ahora se piden solo las columnas del
+    # resumen y esas claves, extraídas en la base con operadores JSONB.
+    stmt = select(
+        *(getattr(Proyecto, c) for c in _COLS_LISTADO),
+        Proyecto.extra["comercial"]["pie_pct"].label("x_pie_pct"),
+        Proyecto.extra["publicar_en_catalogo"].label("x_publicar"),
+        Proyecto.extra["gps_verificado"].label("x_gps"),
+        Proyecto.extra["timeline"].label("x_timeline"),
+    ).where(Proyecto.deleted_at.is_(None))  # la papelera va aparte (#papelera)
     if activo is not None:
         stmt = stmt.where(Proyecto.activo == activo)
     if fase:
@@ -357,7 +366,7 @@ def listar(
             | func.lower(Proyecto.comuna).like(like)
         )
     stmt = stmt.order_by(Proyecto.updated_at.desc())
-    proys = db.execute(stmt).scalars().all()
+    proys = db.execute(stmt).all()
 
     # Conteos de unidades por proyecto en 1 query (no N+1)
     rows = db.execute(
@@ -388,33 +397,31 @@ def listar(
     # priorizar FACHADA real ('jb-foto', '', 'fachada', 'exterior') sobre plantas
     # ('jb-planta-*') y otros assets. min(id) alfabético elegía a veces
     # 'jb-planta-3d1b' antes que 'jb-foto' (problema reportado en Alto Buzeta).
-    from ..models import Imagen
-    all_imgs = db.execute(
-        select(Imagen.id, Imagen.proyecto_id, Imagen.url, Imagen.categoria).order_by(Imagen.id)
-    ).all()
-
-    def _is_facade(cat: str) -> bool:
-        c = (cat or "").lower()
-        return c in {"jb-foto", "foto", "fachada", "exterior", ""} or "foto" in c
-
-    # Por proyecto: si hay alguna con categoría de fachada, esa gana (la primera
-    # por id). Si no, usar la primera imagen sin discriminar.
+    # Solo se consulta para los proyectos sin foto principal, y la base devuelve
+    # 1 fila por proyecto (DISTINCT ON) en vez de todas las imágenes.
+    sin_foto = [p.id for p in proys if not p.foto_principal_url]
     img_url_by_pid: dict[str, str] = {}
-    img_facade_by_pid: dict[str, str] = {}
-    for r in all_imgs:
-        if r.proyecto_id not in img_url_by_pid:
-            img_url_by_pid[r.proyecto_id] = r.url  # primera de cualquier tipo
-        if _is_facade(r.categoria) and r.proyecto_id not in img_facade_by_pid:
-            img_facade_by_pid[r.proyecto_id] = r.url
-    # Merge: la fachada gana si existe; si no, la primera cualquiera.
-    img_url_by_pid = {**img_url_by_pid, **img_facade_by_pid}
+    if sin_foto:
+        from ..models import Imagen
+        cat = func.lower(func.coalesce(Imagen.categoria, ""))
+        es_fachada = or_(cat.in_(["jb-foto", "foto", "fachada", "exterior", ""]), cat.like("%foto%"))
+
+        def _primera_por_proyecto(*condiciones):
+            return db.execute(
+                select(Imagen.proyecto_id, Imagen.url)
+                .where(Imagen.proyecto_id.in_(sin_foto), *condiciones)
+                .distinct(Imagen.proyecto_id)
+                .order_by(Imagen.proyecto_id, Imagen.id)
+            ).all()
+
+        # Primera de cualquier tipo; la fachada (la primera por id) gana si existe.
+        img_url_by_pid = {pid: url for pid, url in _primera_por_proyecto()}
+        img_url_by_pid.update({pid: url for pid, url in _primera_por_proyecto(es_fachada)})
 
     out = []
     _ahora = datetime.now(timezone.utc)
     for p in proys:
         total, disp = counts.get(p.id, (0, 0))
-        extra = p.extra or {}
-        comercial = extra.get("comercial") or {}
         # NOTA: NO inflar unidades_total con extra.fisicos.unidades_totales.
         # Ese campo es el total del EDIFICIO, no stock disponible a la venta.
         # Proyectos sin detalle publicado en JB deben mostrar "sin stock" (0),
@@ -427,16 +434,38 @@ def listar(
                 update={
                     "unidades_total": int(total),
                     "unidades_disponibles": int(disp),
-                    "pie_pct": comercial.get("pie_pct"),
+                    "pie_pct": p.x_pie_pct,
                     "precio_desde_uf": precios_min.get(p.id),
-                    "publicar_en_catalogo": bool(extra.get("publicar_en_catalogo")),
-                    "gps_verificado": bool(extra.get("gps_verificado")),
+                    "publicar_en_catalogo": bool(p.x_publicar),
+                    "gps_verificado": bool(p.x_gps),
                     "foto_principal_url": foto,
-                    "estado_stock": _estado_stock_seguro(p, _ahora),
+                    "estado_stock": _estado_stock_seguro(_ProyectoLigero(p), _ahora),
                 }
             )
         )
     return out
+
+
+# Columnas que usa el resumen del listado (ProyectoSummary) + las que lee estado_stock.
+_COLS_LISTADO = (
+    "id", "codigo_corto", "nombre", "inmobiliaria", "comuna", "fase", "activo", "disponible",
+    "fecha_entrega", "ano_entrega", "foto_principal_url", "external_url", "updated_at",
+    "stock_updated_at", "ultima_revision_at", "stock_ok_at", "deleted_at",
+)
+
+
+class _ProyectoLigero:
+    """Lo mínimo de un Proyecto que lee estado_stock, armado desde la fila del listado
+    (extra trae solo las claves usadas, no el JSON completo)."""
+
+    def __init__(self, row):
+        self.inmobiliaria = row.inmobiliaria
+        self.activo = row.activo
+        self.deleted_at = row.deleted_at
+        self.stock_ok_at = row.stock_ok_at
+        self.stock_updated_at = row.stock_updated_at
+        self.ultima_revision_at = row.ultima_revision_at
+        self.extra = {"publicar_en_catalogo": row.x_publicar, "timeline": row.x_timeline}
 
 
 def _estado_stock_seguro(p, ahora):
