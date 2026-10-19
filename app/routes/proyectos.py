@@ -64,6 +64,9 @@ _PUBLIC_EXTRA_KEYS = {
     # material interno, así que el worker lo reenvía SOLO en bcStockToCatalogoDetalle
     # (broker logueado), igual que las notas.
     "puntos_interes", "porque_si",
+    # (19-oct-2026) Video del edificio (HLS). Lo escribe SOLO routes/video_proyecto.py. Como porque_si, el
+    # worker lo reenvía solo en bcStockToCatalogoDetalle (corredor con sesión).
+    "video_ubicacion",
 }
 # Subcampos de `comercial` que el catálogo necesita; el resto (promo_broker,
 # márgenes, etc.) NO sale.
@@ -638,6 +641,14 @@ def actualizar(
             extra_srv.get("timeline"),
         )
         datos["extra"] = extra_in
+    # (19-oct-2026) El video del edificio lo maneja solo routes/video_proyecto.py: la copia que manda
+    # el navegador (que puede ser vieja: el video se procesa en segundo plano) nunca lo pisa.
+    ex = dict(datos.get("extra") or {})
+    if extra_srv.get("video_ubicacion") is not None:
+        ex["video_ubicacion"] = extra_srv["video_ubicacion"]
+    else:
+        ex.pop("video_ubicacion", None)
+    datos["extra"] = ex
     for k, v in datos.items():
         setattr(p, k, v)
     p.updated_at = datetime.utcnow()

@@ -10,7 +10,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias, documentos, tickets, capacitaciones
+from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias, documentos, tickets, capacitaciones, video_proyecto
 from .settings import settings
 from .deps.auth import super_admin
 from fastapi.responses import HTMLResponse, Response
@@ -58,6 +58,7 @@ app.include_router(unidades.router)
 app.include_router(importador.router)
 app.include_router(inmobiliarias.router)
 app.include_router(tickets.router)
+app.include_router(video_proyecto.router)    # video del edificio (HLS adaptativo)
 app.include_router(capacitaciones.router)   # compresión de videos (taller, no bodega)
 
 
@@ -132,6 +133,11 @@ def _registrar_jobs(scheduler) -> list:
         ids.append("inbox_processor")
         log.info("Scheduler · inbox_processor cada %d min", settings.inbox_poll_minutes)
     return ids
+
+
+@app.on_event("startup")
+def _reanudar_videos():
+    video_proyecto.reanudar()   # retoma videos a medio procesar tras un reinicio
 
 
 @app.on_event("startup")
