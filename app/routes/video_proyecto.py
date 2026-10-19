@@ -268,11 +268,13 @@ def _borrar_archivos(pid: str, conservar: Optional[str] = None) -> None:
 def quitar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
     p = _proyecto_ok(db, proyecto_id)
     v = _video_actual(p)
-    if v and v.get("trabajo"):
-        # Si está procesando, se avisa al hilo que pare y se borra su carpeta de trabajo.
+    if v and v.get("trabajo") and ID_RE.match(str(v["trabajo"])):
+        # Si está procesando, se avisa al hilo que pare (él borra su carpeta de trabajo). Si ya terminó, la carpeta
+        # no existe y NO se vuelve a crear (antes quedaba una carpeta vacía en /var/tmp/bc-video).
         with contextlib.suppress(Exception):
-            (_dir_trabajo(v["trabajo"])).mkdir(parents=True, exist_ok=True)
-            (_dir_trabajo(v["trabajo"]) / "cancelar").write_text("1")
+            d = _dir_trabajo(v["trabajo"])
+            if d.exists():
+                (d / "cancelar").write_text("1")
     _set_video(proyecto_id, None)
     _borrar_archivos(proyecto_id)
     return {"ok": True}

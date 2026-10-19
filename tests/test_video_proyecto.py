@@ -122,6 +122,7 @@ def test_subida_retomable_y_hls(client, admin, db, proyecto, entorno):
     assert client.delete(f"/proyectos/{proyecto}/video", headers=h).status_code == 200
     assert client.get(f"/proyectos/{proyecto}/video", headers=h).json()["video"] is None
     assert not raiz.exists()
+    assert not (entorno / "trabajos" / jid).exists(), "quitar un video ya terminado no deja carpeta de trabajo"
 
 
 def test_video_no_leible_da_error_claro(client, admin, proyecto, entorno):
