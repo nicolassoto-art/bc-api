@@ -56,7 +56,9 @@ SIN_AVANCE_SEG = 20 * 60                  # ffmpeg 20 min sin avanzar = colgado
 ID_RE = re.compile(r"^[0-9a-f]{24}$")
 
 # Escalera de calidades: (alto, bitrate máximo del video). Se usan las 2 más altas que no superen al original.
-ESCALERA = [(2160, 14000), (1080, 5500), (720, 2800), (480, 1200), (360, 600)]
+# Bitrates moderados (20-oct): en un edificio casi no hay movimiento y 1080p a ~3,8 Mbps se ve igual que a 5,5,
+# pero lo aguantan muchas más conexiones sin cortarse.
+ESCALERA = [(2160, 9000), (1080, 3800), (720, 2000), (480, 1000), (360, 550)]
 # Peldaños de respaldo: solo los usa Auto cuando la conexión es lenta (el menú muestra únicamente las 2 más altas).
 RESPALDO = (480, 360)
 
@@ -241,6 +243,18 @@ def terminar(proyecto_id: str, body: TrabajoIn, db: Session = Depends(get_db), _
 
 
 # ── Estado del video del proyecto ───────────────────────────────────────────────────
+@router.post("/metrica", status_code=204)
+async def metrica(proyecto_id: str, request: Request):
+    """Calidad de reproducción real (pausas, calidad, velocidad). Solo va al registro, sin base de datos."""
+    try:
+        d = await request.json()
+        if isinstance(d, dict):
+            campos = {k: d.get(k) for k in ("pausas", "pausa_seg", "calidad_max", "calidad_prom", "mbps", "inicio_ms", "seg") if isinstance(d.get(k), (int, float))}
+            log.info("VIDEOQOE %s %s", proyecto_id[:60], json.dumps(campos))
+    except Exception:
+        pass
+
+
 @router.get("")
 def ver(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
     p = _proyecto_ok(db, proyecto_id)
