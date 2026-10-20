@@ -56,7 +56,9 @@ SIN_AVANCE_SEG = 20 * 60                  # ffmpeg 20 min sin avanzar = colgado
 ID_RE = re.compile(r"^[0-9a-f]{24}$")
 
 # Escalera de calidades: (alto, bitrate máximo del video). Se usan las 2 más altas que no superen al original.
-ESCALERA = [(2160, 14000), (1080, 5500), (720, 2800), (480, 1200)]
+ESCALERA = [(2160, 14000), (1080, 5500), (720, 2800), (480, 1200), (360, 600)]
+# Peldaños de respaldo: solo los usa Auto cuando la conexión es lenta (el menú muestra únicamente las 2 más altas).
+RESPALDO = (480, 360)
 
 
 # ── Estado en disco ─────────────────────────────────────────────────────────────────
@@ -312,7 +314,13 @@ def _bitrate(alto: int) -> int:
     for h, b in ESCALERA:
         if h == alto:
             return b
-    return 1200
+    return 600
+
+
+def calidades_con_respaldo(alturas: List[int], alto: int) -> List[int]:
+    """Las calidades del menú más los peldaños bajos para Auto (nunca se amplía el original)."""
+    extra = [h for h in RESPALDO if h < min(alturas) and h <= alto + 8]
+    return list(alturas) + extra
 
 
 def _sondear(ruta: Path) -> Dict[str, Any]:
@@ -434,16 +442,17 @@ def _procesar(jid: str) -> None:
                     raise RuntimeError("Falta el archivo original.")
                 info = _sondear(origen)
                 alturas = elegir_calidades(info["alto"])
+                todas = calidades_con_respaldo(alturas, info["alto"])
                 tmp = carpeta / "salida"
                 shutil.rmtree(tmp, ignore_errors=True)
-                for h in alturas:
+                for h in todas:
                     (tmp / f"{h}p").mkdir(parents=True, exist_ok=True)
                 # Póster: un cuadro al 10 % del video
                 subprocess.run(_prefijo() + ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-nostdin",
                                              "-ss", f"{info['duracion'] * 0.1:.2f}", "-i", str(origen), "-frames:v", "1",
                                              "-vf", "scale=-2:720", "-q:v", "3", str(tmp / "poster.jpg")],
                                capture_output=True, timeout=300)
-                cmd = _prefijo() + _comando_hls(origen, tmp, info, alturas)
+                cmd = _prefijo() + _comando_hls(origen, tmp, info, todas)
                 err = open(carpeta / "ffmpeg.err", "w")
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, text=True)
                 ultimo_avance = time.time()
