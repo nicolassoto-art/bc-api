@@ -38,6 +38,7 @@ jobs:
           ZADARMA_API_KEY: ${{ secrets.ZADARMA_API_KEY }}            # telefonía de las setters
           ZADARMA_API_SECRET: ${{ secrets.ZADARMA_API_SECRET }}
           ZADARMA_WEBHOOK_TOKEN: ${{ secrets.ZADARMA_WEBHOOK_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}        # evaluador de llamadas
         run: |
           ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" bash -s <<EOF
           set -e
@@ -72,6 +73,14 @@ jobs:
             echo "✓ .env.zadarma actualizado"
           else
             echo "· Secretos de Zadarma incompletos — .env.zadarma sin cambios"
+          fi
+
+          # Evaluador de llamadas: .env.anthropic SOLO si existe el secreto. Archivo aparte.
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            sudo -u $SERVICE_USER bash -lc "cd $INSTALL_DIR && printf 'ANTHROPIC_API_KEY=%s\n' '$ANTHROPIC_API_KEY' > .env.anthropic && chmod 600 .env.anthropic"
+            echo "✓ .env.anthropic actualizado"
+          else
+            echo "· ANTHROPIC_API_KEY no configurado — .env.anthropic sin cambios"
           fi
 
           # Restart service (sudo solo si no somos root)

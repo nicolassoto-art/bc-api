@@ -134,6 +134,16 @@ def _registrar_jobs(scheduler) -> list:
         )
         ids.append("inbox_processor")
         log.info("Scheduler · inbox_processor cada %d min", settings.inbox_poll_minutes)
+    # Evaluación de llamadas de las setters (Zadarma) contra el script.
+    if settings.evaluador_llamadas_enabled:
+        from .services.evaluador_llamadas import evaluar_pendientes
+        scheduler.add_job(
+            evaluar_pendientes,
+            IntervalTrigger(minutes=max(1, settings.evaluador_cada_min)),
+            id="evaluador_llamadas", **comunes,
+        )
+        ids.append("evaluador_llamadas")
+        log.info("Scheduler · evaluador_llamadas cada %d min", settings.evaluador_cada_min)
     return ids
 
 
@@ -149,7 +159,8 @@ def _start_scheduler():
     # las 09:00 — NO el de las 13:00 ni el inbox processor (antes un early-return
     # apagaba el scheduler entero y todos los jobs caían juntos).
     if not (settings.daily_report_enabled or settings.inbox_processor_enabled
-            or settings.stock_sin_revisar_enabled or settings.fallas_fichas_enabled):
+            or settings.stock_sin_revisar_enabled or settings.fallas_fichas_enabled
+            or settings.evaluador_llamadas_enabled):
         log.info("Scheduler: todos los jobs deshabilitados, no se inicia.")
         return
     if not _acquire_scheduler_lock():

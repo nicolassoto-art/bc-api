@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     # Lee .env (BD, JWT, etc.) y además .env.smtp (solo SMTP, lo escribe el deploy
     # desde el secreto SMTP_PASS de GitHub) — separados para no tocar nunca el .env
     # con credenciales sensibles. El segundo pisa al primero si hay choque.
-    model_config = SettingsConfigDict(env_file=(".env", ".env.smtp", ".env.zadarma"), env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", ".env.smtp", ".env.zadarma", ".env.anthropic"), env_file_encoding="utf-8", extra="ignore")
 
     database_url: str = "postgresql+psycopg://bcapi:bcapi@localhost:5432/bcapi"
     jwt_secret: str = "dev-only-change-me"
@@ -95,6 +95,14 @@ class Settings(BaseSettings):
     zadarma_ip_mode: str = "warn"
     # Anexo → nombre de la setter, coma-separado "102:Mafalda Yaksic,103:Maria Alejandra Araneda".
     zadarma_anexos: str = "102:Mafalda Yaksic,103:Maria Alejandra Araneda"
+
+    # Evaluación automática de llamadas contra el script (job cada N min, un worker).
+    # Sin ANTHROPIC_API_KEY el job no hace nada. La clave la escribe el deploy en
+    # .env.anthropic desde el secreto de GitHub.
+    anthropic_api_key: str = ""
+    evaluador_modelo: str = "claude-sonnet-5-5"
+    evaluador_llamadas_enabled: bool = True
+    evaluador_cada_min: int = 5
 
     @property
     def zadarma_anexos_map(self) -> dict:
