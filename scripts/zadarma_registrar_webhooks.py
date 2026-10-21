@@ -59,6 +59,17 @@ def main() -> int:
         print("Transcripción:", _llamar("POST", "/v1/pbx/webhooks/hooks/", {"speech_recognition": "true"}))
     else:
         print("Transcripción: ya estaba activa")
+
+    # Avisos de llamadas de la centralita (inicio, contestación, fin): es OTRA
+    # dirección en Zadarma ("Sobre llamadas a la centralita"), con su propia API.
+    print("Avisos de llamadas, antes:", _llamar("GET", "/v1/pbx/callinfo/", {}))
+    print("Avisos de llamadas, URL:", _llamar("POST", "/v1/pbx/callinfo/url/", {"url": url}))
+    avisos = {k: "true" for k in ("notify_start", "notify_end", "notify_out_start", "notify_out_end", "notify_answer")}
+    try:
+        print("Avisos de llamadas, eventos:", _llamar("POST", "/v1/pbx/callinfo/notifications/", avisos))
+    except httpx.HTTPStatusError as e:
+        print("Avisos de llamadas, eventos: Zadarma respondió", e.response.status_code, "(puede que ya estén activos)")
+    print("Avisos de llamadas, después:", _llamar("GET", "/v1/pbx/callinfo/", {}))
     print("Configuración final:", _llamar("GET", "/v1/pbx/webhooks/", {}))
     return 0
 
