@@ -52,8 +52,13 @@ def main() -> int:
         print("Modo prueba: agrega --aplicar para registrar la URL y activar la transcripción.")
         return 0
 
+    actual = _llamar("GET", "/v1/pbx/webhooks/", {})
     print("URL:", _llamar("POST", "/v1/pbx/webhooks/url/", {"url": url}))
-    print("Transcripción:", _llamar("POST", "/v1/pbx/webhooks/hooks/", {"speech_recognition": "true"}))
+    # Zadarma responde 400 si se pide activar algo que ya está activo.
+    if (actual.get("hooks") or {}).get("speech_recognition") != "true":
+        print("Transcripción:", _llamar("POST", "/v1/pbx/webhooks/hooks/", {"speech_recognition": "true"}))
+    else:
+        print("Transcripción: ya estaba activa")
     print("Configuración final:", _llamar("GET", "/v1/pbx/webhooks/", {}))
     return 0
 
