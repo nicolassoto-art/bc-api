@@ -1,0 +1,41 @@
+name: Zadarma · registrar webhook
+
+# Registra en Zadarma la URL del webhook de bc-api y activa el envío de
+# transcripciones. Corre el script en el VPS, donde ya están las claves
+# (.env.zadarma). Sin "aplicar" solo muestra la configuración actual.
+on:
+  workflow_dispatch:
+    inputs:
+      aplicar:
+        description: "Hacer los cambios en Zadarma (si no, solo muestra)"
+        type: boolean
+        default: false
+      base:
+        description: "URL pública de bc-api"
+        default: "https://bc-api.178-105-91-29.nip.io"
+
+jobs:
+  registrar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Registrar
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          INSTALL_DIR: ${{ secrets.INSTALL_DIR || '/opt/bc-api' }}
+          SERVICE_USER: ${{ secrets.SERVICE_USER || 'bcapi' }}
+          BASE: ${{ inputs.base }}
+          FLAG: ${{ inputs.aplicar && '--aplicar' || '' }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" bash -s <<EOF
+          set -e
+          sudo -u $SERVICE_USER bash -lc "cd $INSTALL_DIR && .venv/bin/python scripts/zadarma_registrar_webhooks.py --base '$BASE' $FLAG"
+          EOF
