@@ -3,3 +3,4 @@ from .proyecto import Proyecto, Unidad, Imagen, Documento  # noqa: F401
 from .usuario import Usuario  # noqa: F401
 from .inmobiliaria import Inmobiliaria  # noqa: F401
 from .ticket import Ticket  # noqa: F401
+from .llamada import Llamada, ZadarmaEvento  # noqa: F401

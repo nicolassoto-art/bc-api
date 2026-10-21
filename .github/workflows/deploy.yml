@@ -35,6 +35,9 @@ jobs:
           INSTALL_DIR: ${{ secrets.INSTALL_DIR || '/opt/bc-api' }}
           SERVICE_USER: ${{ secrets.SERVICE_USER || 'bcapi' }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}  # App Password de sistema@bigcapital.cl (notificaciones)
+          ZADARMA_API_KEY: ${{ secrets.ZADARMA_API_KEY }}            # telefonía de las setters
+          ZADARMA_API_SECRET: ${{ secrets.ZADARMA_API_SECRET }}
+          ZADARMA_WEBHOOK_TOKEN: ${{ secrets.ZADARMA_WEBHOOK_TOKEN }}
         run: |
           ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" bash -s <<EOF
           set -e
@@ -60,6 +63,15 @@ jobs:
             echo "✓ .env.smtp actualizado (SMTP configurado)"
           else
             echo "· SMTP_PASS no configurado en secrets — .env.smtp sin cambios"
+          fi
+
+          # Zadarma (webhook de llamadas): .env.zadarma SOLO si están los tres secretos.
+          # Archivo aparte, igual que .env.smtp → nunca toca el .env. Idempotente.
+          if [ -n "$ZADARMA_API_KEY" ] && [ -n "$ZADARMA_API_SECRET" ] && [ -n "$ZADARMA_WEBHOOK_TOKEN" ]; then
+            sudo -u $SERVICE_USER bash -lc "cd $INSTALL_DIR && printf 'ZADARMA_API_KEY=%s\nZADARMA_API_SECRET=%s\nZADARMA_WEBHOOK_TOKEN=%s\n' '$ZADARMA_API_KEY' '$ZADARMA_API_SECRET' '$ZADARMA_WEBHOOK_TOKEN' > .env.zadarma && chmod 600 .env.zadarma"
+            echo "✓ .env.zadarma actualizado"
+          else
+            echo "· Secretos de Zadarma incompletos — .env.zadarma sin cambios"
           fi
 
           # Restart service (sudo solo si no somos root)

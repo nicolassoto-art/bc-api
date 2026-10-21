@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     # Lee .env (BD, JWT, etc.) y además .env.smtp (solo SMTP, lo escribe el deploy
     # desde el secreto SMTP_PASS de GitHub) — separados para no tocar nunca el .env
     # con credenciales sensibles. El segundo pisa al primero si hay choque.
-    model_config = SettingsConfigDict(env_file=(".env", ".env.smtp"), env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", ".env.smtp", ".env.zadarma"), env_file_encoding="utf-8", extra="ignore")
 
     database_url: str = "postgresql+psycopg://bcapi:bcapi@localhost:5432/bcapi"
     jwt_secret: str = "dev-only-change-me"
@@ -82,6 +82,29 @@ class Settings(BaseSettings):
     inbox_poll_minutes: int = 10
     # El processor usa bc_api_service_token (ya existente arriba) para llamar al
     # endpoint subir_excel sin JWT — mismo token que usa el worker.
+
+    # ── Zadarma (telefonía de las setters) · 2026-10-21 ──────────────────────
+    # Clave y secreto de la API (los crea Nicolás en su cuenta de Zadarma) y token
+    # del webhook. El deploy los escribe en .env.zadarma desde secretos de GitHub,
+    # igual que .env.smtp. Sin secreto o sin token el webhook responde 503.
+    zadarma_api_key: str = ""
+    zadarma_api_secret: str = ""
+    zadarma_webhook_token: str = ""
+    # Filtro por IP de origen (185.45.152.40/30 según la documentación de Zadarma):
+    # "off" no mira · "warn" solo avisa en el log · "enforce" rechaza con 403.
+    zadarma_ip_mode: str = "warn"
+    # Anexo → nombre de la setter, coma-separado "102:Mafalda Yaksic,103:Maria Alejandra Araneda".
+    zadarma_anexos: str = "102:Mafalda Yaksic,103:Maria Alejandra Araneda"
+
+    @property
+    def zadarma_anexos_map(self) -> dict:
+        out = {}
+        for par in self.zadarma_anexos.split(","):
+            if ":" in par:
+                k, v = par.split(":", 1)
+                if k.strip():
+                    out[k.strip()] = v.strip()
+        return out
 
     @property
     def upload_path(self) -> Path:

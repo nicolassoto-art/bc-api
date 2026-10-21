@@ -10,7 +10,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias, documentos, tickets, capacitaciones, video_proyecto, capacitaciones_hls
+from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias, documentos, tickets, capacitaciones, video_proyecto, capacitaciones_hls, llamadas
 from .settings import settings
 from .deps.auth import super_admin
 from fastapi.responses import HTMLResponse, Response
@@ -61,6 +61,7 @@ app.include_router(tickets.router)
 app.include_router(video_proyecto.router)    # video del edificio (HLS adaptativo)
 app.include_router(capacitaciones.router)   # compresión de videos (taller, no bodega)
 app.include_router(capacitaciones_hls.router)   # calidades adaptativas de los videos de Capacitaciones
+app.include_router(llamadas.router)   # webhook de Zadarma (llamadas de las setters)
 
 
 # ── Scheduler · informe diario L-V 09am Chile ─────────────────────────────
