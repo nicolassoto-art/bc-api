@@ -973,6 +973,17 @@ async def _procesar(tid: str) -> None:
             archivo = await _entregar(tid, destino)
             _actualizar(tid, estado="listo", progreso=100, detalle="Listo", file=archivo,
                         resultado_bytes=destino.stat().st_size)
+            # Calidades automáticas (HLS) a partir del MP4 recién entregado. Es un extra: si falla o
+            # tarda, el video ya está disponible y se ve como MP4. Un ffmpeg a la vez, como siempre.
+            try:
+                from app.routes import capacitaciones_hls
+                if isinstance(archivo, dict) and archivo.get("id") and destino.exists():
+                    async with _turno_ffmpeg():
+                        await capacitaciones_hls.generar_async(str(archivo["id"]), destino)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                log.warning("HLS de Capacitaciones omitido: %s", e)
             _borrar_archivos(tid)
         except asyncio.CancelledError:
             # Apagado o despliegue: no se borra nada. El vigía lo retoma al volver.
