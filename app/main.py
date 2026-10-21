@@ -62,6 +62,7 @@ app.include_router(video_proyecto.router)    # video del edificio (HLS adaptativ
 app.include_router(capacitaciones.router)   # compresión de videos (taller, no bodega)
 app.include_router(capacitaciones_hls.router)   # calidades adaptativas de los videos de Capacitaciones
 app.include_router(llamadas.router)   # webhook de Zadarma (llamadas de las setters)
+app.include_router(llamadas.consulta)   # panel de llamadas (solo super admin)
 
 
 # ── Scheduler · informe diario L-V 09am Chile ─────────────────────────────

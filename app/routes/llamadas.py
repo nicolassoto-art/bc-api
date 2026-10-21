@@ -12,16 +12,100 @@ from __future__ import annotations
 import logging
 import secrets
 
+from datetime import date, datetime, timedelta
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..deps.auth import super_admin
+from ..models.llamada import Llamada
 from ..services import zadarma
 from ..settings import settings
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
+consulta = APIRouter(prefix="/llamadas", tags=["llamadas"], dependencies=[Depends(super_admin)])
+
+
+def _resumen(ll: Llamada) -> dict:
+    ev = ll.evaluacion or {}
+    return {
+        "id": ll.id, "setter": ll.setter, "anexo": ll.anexo, "sentido": ll.sentido,
+        "numero_cliente": ll.numero_cliente, "numero_linea": ll.numero_linea,
+        "inicio": ll.inicio.isoformat() if ll.inicio else None, "duracion_s": ll.duracion_s,
+        "resultado": ll.resultado, "estado": ll.estado, "puntaje": ll.puntaje,
+        "resultado_llamada": ev.get("resultado_llamada"), "tiene_grabacion": bool(ll.call_id_con_grabacion),
+    }
+
+
+def _filtrar(q, setter: Optional[str], desde: Optional[date], hasta: Optional[date]):
+    if setter:
+        q = q.filter(Llamada.setter == setter)
+    if desde:
+        q = q.filter(Llamada.inicio >= datetime.combine(desde, datetime.min.time()))
+    if hasta:
+        q = q.filter(Llamada.inicio < datetime.combine(hasta, datetime.min.time()) + timedelta(days=1))
+    return q
+
+
+@consulta.get("")
+def listar_llamadas(setter: Optional[str] = None, desde: Optional[date] = None, hasta: Optional[date] = None,
+                    limite: int = 300, db: Session = Depends(get_db)):
+    q = _filtrar(db.query(Llamada), setter, desde, hasta)
+    filas = q.order_by(Llamada.inicio.desc().nullslast(), Llamada.id.desc()).limit(max(1, min(limite, 1000))).all()
+    return [_resumen(ll) for ll in filas]
+
+
+@consulta.get("/resumen")
+def resumen_por_setter(desde: Optional[date] = None, hasta: Optional[date] = None, db: Session = Depends(get_db)):
+    q = _filtrar(db.query(Llamada), None, desde, hasta)
+    por = {}
+    for ll in q.all():
+        s = por.setdefault(ll.setter or "Sin identificar", {"setter": ll.setter or "Sin identificar", "llamadas": 0,
+                                                           "contestadas": 0, "evaluadas": 0, "agendadas": 0, "_suma": 0.0})
+        s["llamadas"] += 1
+        s["contestadas"] += 1 if ll.resultado == "answered" else 0
+        if ll.estado == "ok" and ll.puntaje is not None:
+            s["evaluadas"] += 1
+            s["_suma"] += ll.puntaje
+        if (ll.evaluacion or {}).get("resultado_llamada") == "agendo":
+            s["agendadas"] += 1
+    out = []
+    for s in por.values():
+        s["puntaje_promedio"] = round(s.pop("_suma") / s["evaluadas"], 1) if s["evaluadas"] else None
+        out.append(s)
+    return sorted(out, key=lambda s: s["setter"])
+
+
+@consulta.get("/{llamada_id}")
+def detalle_llamada(llamada_id: int, db: Session = Depends(get_db)):
+    ll = db.get(Llamada, llamada_id)
+    if not ll:
+        raise HTTPException(404, "Llamada no encontrada")
+    return {**_resumen(ll), "transcripcion_frases": ll.transcripcion_frases or [],
+            "evaluacion": ll.evaluacion, "version_pauta": ll.version_pauta,
+            "evaluada_en": ll.evaluada_en.isoformat() if ll.evaluada_en else None}
+
+
+@consulta.get("/{llamada_id}/grabacion")
+def grabacion_llamada(llamada_id: int, db: Session = Depends(get_db)):
+    ll = db.get(Llamada, llamada_id)
+    if not ll:
+        raise HTTPException(404, "Llamada no encontrada")
+    if not (settings.zadarma_api_key and settings.zadarma_api_secret):
+        raise HTTPException(503, "Zadarma no configurado")
+    try:
+        link = zadarma.enlace_grabacion(ll.call_id_con_grabacion, ll.pbx_call_id)
+    except Exception as e:
+        log.warning("zadarma: no se pudo pedir la grabación id=%s (%s)", llamada_id, type(e).__name__)
+        raise HTTPException(502, "Zadarma no entregó la grabación")
+    if not link:
+        raise HTTPException(404, "La llamada no tiene grabación")
+    return {"link": link}
 
 
 @router.get("/zadarma", response_class=PlainTextResponse)

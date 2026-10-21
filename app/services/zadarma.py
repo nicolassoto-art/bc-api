@@ -78,6 +78,37 @@ def firma_api(metodo: str, params: dict, secret: str) -> str:
     return _hmac_b64_variantes(secret, mensaje)[0]
 
 
+API_ZADARMA = "https://api.zadarma.com"
+
+
+def llamar_api(verbo: str, metodo: str, params: dict) -> dict:
+    """Llamada firmada a la API REST de Zadarma. Lanza si falla."""
+    import httpx
+    cabecera = {"Authorization": f"{settings.zadarma_api_key}:{firma_api(metodo, params, settings.zadarma_api_secret)}"}
+    if verbo == "GET":
+        r = httpx.get(API_ZADARMA + metodo, params=params, headers=cabecera, timeout=20)
+    else:
+        r = httpx.post(API_ZADARMA + metodo, data=params, headers=cabecera, timeout=20)
+    r.raise_for_status()
+    return r.json()
+
+
+def enlace_grabacion(call_id: Optional[str], pbx_call_id: Optional[str], segundos: int = 600) -> Optional[str]:
+    """Enlace temporal para escuchar la grabación (no se guarda: vence)."""
+    params = {"lifetime": max(180, segundos)}
+    if call_id:
+        params["call_id"] = call_id
+    elif pbx_call_id:
+        params["pbx_call_id"] = pbx_call_id
+    else:
+        return None
+    r = llamar_api("GET", "/v1/pbx/record/request/", params)
+    if r.get("link"):
+        return r["link"]
+    links = r.get("links") or []
+    return links[0] if links else None
+
+
 def ip_es_de_zadarma(ip: Optional[str]) -> bool:
     try:
         return ipaddress.ip_address((ip or "").strip()) in RED_ZADARMA
