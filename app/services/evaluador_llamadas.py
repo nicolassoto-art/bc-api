@@ -171,6 +171,10 @@ def puntaje_total(ev: dict) -> Optional[float]:
 
 
 def motivo_para_omitir(ll: Llamada) -> Optional[str]:
+    # Zadarma avisa de las llamadas de TODOS los anexos (también Carolina y Nicolás):
+    # solo se evalúan las de las setters configuradas en zadarma_anexos.
+    if ll.anexo not in settings.zadarma_anexos_map:
+        return "no es un anexo de setter"
     if ll.resultado and ll.resultado != "answered":
         return "no contestada"
     if ll.duracion_s is not None and ll.duracion_s < DURACION_MINIMA_S:

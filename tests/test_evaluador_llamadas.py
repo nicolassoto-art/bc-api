@@ -65,10 +65,17 @@ def test_puntaje_ignora_no_aplica_y_castiga_reglas():
 
 
 def test_omite_no_contestada_y_corta():
-    assert ev.motivo_para_omitir(Llamada(resultado="no answer", transcripcion_texto="x")) == "no contestada"
-    assert ev.motivo_para_omitir(Llamada(resultado="answered", duracion_s=30, transcripcion_texto="x")) == "dura menos de 60 s"
-    assert ev.motivo_para_omitir(Llamada(resultado="answered", duracion_s=90, transcripcion_texto="")) == "sin transcripción"
-    assert ev.motivo_para_omitir(Llamada(resultado="answered", duracion_s=90, transcripcion_texto="hola")) is None
+    s = dict(anexo="102")
+    assert ev.motivo_para_omitir(Llamada(resultado="no answer", transcripcion_texto="x", **s)) == "no contestada"
+    assert ev.motivo_para_omitir(Llamada(resultado="answered", duracion_s=30, transcripcion_texto="x", **s)) == "dura menos de 60 s"
+    assert ev.motivo_para_omitir(Llamada(resultado="answered", duracion_s=90, transcripcion_texto="", **s)) == "sin transcripción"
+    assert ev.motivo_para_omitir(Llamada(resultado="answered", duracion_s=90, transcripcion_texto="hola", **s)) is None
+
+
+def test_omite_anexos_que_no_son_setters():
+    for anexo in ("101", "100", None):
+        assert ev.motivo_para_omitir(Llamada(anexo=anexo, resultado="answered", duracion_s=90,
+                                             transcripcion_texto="hola")) == "no es un anexo de setter"
 
 
 def test_job_evalua_pendiente(db, llamada):
