@@ -87,6 +87,8 @@ def llamar_api(verbo: str, metodo: str, params: dict) -> dict:
     cabecera = {"Authorization": f"{settings.zadarma_api_key}:{firma_api(metodo, params, settings.zadarma_api_secret)}"}
     if verbo == "GET":
         r = httpx.get(API_ZADARMA + metodo, params=params, headers=cabecera, timeout=20)
+    elif verbo == "PUT":
+        r = httpx.put(API_ZADARMA + metodo, data=params, headers=cabecera, timeout=20)
     else:
         r = httpx.post(API_ZADARMA + metodo, data=params, headers=cabecera, timeout=20)
     r.raise_for_status()
@@ -296,22 +298,36 @@ def sincronizar_estadisticas(db: Session, desde: datetime, hasta: datetime) -> i
     return len(mejores)
 
 
-def traer_transcripciones_faltantes(db: Session, limite: int = 20) -> int:
-    """Pide la transcripción de llamadas grabadas y contestadas que aún no la tienen."""
+def traer_transcripciones_faltantes(db: Session, limite: int = 20, estados: Optional[dict] = None) -> int:
+    """Pide la transcripción de llamadas grabadas y contestadas (20 s o más) que aún no
+    la tienen. Si Zadarma la tiene «lista para reconocer», le pide que la reconozca
+    (PUT) y se trae en la siguiente pasada. `estados` acumula el estado de cada una."""
     corte = datetime.utcnow() - timedelta(minutes=15)
     pendientes = (
         db.query(Llamada)
         .filter(Llamada.call_id_con_grabacion.isnot(None), Llamada.transcripcion_texto.is_(None),
-                Llamada.resultado == "answered", Llamada.created_at < corte)
+                Llamada.resultado == "answered", Llamada.duracion_s >= 20, Llamada.created_at < corte)
         .order_by(Llamada.id.desc()).limit(limite).all()
     )
     n = 0
     for ll in pendientes:
         try:
             r = llamar_api("GET", "/v1/speech_recognition/", {"call_id": ll.call_id_con_grabacion})
-        except Exception:
+        except Exception as e:
+            if estados is not None:
+                estados[f"error {type(e).__name__}"] = estados.get(f"error {type(e).__name__}", 0) + 1
             continue
-        if r.get("recognitionStatus") != "recognized":
+        st = r.get("recognitionStatus") or "sin estado"
+        if estados is not None:
+            estados[st] = estados.get(st, 0) + 1
+        if st == "ready for recognize":
+            try:
+                llamar_api("PUT", "/v1/speech_recognition/", {"call_id": ll.call_id_con_grabacion,
+                                                               "lang": ll.transcripcion_idioma or "es-MX"})
+            except Exception:
+                pass
+            continue
+        if st != "recognized":
             continue
         frases = _frases({"phrases": r.get("phrases") or []})
         if not frases:

@@ -29,8 +29,10 @@ def main() -> int:
     db = SessionLocal()
     try:
         n = zadarma.sincronizar_estadisticas(db, desde, hasta)
-        t = zadarma.traer_transcripciones_faltantes(db, limite=80)
+        estados: dict = {}
+        t = zadarma.traer_transcripciones_faltantes(db, limite=80, estados=estados)
         print(f"Llamadas sincronizadas: {n} · transcripciones nuevas: {t}")
+        print("Estado de la transcripción en Zadarma:", estados or "ninguna pendiente")
         for anexo, setter, total, primera, ultima in (
             db.query(Llamada.anexo, Llamada.setter, func.count(), func.min(Llamada.inicio), func.max(Llamada.inicio))
             .filter(Llamada.inicio >= desde, Llamada.inicio < hasta)
