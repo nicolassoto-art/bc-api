@@ -37,7 +37,8 @@ def _semaforo(valor: float, meta: float) -> Optional[str]:
 
 
 def resumen_setter(nombre: str, anexo: str, llamadas: list[Llamada], detencion_min: int) -> dict:
-    ll = sorted([x for x in llamadas if x.inicio], key=lambda x: x.inicio)
+    # Fuera las pruebas de audio al 4444 (no son gestión con clientes).
+    ll = sorted([x for x in llamadas if x.inicio and x.numero_cliente != "4444"], key=lambda x: x.inicio)
     contestadas = [x for x in ll if x.resultado == "answered"]
     hablado_s = sum(x.duracion_s or 0 for x in contestadas)
     out = {

@@ -119,3 +119,11 @@ def test_setter_ve_solo_lo_suyo(client, db, dia):
     ajena = db.query(Llamada).filter(Llamada.pbx_call_id == f"{dia}_5").one()
     assert client.get(f"/mis-llamadas/{ajena.id}", headers=h).status_code == 404
     assert client.get("/mis-llamadas/gestion", headers=_token_para(db, "otro.qa@test.local")).status_code == 403
+
+
+def test_eco_4444_no_cuenta(config):
+    c = zadarma.fila_estadistica_a_campos({"sip": "102", "destination": "4444", "callstart": "2026-10-22 10:00:00",
+                                           "seconds": 20, "disposition": "answered"})
+    assert c["anexo"] == "102" and c["numero_cliente"] == "4444"
+    r = gs.resumen_setter("Prueba Interna", "102", [_ll("eco", 1, 10, 0, 20, numero_cliente="4444")], 10)
+    assert r["llamadas"] == 0

@@ -237,9 +237,14 @@ def purgar_eventos(db: Session, dias: int = 30) -> int:
 # ── Sincronización con las estadísticas de Zadarma ───────────────────────────
 # Respaldo del webhook: trae las llamadas de la centralita (GET /v1/statistics/pbx/)
 # y las transcripciones que falten (GET /v1/speech_recognition/). Idempotente.
+ECO = "4444"   # prueba de audio gratuita de Zadarma: no es un anexo ni un cliente
+
+
 def _ext(valor) -> Optional[str]:
     """'102', 102 o '383974-102' → '102'; un número de teléfono → None."""
     s = str(valor or "").strip()
+    if s == ECO:
+        return None
     if "-" in s:
         s = s.rsplit("-", 1)[1]
     return s if s.isdigit() and len(s) <= 4 else None

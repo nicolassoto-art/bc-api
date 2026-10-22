@@ -37,6 +37,14 @@ def main() -> int:
             .group_by(Llamada.anexo, Llamada.setter).order_by(Llamada.anexo).all()
         ):
             print(f"  anexo {anexo} ({setter or 'no es setter'}): {total} llamadas, de {primera} a {ultima}")
+        from app.models.llamada import ZadarmaEvento
+        eventos = (db.query(ZadarmaEvento.evento, func.count(), func.max(ZadarmaEvento.recibido_en))
+                   .group_by(ZadarmaEvento.evento).all())
+        print("Avisos recibidos por el webhook:", eventos or "ninguno")
+        estados = db.query(Llamada.estado, func.count()).group_by(Llamada.estado).all()
+        print("Estados de las llamadas:", estados)
+        con_grab = db.query(func.count()).select_from(Llamada).filter(Llamada.call_id_con_grabacion.isnot(None)).scalar()
+        print("Llamadas con grabación:", con_grab)
     finally:
         db.close()
     return 0
