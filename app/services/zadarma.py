@@ -232,3 +232,108 @@ def purgar_eventos(db: Session, dias: int = 30) -> int:
     res = db.execute(delete(ZadarmaEvento).where(ZadarmaEvento.recibido_en < limite))
     db.commit()
     return res.rowcount or 0
+
+
+# ── Sincronización con las estadísticas de Zadarma ───────────────────────────
+# Respaldo del webhook: trae las llamadas de la centralita (GET /v1/statistics/pbx/)
+# y las transcripciones que falten (GET /v1/speech_recognition/). Idempotente.
+def _ext(valor) -> Optional[str]:
+    """'102', 102 o '383974-102' → '102'; un número de teléfono → None."""
+    s = str(valor or "").strip()
+    if "-" in s:
+        s = s.rsplit("-", 1)[1]
+    return s if s.isdigit() and len(s) <= 4 else None
+
+
+def fila_estadistica_a_campos(f: dict) -> dict:
+    """Convierte una fila de /v1/statistics/pbx/ (versión 2) en campos de Llamada."""
+    anexo_origen = _ext(f.get("sip")) or _ext(f.get("clid"))
+    anexo_destino = _ext(f.get("destination"))
+    saliente = bool(anexo_origen) and not anexo_destino
+    anexo = anexo_origen if saliente else (anexo_destino or anexo_origen)
+    campos = {
+        "sentido": "saliente" if saliente else "entrante",
+        "anexo": anexo,
+        "setter": settings.zadarma_anexos_map.get(anexo or ""),
+        "numero_cliente": str(f.get("destination") if saliente else f.get("clid") or "") or None,
+        "inicio": _fecha(f.get("callstart")),
+        "duracion_s": _entero(f.get("seconds")),
+        "resultado": f.get("disposition"),
+    }
+    if f.get("is_recorded") in (True, "true", 1, "1") and f.get("call_id"):
+        campos["call_id_con_grabacion"] = str(f["call_id"])
+    return campos
+
+
+def sincronizar_estadisticas(db: Session, desde: datetime, hasta: datetime) -> int:
+    """Upsert de las llamadas del período. Si un pbx_call_id trae varias filas (desvíos,
+    menús), se queda con la de mayor duración. Devuelve cuántas llamadas tocó."""
+    mejores: dict[str, dict] = {}
+    skip = 0
+    while True:
+        r = llamar_api("GET", "/v1/statistics/pbx/", {
+            "start": desde.strftime("%Y-%m-%d %H:%M:%S"), "end": hasta.strftime("%Y-%m-%d %H:%M:%S"),
+            "version": 2, "skip": skip, "limit": 1000,
+        })
+        filas = r.get("stats") or []
+        for f in filas:
+            pbx = str(f.get("pbx_call_id") or "").strip()
+            if not pbx:
+                continue
+            if pbx not in mejores or (_entero(f.get("seconds")) or 0) > (_entero(mejores[pbx].get("seconds")) or 0):
+                mejores[pbx] = f
+        if len(filas) < 1000:
+            break
+        skip += 1000
+    for pbx, f in mejores.items():
+        _upsert(db, pbx, fila_estadistica_a_campos(f))
+    db.commit()
+    return len(mejores)
+
+
+def traer_transcripciones_faltantes(db: Session, limite: int = 20) -> int:
+    """Pide la transcripción de llamadas grabadas y contestadas que aún no la tienen."""
+    corte = datetime.utcnow() - timedelta(minutes=15)
+    pendientes = (
+        db.query(Llamada)
+        .filter(Llamada.call_id_con_grabacion.isnot(None), Llamada.transcripcion_texto.is_(None),
+                Llamada.resultado == "answered", Llamada.created_at < corte)
+        .order_by(Llamada.id.desc()).limit(limite).all()
+    )
+    n = 0
+    for ll in pendientes:
+        try:
+            r = llamar_api("GET", "/v1/speech_recognition/", {"call_id": ll.call_id_con_grabacion})
+        except Exception:
+            continue
+        if r.get("recognitionStatus") != "recognized":
+            continue
+        frases = _frases({"phrases": r.get("phrases") or []})
+        if not frases:
+            continue
+        _upsert(db, ll.pbx_call_id, {
+            "transcripcion_frases": frases,
+            "transcripcion_texto": "\n".join(f"Canal {f['canal']}: {f['texto']}" for f in frases),
+            "transcripcion_idioma": r.get("lang"),
+        }, pasar_a_pendiente=True)
+        n += 1
+    db.commit()
+    return n
+
+
+def sincronizar_job() -> None:
+    """Job del programador: últimas 48 h de llamadas + transcripciones faltantes."""
+    if not (settings.zadarma_api_key and settings.zadarma_api_secret):
+        return
+    from ..db import SessionLocal
+    db = SessionLocal()
+    try:
+        ahora = datetime.now()
+        n = sincronizar_estadisticas(db, ahora - timedelta(hours=48), ahora)
+        t = traer_transcripciones_faltantes(db)
+        log.info("zadarma: sincronización %s llamadas, %s transcripciones", n, t)
+    except Exception as e:
+        db.rollback()
+        log.error("zadarma: falló la sincronización (%s)", e, exc_info=True)
+    finally:
+        db.close()

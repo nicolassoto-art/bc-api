@@ -21,14 +21,16 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps.auth import super_admin
+from ..deps.auth import current_user, lector_informes
 from ..models.llamada import Llamada
-from ..services import zadarma
+from ..models import Usuario
+from ..services import gestion_setters, zadarma
 from ..settings import settings
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
-consulta = APIRouter(prefix="/llamadas", tags=["llamadas"], dependencies=[Depends(super_admin)])
+consulta = APIRouter(prefix="/llamadas", tags=["llamadas"], dependencies=[Depends(lector_informes)])
+mias = APIRouter(prefix="/mis-llamadas", tags=["llamadas"])
 
 
 def _resumen(ll: Llamada) -> dict:
@@ -79,6 +81,21 @@ def resumen_por_setter(desde: Optional[date] = None, hasta: Optional[date] = Non
         s["puntaje_promedio"] = round(s.pop("_suma") / s["evaluadas"], 1) if s["evaluadas"] else None
         out.append(s)
     return sorted(out, key=lambda s: s["setter"])
+
+
+@consulta.get("/gestion")
+def gestion(fecha: Optional[date] = None, db: Session = Depends(get_db)):
+    return gestion_setters.gestion_dia(db, fecha or date.today())
+
+
+@consulta.get("/gestion/rango")
+def gestion_rango(desde: date, hasta: date, db: Session = Depends(get_db)):
+    return gestion_setters.gestion_rango(db, desde, hasta)
+
+
+@consulta.get("/horarios")
+def horarios(desde: date, hasta: date, db: Session = Depends(get_db)):
+    return gestion_setters.mejor_horario(db, desde, hasta)
 
 
 @consulta.get("/{llamada_id}")
@@ -139,3 +156,45 @@ async def zadarma_webhook(request: Request, k: str = "", db: Session = Depends(g
     db.commit()
     log.info("zadarma: evento=%s pbx_call_id=%s", evento, pbx)
     return "ok"
+
+
+# ── Vista de cada setter: solo sus propias llamadas ──────────────────────────
+def _anexo_propio(user: Usuario = Depends(current_user)) -> str:
+    anexo = settings.zadarma_correos_map.get(user.email.lower())
+    if not anexo:
+        raise HTTPException(403, "Esta vista es solo para las setters")
+    return anexo
+
+
+def _propia(db: Session, llamada_id: int, anexo: str) -> Llamada:
+    ll = db.get(Llamada, llamada_id)
+    if not ll or ll.anexo != anexo:
+        raise HTTPException(404, "Llamada no encontrada")
+    return ll
+
+
+@mias.get("/gestion")
+def mi_gestion(fecha: Optional[date] = None, anexo: str = Depends(_anexo_propio), db: Session = Depends(get_db)):
+    return gestion_setters.gestion_dia(db, fecha or date.today(), [anexo])[0]
+
+
+@mias.get("/gestion/rango")
+def mi_gestion_rango(desde: date, hasta: date, anexo: str = Depends(_anexo_propio), db: Session = Depends(get_db)):
+    return gestion_setters.gestion_rango(db, desde, hasta, [anexo])
+
+
+@mias.get("")
+def mis_llamadas(desde: Optional[date] = None, hasta: Optional[date] = None,
+                 anexo: str = Depends(_anexo_propio), db: Session = Depends(get_db)):
+    q = _filtrar(db.query(Llamada).filter(Llamada.anexo == anexo), None, desde, hasta)
+    return [_resumen(ll) for ll in q.order_by(Llamada.inicio.desc().nullslast()).limit(300).all()]
+
+
+@mias.get("/{llamada_id}")
+def mi_llamada(llamada_id: int, anexo: str = Depends(_anexo_propio), db: Session = Depends(get_db)):
+    return detalle_llamada(_propia(db, llamada_id, anexo).id, db)
+
+
+@mias.get("/{llamada_id}/grabacion")
+def mi_grabacion(llamada_id: int, anexo: str = Depends(_anexo_propio), db: Session = Depends(get_db)):
+    return grabacion_llamada(_propia(db, llamada_id, anexo).id, db)

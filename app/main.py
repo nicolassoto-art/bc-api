@@ -62,7 +62,8 @@ app.include_router(video_proyecto.router)    # video del edificio (HLS adaptativ
 app.include_router(capacitaciones.router)   # compresión de videos (taller, no bodega)
 app.include_router(capacitaciones_hls.router)   # calidades adaptativas de los videos de Capacitaciones
 app.include_router(llamadas.router)   # webhook de Zadarma (llamadas de las setters)
-app.include_router(llamadas.consulta)   # panel de llamadas (solo super admin)
+app.include_router(llamadas.consulta)   # pestaña Llamadas de Informes
+app.include_router(llamadas.mias)   # «Mis estadísticas de llamadas» de cada setter
 
 
 # ── Scheduler · informe diario L-V 09am Chile ─────────────────────────────
@@ -145,6 +146,16 @@ def _registrar_jobs(scheduler) -> list:
         )
         ids.append("evaluador_llamadas")
         log.info("Scheduler · evaluador_llamadas cada %d min", settings.evaluador_cada_min)
+    # Respaldo del webhook: estadísticas y transcripciones desde la API de Zadarma.
+    if settings.zadarma_sync_enabled:
+        from .services.zadarma import sincronizar_job
+        scheduler.add_job(
+            sincronizar_job,
+            IntervalTrigger(minutes=max(5, settings.zadarma_sync_cada_min)),
+            id="zadarma_sync", **comunes,
+        )
+        ids.append("zadarma_sync")
+        log.info("Scheduler · zadarma_sync cada %d min", settings.zadarma_sync_cada_min)
     return ids
 
 
@@ -161,7 +172,7 @@ def _start_scheduler():
     # apagaba el scheduler entero y todos los jobs caían juntos).
     if not (settings.daily_report_enabled or settings.inbox_processor_enabled
             or settings.stock_sin_revisar_enabled or settings.fallas_fichas_enabled
-            or settings.evaluador_llamadas_enabled):
+            or settings.evaluador_llamadas_enabled or settings.zadarma_sync_enabled):
         log.info("Scheduler: todos los jobs deshabilitados, no se inicia.")
         return
     if not _acquire_scheduler_lock():

@@ -96,6 +96,32 @@ class Settings(BaseSettings):
     # Anexo → nombre de la setter, coma-separado "102:Mafalda Yaksic,103:Maria Alejandra Araneda".
     zadarma_anexos: str = "102:Mafalda Yaksic,103:Maria Alejandra Araneda"
 
+    # Correo de Herramientas de cada setter (para su vista "Mis estadísticas").
+    zadarma_correos: str = "102:mafalda.yaksic@bigcapital.cl,103:maria.araneda@bigcapital.cl"
+    # Quiénes ven la pestaña Llamadas de Informes (además de los super admin).
+    informes_lectores: str = "nicolas.soto@bigcapital.cl,pamela.scheel@bigcapital.cl,alvaro.meneses@bigcapital.cl"
+    # Gestión diaria: hueco sin llamar que cuenta como detención y metas diarias del semáforo.
+    detencion_min: int = 10
+    meta_llamadas_dia: int = 80
+    meta_agendadas_dia: int = 4
+    zadarma_sync_enabled: bool = True
+    zadarma_sync_cada_min: int = 15
+
+    @property
+    def zadarma_correos_map(self) -> dict:
+        """correo (minúsculas) → anexo."""
+        out = {}
+        for par in self.zadarma_correos.split(","):
+            if ":" in par:
+                anexo, correo = par.split(":", 1)
+                if correo.strip():
+                    out[correo.strip().lower()] = anexo.strip()
+        return out
+
+    @property
+    def informes_lectores_list(self) -> list:
+        return [e.strip().lower() for e in self.informes_lectores.split(",") if e.strip()]
+
     # Evaluación automática de llamadas contra el script (job cada N min, un worker).
     # Sin ANTHROPIC_API_KEY el job no hace nada. La clave la escribe el deploy en
     # .env.anthropic desde el secreto de GitHub.

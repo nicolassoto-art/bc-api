@@ -57,6 +57,14 @@ def super_admin(user: Usuario = Depends(current_user)) -> Usuario:
     return user
 
 
+def lector_informes(user: Usuario = Depends(current_user)) -> Usuario:
+    """Super admin o lectores de Informes (settings.informes_lectores): pestaña Llamadas."""
+    email = user.email.lower()
+    if not (user.is_admin or email in settings.super_admins_list or email in settings.informes_lectores_list):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Requiere acceso a Informes")
+    return user
+
+
 def stock_access(
     creds: HTTPAuthorizationCredentials = Depends(bearer),
     db: Session = Depends(get_db),
