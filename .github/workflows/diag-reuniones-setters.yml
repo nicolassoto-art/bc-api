@@ -24,5 +24,6 @@ jobs:
           ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" bash -s <<EOF2
           cd $INSTALL_DIR && git fetch -q --depth 1 origin main && git show origin/main:scripts/diag_reuniones_setters.py > /tmp/diag_reuniones_setters.py
           echo "--- como $SERVICE_USER"; sudo -u $SERVICE_USER $INSTALL_DIR/.venv/bin/python /tmp/diag_reuniones_setters.py
+          echo "--- como usuario de despliegue"; python3 /tmp/diag_reuniones_setters.py; ls -l /opt/bigcapital-dashboard/data/latest.json; stat -c "%U:%G %a" /opt/bigcapital-dashboard/data /opt/bigcapital-dashboard/data/latest.json
           rm -f /tmp/diag_reuniones_setters.py
           EOF2
