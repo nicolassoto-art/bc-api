@@ -159,8 +159,14 @@ async def zadarma_webhook(request: Request, k: str = "", db: Session = Depends(g
 
 
 # ── Vista de cada setter: solo sus propias llamadas ──────────────────────────
-def _anexo_propio(user: Usuario = Depends(current_user)) -> str:
-    anexo = settings.zadarma_correos_map.get(user.email.lower())
+def _anexo_propio(anexo: Optional[str] = None, user: Usuario = Depends(current_user)) -> str:
+    # Vista previa: un super admin puede ver la página de una setter con ?anexo=102.
+    email = user.email.lower()
+    if anexo and (user.is_admin or email in settings.super_admins_list):
+        if anexo not in settings.zadarma_anexos_map:
+            raise HTTPException(404, "Anexo no configurado")
+        return anexo
+    anexo = settings.zadarma_correos_map.get(email)
     if not anexo:
         raise HTTPException(403, "Esta vista es solo para las setters")
     return anexo

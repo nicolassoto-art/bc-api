@@ -127,3 +127,11 @@ def test_eco_4444_no_cuenta(config):
     assert c["anexo"] == "102" and c["numero_cliente"] == "4444"
     r = gs.resumen_setter("Prueba Interna", "102", [_ll("eco", 1, 10, 0, 20, numero_cliente="4444")], 10)
     assert r["llamadas"] == 0
+
+
+def test_vista_previa_admin(client, db, dia, admin):
+    _, h = admin
+    assert client.get("/mis-llamadas/gestion?fecha=2026-10-22&anexo=102", headers=h).json()["anexo"] == "102"
+    otra = _token_para(db, "setter.qa@test.local")
+    # una setter no puede mirar otro anexo con ?anexo=
+    assert client.get("/mis-llamadas/gestion?fecha=2026-10-22&anexo=103", headers=otra).json()["anexo"] == "102"
