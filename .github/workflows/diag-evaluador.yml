@@ -23,6 +23,6 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" bash -s <<EOF2
           cd $INSTALL_DIR && git fetch -q --depth 1 origin main && git show origin/main:scripts/diag_evaluador.py > /tmp/diag_evaluador.py
-          echo "--- como $SERVICE_USER"; sudo -u $SERVICE_USER $INSTALL_DIR/.venv/bin/python /tmp/diag_evaluador.py
+          echo "--- como $SERVICE_USER"; sudo -u $SERVICE_USER env PYTHONPATH=$INSTALL_DIR $INSTALL_DIR/.venv/bin/python /tmp/diag_evaluador.py
           rm -f /tmp/diag_evaluador.py
           EOF2
