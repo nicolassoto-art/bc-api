@@ -33,6 +33,13 @@ consulta = APIRouter(prefix="/llamadas", tags=["llamadas"], dependencies=[Depend
 mias = APIRouter(prefix="/mis-llamadas", tags=["llamadas"])
 
 
+def _rango(desde: date, hasta: date) -> tuple[date, date]:
+    try:
+        return gestion_setters.acotar_rango(desde, hasta)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
 def _resumen(ll: Llamada) -> dict:
     ev = ll.evaluacion or {}
     return {
@@ -64,6 +71,8 @@ def listar_llamadas(setter: Optional[str] = None, desde: Optional[date] = None, 
 
 @consulta.get("/resumen")
 def resumen_por_setter(desde: Optional[date] = None, hasta: Optional[date] = None, db: Session = Depends(get_db)):
+    if desde and hasta:
+        _rango(desde, hasta)
     q = _filtrar(db.query(Llamada), None, desde, hasta)
     por = {}
     for ll in q.all():
@@ -90,7 +99,7 @@ def gestion(fecha: Optional[date] = None, db: Session = Depends(get_db)):
 
 @consulta.get("/gestion/rango")
 def gestion_rango(desde: date, hasta: date, db: Session = Depends(get_db)):
-    return gestion_setters.gestion_rango(db, desde, hasta)
+    return gestion_setters.gestion_rango(db, *_rango(desde, hasta))
 
 
 @consulta.get("/alertas")
@@ -100,7 +109,7 @@ def alertas_hoy(db: Session = Depends(get_db)):
 
 @consulta.get("/calidad")
 def calidad(desde: date, hasta: date, db: Session = Depends(get_db)):
-    return gestion_setters.calidad(db, desde, hasta)
+    return gestion_setters.calidad(db, *_rango(desde, hasta))
 
 
 @consulta.get("/metas")
@@ -118,11 +127,12 @@ def fijar_metas(datos: dict, _: Usuario = Depends(super_admin)):
 
 @consulta.get("/horarios")
 def horarios(desde: date, hasta: date, db: Session = Depends(get_db)):
-    return gestion_setters.mejor_horario(db, desde, hasta)
+    return gestion_setters.mejor_horario(db, *_rango(desde, hasta))
 
 
 @consulta.get("/{llamada_id}")
-def detalle_llamada(llamada_id: int, db: Session = Depends(get_db)):
+def detalle_llamada(llamada_id: int, db: Session = Depends(get_db), user: Usuario = Depends(lector_informes)):
+    log.info("llamadas: detalle id=%s por %s", llamada_id, user.email)
     ll = db.get(Llamada, llamada_id)
     if not ll:
         raise HTTPException(404, "Llamada no encontrada")
@@ -132,7 +142,8 @@ def detalle_llamada(llamada_id: int, db: Session = Depends(get_db)):
 
 
 @consulta.get("/{llamada_id}/grabacion")
-def grabacion_llamada(llamada_id: int, db: Session = Depends(get_db)):
+def grabacion_llamada(llamada_id: int, db: Session = Depends(get_db), user: Usuario = Depends(lector_informes)):
+    log.info("llamadas: grabación id=%s por %s", llamada_id, user.email)
     ll = db.get(Llamada, llamada_id)
     if not ll:
         raise HTTPException(404, "Llamada no encontrada")
@@ -157,8 +168,10 @@ def zadarma_echo(zd_echo: str = ""):
 async def zadarma_webhook(request: Request, k: str = "", db: Session = Depends(get_db)):
     if not settings.zadarma_webhook_token or not settings.zadarma_api_secret:
         raise HTTPException(503, "Webhook de Zadarma no configurado")
-    if not secrets.compare_digest(k, settings.zadarma_webhook_token):
+    if not secrets.compare_digest(k.encode(), settings.zadarma_webhook_token.encode()):
         raise HTTPException(403, "Token inválido")
+    if int(request.headers.get("content-length") or 0) > 65536:
+        raise HTTPException(413, "Aviso demasiado grande")
 
     ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "")
     if settings.zadarma_ip_mode != "off" and not zadarma.ip_es_de_zadarma(ip):
@@ -209,12 +222,12 @@ def mi_gestion(fecha: Optional[date] = None, anexo: str = Depends(_anexo_propio)
 
 @mias.get("/calidad")
 def mi_calidad(desde: date, hasta: date, anexo: str = Depends(_anexo_propio), db: Session = Depends(get_db)):
-    return gestion_setters.calidad(db, desde, hasta, [anexo])[0]
+    return gestion_setters.calidad(db, *_rango(desde, hasta), [anexo])[0]
 
 
 @mias.get("/gestion/rango")
 def mi_gestion_rango(desde: date, hasta: date, anexo: str = Depends(_anexo_propio), db: Session = Depends(get_db)):
-    return gestion_setters.gestion_rango(db, desde, hasta, [anexo])
+    return gestion_setters.gestion_rango(db, *_rango(desde, hasta), [anexo])
 
 
 @mias.get("")
@@ -225,10 +238,12 @@ def mis_llamadas(desde: Optional[date] = None, hasta: Optional[date] = None,
 
 
 @mias.get("/{llamada_id}")
-def mi_llamada(llamada_id: int, anexo: str = Depends(_anexo_propio), db: Session = Depends(get_db)):
-    return detalle_llamada(_propia(db, llamada_id, anexo).id, db)
+def mi_llamada(llamada_id: int, anexo: str = Depends(_anexo_propio), db: Session = Depends(get_db),
+               user: Usuario = Depends(current_user)):
+    return detalle_llamada(_propia(db, llamada_id, anexo).id, db, user)
 
 
 @mias.get("/{llamada_id}/grabacion")
-def mi_grabacion(llamada_id: int, anexo: str = Depends(_anexo_propio), db: Session = Depends(get_db)):
-    return grabacion_llamada(_propia(db, llamada_id, anexo).id, db)
+def mi_grabacion(llamada_id: int, anexo: str = Depends(_anexo_propio), db: Session = Depends(get_db),
+                 user: Usuario = Depends(current_user)):
+    return grabacion_llamada(_propia(db, llamada_id, anexo).id, db, user)

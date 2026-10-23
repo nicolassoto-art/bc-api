@@ -13,6 +13,7 @@ from typing import Optional
 
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..models.llamada import Llamada
@@ -43,7 +44,8 @@ def _semaforo(valor: float, meta: float) -> Optional[str]:
 def resumen_setter(nombre: str, anexo: str, llamadas: list[Llamada], detencion_min: int,
                    meta_llamadas: Optional[int] = None, meta_agendadas: Optional[int] = None) -> dict:
     # Fuera las pruebas de audio al 4444 (no son gestión con clientes).
-    ll = sorted([x for x in llamadas if x.inicio and x.numero_cliente != "4444"], key=lambda x: x.inicio)
+    ll = sorted([x for x in llamadas if x.inicio and x.numero_cliente != "4444" and x.sentido != "interna"],
+                key=lambda x: x.inicio)
     contestadas = [x for x in ll if x.resultado == "answered"]
     hablado_s = sum(x.duracion_s or 0 for x in contestadas)
     out = {
@@ -111,6 +113,8 @@ def metas() -> dict:
             guardadas = json.load(f)
     except (OSError, ValueError):
         return base
+    if not isinstance(guardadas, dict):
+        return base
     for k, (lo, hi) in METAS_LIMITES.items():
         v = guardadas.get(k)
         if isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi:
@@ -143,15 +147,19 @@ def cargar_reuniones() -> dict:
     (scripts/extraer_reuniones_setters.py) a partir de la foto de GHL. {} si no hay."""
     try:
         with open(settings.state_path / "reuniones_setters.json", encoding="utf-8") as f:
-            return json.load(f)
+            datos = json.load(f)
     except (OSError, ValueError):
         return {}
+    return datos if isinstance(datos, dict) else {}
 
 
 def reuniones_de(datos: dict, fecha: date, anexo: str) -> Optional[dict]:
     if not datos:
         return None
-    r = {**REUNIONES_VACIAS, **((datos.get("por_dia") or {}).get(fecha.isoformat(), {}).get(anexo) or {})}
+    por_dia = datos.get("por_dia") if isinstance(datos.get("por_dia"), dict) else {}
+    del_dia = por_dia.get(fecha.isoformat()) if isinstance(por_dia.get(fecha.isoformat()), dict) else {}
+    cuenta = del_dia.get(anexo) if isinstance(del_dia.get(anexo), dict) else {}
+    r = {**REUNIONES_VACIAS, **{k: v for k, v in cuenta.items() if k in REUNIONES_VACIAS and isinstance(v, int)}}
     cerradas = r["asistidas"] + r["inasistencias"]
     r["tasa_asistencia"] = round(100 * r["asistidas"] / cerradas) if cerradas else None
     return r
@@ -183,6 +191,17 @@ def gestion_dia(db: Session, fecha: date, anexos: Optional[list[str]] = None) ->
     return out
 
 
+MAX_DIAS = 93
+FECHA_MAX = date(2100, 1, 1)
+
+
+def acotar_rango(desde: date, hasta: date) -> tuple[date, date]:
+    """Rango válido para consultas: desde <= hasta, hasta antes de 2100 y a lo más 93 días."""
+    if hasta > FECHA_MAX or desde > hasta or (hasta - desde).days >= MAX_DIAS:
+        raise ValueError(f"El rango debe ser de a lo más {MAX_DIAS} días, con desde antes de hasta")
+    return desde, hasta
+
+
 def gestion_rango(db: Session, desde: date, hasta: date, anexos: Optional[list[str]] = None) -> list[dict]:
     dias, d = [], desde
     while d <= hasta and len(dias) < 62:
@@ -200,6 +219,7 @@ def mejor_horario(db: Session, desde: date, hasta: date, anexos: Optional[list[s
     anexos = anexos or list(settings.zadarma_anexos_map)
     filas = (db.query(Llamada)
              .filter(Llamada.anexo.in_(anexos), Llamada.sentido == "saliente",
+                     or_(Llamada.numero_cliente.is_(None), Llamada.numero_cliente != "4444"),
                      Llamada.inicio >= datetime.combine(desde, datetime.min.time()),
                      Llamada.inicio < datetime.combine(hasta, datetime.min.time()) + timedelta(days=1))
              .all())
@@ -281,7 +301,8 @@ def calidad(db: Session, desde: date, hasta: date, anexos: Optional[list[str]] =
             reglas["aviso_recordatorio_whatsapp"] += 1 if rg.get("aviso_recordatorio_whatsapp") == "no" else 0
         out.append({
             "setter": setters.get(a, a), "anexo": a, "evaluadas": len(propias),
-            "puntaje_promedio": round(sum(x.puntaje for x in propias if x.puntaje is not None) / len(propias), 1) if propias else None,
+            "puntaje_promedio": (round(sum(x.puntaje for x in con_puntaje) / len(con_puntaje), 1)
+                                 if (con_puntaje := [x for x in propias if x.puntaje is not None]) else None),
             "pasos": [{"paso": k, "etiqueta": PASOS_ETIQUETA[k], "promedio": round(sum(v) / len(v)) if v else None, "n": len(v)}
                       for k, v in pasos.items()],
             "reglas": [{"regla": k, "etiqueta": REGLAS_ETIQUETA[k], "veces": n} for k, n in reglas.items()],

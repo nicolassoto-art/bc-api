@@ -31,6 +31,12 @@ jobs:
           Description=bc-api · conteos de reuniones de las setters desde la foto de GHL
           [Service]
           Type=oneshot
+          NoNewPrivileges=yes
+          ProtectSystem=strict
+          ReadWritePaths=/opt/bc-api/estado
+          ProtectHome=yes
+          PrivateTmp=yes
+          PrivateDevices=yes
           ExecStart=/usr/bin/python3 /opt/bc-api/scripts/extraer_reuniones_setters.py --setter 102=j2vjPJ78gO7maOxUEh4W --setter 103=SZpegYySvjtgTpJZVqDE --calendario 102=nDdlsuYhUL1e9MfbTVZZ --calendario 103=NfBiNDyswEeL4KXJyXN4
           UNIT
           $SUDO tee /etc/systemd/system/bcapi-reuniones-setters.timer >/dev/null <<'UNIT'

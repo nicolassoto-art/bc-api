@@ -175,10 +175,17 @@ def _upsert(db: Session, pbx_call_id: str, campos: dict, pasar_a_pendiente: bool
     db.execute(stmt.on_conflict_do_update(index_elements=["pbx_call_id"], set_=actualizar))
 
 
+EVENTOS_CONOCIDOS = set(CAMPOS_FIRMA) | {"SPEECH_RECOGNITION", "NOTIFY_IVR"}
+
+
 def aplicar_evento(db: Session, evento: str, d: dict) -> None:
-    """Registra el evento crudo y actualiza la llamada. No hace commit."""
-    pbx = (d.get("pbx_call_id") or "").strip() or None
-    db.add(ZadarmaEvento(evento=evento, pbx_call_id=pbx, payload=d))
+    """Registra el evento crudo y actualiza la llamada. No hace commit. Los eventos que
+    no conocemos se ignoran (no se guardan): el cuerpo trae teléfonos."""
+    if evento not in EVENTOS_CONOCIDOS:
+        return
+    pbx = ((d.get("pbx_call_id") or "").strip() or None)
+    pbx = pbx[:80] if pbx else None
+    db.add(ZadarmaEvento(evento=evento[:40], pbx_call_id=pbx, payload=d))
     if not pbx:
         return
     anexos = settings.zadarma_anexos_map
@@ -189,8 +196,9 @@ def aplicar_evento(db: Session, evento: str, d: dict) -> None:
         return campos
 
     if evento in ("NOTIFY_START", "NOTIFY_INTERNAL"):
+        interna = evento == "NOTIFY_INTERNAL" or bool(_ext(d.get("caller_id")))
         _upsert(db, pbx, con_setter({
-            "sentido": "entrante", "numero_cliente": d.get("caller_id"),
+            "sentido": "interna" if interna else "entrante", "numero_cliente": d.get("caller_id"),
             "numero_linea": d.get("called_did"), "inicio": _fecha(d.get("call_start")),
             "anexo": _anexo(d.get("internal")),
         }))
@@ -198,7 +206,7 @@ def aplicar_evento(db: Session, evento: str, d: dict) -> None:
         _upsert(db, pbx, con_setter({"anexo": _anexo(d.get("internal"), d.get("destination"))}))
     elif evento == "NOTIFY_END":
         _upsert(db, pbx, con_setter({
-            "sentido": "entrante", "numero_cliente": d.get("caller_id"),
+            "sentido": "interna" if _ext(d.get("caller_id")) else "entrante", "numero_cliente": d.get("caller_id"),
             "numero_linea": d.get("called_did"), "inicio": _fecha(d.get("call_start")),
             "anexo": _anexo(d.get("internal"), d.get("last_internal")),
             "duracion_s": _entero(d.get("duration")), "resultado": d.get("disposition"),
@@ -221,10 +229,11 @@ def aplicar_evento(db: Session, evento: str, d: dict) -> None:
     elif evento == "SPEECH_RECOGNITION":
         frases = _frases(d.get("result"))
         texto = "\n".join(f"Canal {f['canal']}: {f['texto']}" for f in frases)
+        ya = db.query(Llamada.call_id_con_grabacion).filter(Llamada.pbx_call_id == pbx).scalar()
         _upsert(db, pbx, {
             "transcripcion_frases": frases, "transcripcion_texto": texto or None,
             "transcripcion_idioma": d.get("lang"),
-            "call_id_con_grabacion": d.get("call_id") or None,
+            "call_id_con_grabacion": None if ya else (d.get("call_id") or None),   # nunca se pisa uno existente
         }, pasar_a_pendiente=bool(frases))
 
 
@@ -247,8 +256,10 @@ def _ext(valor) -> Optional[str]:
     s = str(valor or "").strip()
     if s == ECO:
         return None
-    if "-" in s:
-        s = s.rsplit("-", 1)[1]
+    if s.count("-") == 1 and not s.startswith("+"):
+        pref, _, suf = s.partition("-")
+        if pref.isdigit() and len(pref) >= 5:      # '383974-102' → '102'
+            s = suf
     return s if s.isdigit() and len(s) <= 4 else None
 
 
@@ -256,13 +267,15 @@ def fila_estadistica_a_campos(f: dict) -> dict:
     """Convierte una fila de /v1/statistics/pbx/ (versión 2) en campos de Llamada."""
     anexo_origen = _ext(f.get("sip")) or _ext(f.get("clid"))
     anexo_destino = _ext(f.get("destination"))
+    interna = bool(anexo_origen) and bool(anexo_destino)      # entre anexos de la centralita
     saliente = bool(anexo_origen) and not anexo_destino
-    anexo = anexo_origen if saliente else (anexo_destino or anexo_origen)
+    anexo = anexo_origen if (saliente or interna) else (anexo_destino or anexo_origen)
+    bruto = f.get("destination") if (saliente or interna) else f.get("clid")
     campos = {
-        "sentido": "saliente" if saliente else "entrante",
+        "sentido": "interna" if interna else ("saliente" if saliente else "entrante"),
         "anexo": anexo,
         "setter": settings.zadarma_anexos_map.get(anexo or ""),
-        "numero_cliente": str(f.get("destination") if saliente else f.get("clid") or "") or None,
+        "numero_cliente": str(bruto).strip() if bruto not in (None, "") else None,
         "inicio": _fecha(f.get("callstart")),
         "duracion_s": _entero(f.get("seconds")),
         "resultado": f.get("disposition"),
@@ -287,7 +300,8 @@ def sincronizar_estadisticas(db: Session, desde: datetime, hasta: datetime) -> i
             pbx = str(f.get("pbx_call_id") or "").strip()
             if not pbx:
                 continue
-            if pbx not in mejores or (_entero(f.get("seconds")) or 0) > (_entero(mejores[pbx].get("seconds")) or 0):
+            clave = lambda x: (x.get("disposition") == "answered", _entero(x.get("seconds")) or 0)  # noqa: E731
+            if pbx not in mejores or clave(f) > clave(mejores[pbx]):
                 mejores[pbx] = f
         if len(filas) < 1000:
             break
@@ -306,7 +320,8 @@ def traer_transcripciones_faltantes(db: Session, limite: int = 20, estados: Opti
     pendientes = (
         db.query(Llamada)
         .filter(Llamada.call_id_con_grabacion.isnot(None), Llamada.transcripcion_texto.is_(None),
-                Llamada.resultado == "answered", Llamada.duracion_s >= 20, Llamada.created_at < corte)
+                Llamada.resultado == "answered", Llamada.duracion_s >= 20, Llamada.created_at < corte,
+                Llamada.created_at > datetime.utcnow() - timedelta(days=3))
         .order_by(Llamada.id.desc()).limit(limite).all()
     )
     n = 0

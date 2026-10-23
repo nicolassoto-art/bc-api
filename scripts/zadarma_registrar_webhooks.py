@@ -10,6 +10,7 @@ la clave, el secreto ni el token completos.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -21,6 +22,13 @@ from app.services.zadarma import firma_api  # noqa: E402
 from app.settings import settings  # noqa: E402
 
 API = "https://api.zadarma.com"
+
+
+def _oculto(x):
+    """Texto de la respuesta sin el token del webhook (la URL registrada lo lleva en ?k=)."""
+    t = json.dumps(x, ensure_ascii=False)
+    tok = settings.zadarma_webhook_token
+    return t.replace(tok, tok[:4] + "…") if tok else t
 
 
 def _llamar(verbo: str, metodo: str, params: dict) -> dict:
@@ -46,7 +54,7 @@ def main() -> int:
 
     url = f"{a.base.rstrip('/')}/webhooks/zadarma?k={settings.zadarma_webhook_token}"
     print("URL del webhook:", url.replace(settings.zadarma_webhook_token, settings.zadarma_webhook_token[:4] + "…"))
-    print("Configuración actual en Zadarma:", _llamar("GET", "/v1/pbx/webhooks/", {}))
+    print("Configuración actual en Zadarma:", _oculto(_llamar("GET", "/v1/pbx/webhooks/", {})))
 
     if not a.aplicar:
         print("Modo prueba: agrega --aplicar para registrar la URL y activar la transcripción.")
@@ -55,30 +63,30 @@ def main() -> int:
     actual = _llamar("GET", "/v1/pbx/webhooks/", {})
     # Zadarma responde 400 si se registra una URL igual a la que ya tiene.
     if actual.get("url") != url:
-        print("URL:", _llamar("POST", "/v1/pbx/webhooks/url/", {"url": url}))
+        print("URL:", _oculto(_llamar("POST", "/v1/pbx/webhooks/url/", {"url": url})))
     else:
         print("URL: ya estaba registrada")
     # Zadarma responde 400 si se pide activar algo que ya está activo.
     if (actual.get("hooks") or {}).get("speech_recognition") != "true":
-        print("Transcripción:", _llamar("POST", "/v1/pbx/webhooks/hooks/", {"speech_recognition": "true"}))
+        print("Transcripción:", _oculto(_llamar("POST", "/v1/pbx/webhooks/hooks/", {"speech_recognition": "true"})))
     else:
         print("Transcripción: ya estaba activa")
 
     # Avisos de llamadas de la centralita (inicio, contestación, fin): es OTRA
     # dirección en Zadarma ("Sobre llamadas a la centralita"), con su propia API.
     antes = _llamar("GET", "/v1/pbx/callinfo/", {})
-    print("Avisos de llamadas, antes:", {**antes, "url": "(registrada)" if antes.get("url") else ""})
+    print("Avisos de llamadas, antes:", _oculto({**antes, "url": "(registrada)" if antes.get("url") else ""}))
     if antes.get("url") != url:
-        print("Avisos de llamadas, URL:", _llamar("POST", "/v1/pbx/callinfo/url/", {"url": url}).get("status"))
+        print("Avisos de llamadas, URL:", _oculto(_llamar("POST", "/v1/pbx/callinfo/url/", {"url": url}).get("status")))
     else:
         print("Avisos de llamadas, URL: ya estaba registrada")
     avisos = {k: "true" for k in ("notify_start", "notify_end", "notify_out_start", "notify_out_end", "notify_answer")}
     try:
-        print("Avisos de llamadas, eventos:", _llamar("POST", "/v1/pbx/callinfo/notifications/", avisos))
+        print("Avisos de llamadas, eventos:", _oculto(_llamar("POST", "/v1/pbx/callinfo/notifications/", avisos)))
     except httpx.HTTPStatusError as e:
         print("Avisos de llamadas, eventos: Zadarma respondió", e.response.status_code, "(puede que ya estén activos)")
-    print("Avisos de llamadas, después:", _llamar("GET", "/v1/pbx/callinfo/", {}))
-    print("Configuración final:", _llamar("GET", "/v1/pbx/webhooks/", {}))
+    print("Avisos de llamadas, después:", _oculto(_llamar("GET", "/v1/pbx/callinfo/", {})))
+    print("Configuración final:", _oculto(_llamar("GET", "/v1/pbx/webhooks/", {})))
     return 0
 
 

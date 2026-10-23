@@ -11,6 +11,10 @@ on:
       cc: { description: "Copia (opcional)", default: "" }
       html_b64: { description: "HTML del correo en base64", required: true }
 
+concurrency:
+  group: enviar-correo-equipo
+  cancel-in-progress: false
+
 jobs:
   enviar:
     runs-on: ubuntu-latest
@@ -22,6 +26,15 @@ jobs:
           echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+      - name: Validar entradas
+        env:
+          DESTINO: ${{ inputs.destino }}
+          CC: ${{ inputs.cc }}
+          ASUNTO: ${{ inputs.asunto }}
+        run: |
+          [[ "$DESTINO" =~ ^[A-Za-z0-9._-]+@bigcapital\.cl$ ]] || { echo "destino debe ser @bigcapital.cl"; exit 1; }
+          [[ -z "$CC" || "$CC" =~ ^[A-Za-z0-9._-]+@bigcapital\.cl(,[A-Za-z0-9._-]+@bigcapital\.cl)*$ ]] || { echo "cc debe ser @bigcapital.cl"; exit 1; }
+          [[ "$ASUNTO" != *$'\n'* && ${#ASUNTO} -le 200 ]] || { echo "asunto inválido"; exit 1; }
       - name: Enviar
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
@@ -32,9 +45,10 @@ jobs:
           HTML_B64: ${{ inputs.html_b64 }}
         run: |
           python3 -c 'import json,os; print(json.dumps({k: os.environ[k] for k in ("DESTINO","ASUNTO","CC","HTML_B64")}))' \
-            | ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" "cat > /tmp/correo_equipo.json"
+            | ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" "umask 077; cat > /tmp/correo_equipo.json"
           ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" bash -s <<'EOF2'
           set -e
+          trap 'rm -f /tmp/correo_equipo.json' EXIT
           cd /opt/ghl-ia
           PY=$(ls -d /opt/ghl-ia/.venv/bin/python /opt/ghl-ia/venv/bin/python 2>/dev/null | head -1)
           $PY - <<'PYEOF'

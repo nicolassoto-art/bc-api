@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths-ignore:
       - '.github/workflows/**'
-      - 'scripts/**'
       - '**.md'
   workflow_dispatch: {}
 
@@ -40,6 +39,16 @@ jobs:
           ZADARMA_WEBHOOK_TOKEN: ${{ secrets.ZADARMA_WEBHOOK_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}        # evaluador de llamadas
         run: |
+          # Secretos por stdin (nunca como argumentos de línea de comandos, que se ven en `ps`):
+          # quedan en /tmp con permiso 600 solo hasta que el servidor los instala.
+          if [ -n "$ZADARMA_API_KEY" ] && [ -n "$ZADARMA_API_SECRET" ] && [ -n "$ZADARMA_WEBHOOK_TOKEN" ]; then
+            printf 'ZADARMA_API_KEY=%s\nZADARMA_API_SECRET=%s\nZADARMA_WEBHOOK_TOKEN=%s\n' "$ZADARMA_API_KEY" "$ZADARMA_API_SECRET" "$ZADARMA_WEBHOOK_TOKEN" \
+              | ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" 'umask 077; cat > /tmp/.env.zadarma.nuevo'
+          fi
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY" \
+              | ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" 'umask 077; cat > /tmp/.env.anthropic.nuevo'
+          fi
           ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" bash -s <<EOF
           set -e
           cd $INSTALL_DIR
@@ -66,22 +75,18 @@ jobs:
             echo "· SMTP_PASS no configurado en secrets — .env.smtp sin cambios"
           fi
 
-          # Zadarma (webhook de llamadas): .env.zadarma SOLO si están los tres secretos.
-          # Archivo aparte, igual que .env.smtp → nunca toca el .env. Idempotente.
-          if [ -n "$ZADARMA_API_KEY" ] && [ -n "$ZADARMA_API_SECRET" ] && [ -n "$ZADARMA_WEBHOOK_TOKEN" ]; then
-            sudo -u $SERVICE_USER bash -lc "cd $INSTALL_DIR && printf 'ZADARMA_API_KEY=%s\nZADARMA_API_SECRET=%s\nZADARMA_WEBHOOK_TOKEN=%s\n' '$ZADARMA_API_KEY' '$ZADARMA_API_SECRET' '$ZADARMA_WEBHOOK_TOKEN' > .env.zadarma && chmod 600 .env.zadarma"
-            echo "✓ .env.zadarma actualizado"
-          else
-            echo "· Secretos de Zadarma incompletos — .env.zadarma sin cambios"
-          fi
-
-          # Evaluador de llamadas: .env.anthropic SOLO si existe el secreto. Archivo aparte.
-          if [ -n "$ANTHROPIC_API_KEY" ]; then
-            sudo -u $SERVICE_USER bash -lc "cd $INSTALL_DIR && printf 'ANTHROPIC_API_KEY=%s\n' '$ANTHROPIC_API_KEY' > .env.anthropic && chmod 600 .env.anthropic"
-            echo "✓ .env.anthropic actualizado"
-          else
-            echo "· ANTHROPIC_API_KEY no configurado — .env.anthropic sin cambios"
-          fi
+          # Zadarma (webhook de llamadas) y evaluador: instalar los .env que llegaron por stdin
+          # (solo si llegaron). Archivos aparte, igual que .env.smtp → nunca tocan el .env.
+          if [ "\$(id -u)" = "0" ]; then SUDO=""; else SUDO="sudo"; fi
+          for ARCH in zadarma anthropic; do
+            if [ -f /tmp/.env.\$ARCH.nuevo ]; then
+              \$SUDO install -m 600 -o $SERVICE_USER -g $SERVICE_USER /tmp/.env.\$ARCH.nuevo $INSTALL_DIR/.env.\$ARCH
+              rm -f /tmp/.env.\$ARCH.nuevo
+              echo "✓ .env.\$ARCH actualizado"
+            else
+              echo "· .env.\$ARCH sin cambios (faltan secretos)"
+            fi
+          done
 
           # Restart service (sudo solo si no somos root)
           if [ "\$(id -u)" = "0" ]; then SUDO=""; else SUDO="sudo"; fi

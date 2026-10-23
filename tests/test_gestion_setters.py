@@ -228,3 +228,137 @@ def test_calidad_por_paso(db, config):
     finally:
         db.query(Llamada).filter(Llamada.pbx_call_id.like(f"{pref}_%")).delete(synchronize_session=False)
         db.commit()
+
+
+# ── Arreglos de la revisión adversarial ─────────────────────────────────────
+def test_puntaje_total_tolera_basura():
+    from app.services.evaluador_llamadas import puntaje_total
+    ev = {"pasos": [{"paso": "cierre", "cumple": "si", "puntaje": None}, {"paso": "apertura", "cumple": "si", "puntaje": "85.5"},
+                    "texto suelto", {"paso": "dolor", "cumple": "si", "puntaje": "mucho"}], "reglas": "no es dict"}
+    assert puntaje_total(ev) == 85.0
+    assert puntaje_total({"pasos": [{"paso": "cierre", "puntaje": None}]}) is None
+
+
+def test_enmascarar_rut_y_telefonos():
+    from app.services.evaluador_llamadas import enmascarar
+    t = "mi rut es 12.345.678-5 y el otro 9876543-K, llámame al +56 9 7305 4251 o al 977909854"
+    m = enmascarar(t)
+    assert "12.345.678" not in m and "7305" not in m and "977909854" not in m and "[RUT]" in m and "[NÚMERO]" in m
+    assert enmascarar("agendamos para las 11 o las 17 horas, son 25 minutos") == "agendamos para las 11 o las 17 horas, son 25 minutos"
+
+
+def test_evaluacion_cortada_por_largo_se_rechaza():
+    from types import SimpleNamespace
+    from app.services import evaluador_llamadas as ev
+    class M:
+        messages = None
+        def __init__(self): self.messages = self
+        def create(self, **kw):
+            return SimpleNamespace(stop_reason="max_tokens", content=[])
+    with pytest.raises(ValueError):
+        ev.evaluar_transcripcion("Canal 1: hola", "Prueba", M())
+
+    class M2(M):
+        def create(self, **kw):
+            return SimpleNamespace(stop_reason="tool_use", content=[SimpleNamespace(type="tool_use", name="registrar_evaluacion", input={"pasos": []})])
+    with pytest.raises(ValueError):
+        ev.evaluar_transcripcion("Canal 1: hola", "Prueba", M2())
+
+
+def test_job_una_llamada_rara_no_frena_el_lote(db, config):
+    from types import SimpleNamespace
+    from app.services import evaluador_llamadas as ev
+    pref = f"lote_{uuid.uuid4().hex[:8]}"
+    malo = {"pasos": [{"paso": "cierre", "cumple": "si", "puntaje": None}]}   # sin las claves requeridas
+    db.add_all([_ll(pref, 1, 9, 0, 120, estado="pendiente", transcripcion_texto="Canal 1: hola"),
+                _ll(pref, 2, 9, 5, 120, estado="pendiente", transcripcion_texto="Canal 1: hola")])
+    for x in db.query(Llamada).filter(Llamada.pbx_call_id.like(f"{pref}_%")).all():
+        pass
+    db.commit()
+    db.query(Llamada).filter(Llamada.pbx_call_id.like(f"{pref}_%")).update({"updated_at": datetime(2026, 1, 1)}, synchronize_session=False)
+    db.commit()
+    class M:
+        def __init__(self): self.messages = self
+        def create(self, **kw):
+            return SimpleNamespace(stop_reason="tool_use", content=[SimpleNamespace(type="tool_use", name="registrar_evaluacion", input=malo)])
+    try:
+        ev.evaluar_pendientes(limite=50, cliente=M())
+        db.expire_all()
+        estados = {x.estado for x in db.query(Llamada).filter(Llamada.pbx_call_id.like(f"{pref}_%")).all()}
+        assert estados <= {"pendiente", "error"} and "evaluando" not in estados
+    finally:
+        db.query(Llamada).filter(Llamada.pbx_call_id.like(f"{pref}_%")).delete(synchronize_session=False)
+        db.commit()
+
+
+def test_calidad_promedio_ignora_sin_puntaje(db, config):
+    pref = f"calp_{uuid.uuid4().hex[:8]}"
+    db.add_all([_ll(pref, 1, 10, 0, 120, estado="ok", puntaje=80.0, evaluacion={"pasos": [], "reglas": {}}),
+                _ll(pref, 2, 11, 0, 120, estado="ok", puntaje=80.0, evaluacion={"pasos": [], "reglas": {}}),
+                _ll(pref, 3, 12, 0, 120, estado="ok", puntaje=None, evaluacion={"pasos": [], "reglas": {}})])
+    db.commit()
+    try:
+        assert {x["anexo"]: x for x in gs.calidad(db, DIA, DIA)}["102"]["puntaje_promedio"] == 80.0
+    finally:
+        db.query(Llamada).filter(Llamada.pbx_call_id.like(f"{pref}_%")).delete(synchronize_session=False)
+        db.commit()
+
+
+def test_horarios_sin_eco(db, config):
+    pref = f"hor_{uuid.uuid4().hex[:8]}"
+    db.add_all([_ll(pref, 1, 15, 0, 20, numero_cliente="4444"), _ll(pref, 2, 15, 5, 60, numero_cliente="+56911112222")])
+    db.commit()
+    try:
+        h = {x["hora"]: x for x in gs.mejor_horario(db, DIA, DIA)}
+        assert h["15:00"]["llamadas"] == 1
+    finally:
+        db.query(Llamada).filter(Llamada.pbx_call_id.like(f"{pref}_%")).delete(synchronize_session=False)
+        db.commit()
+
+
+def test_sync_prefiere_contestada_e_interna(db, config, monkeypatch):
+    pbx, pbx2 = f"sy_{uuid.uuid4().hex[:8]}", f"sy2_{uuid.uuid4().hex[:8]}"
+    filas = [{"pbx_call_id": pbx, "sip": "+56911110000", "clid": "+56911110000", "destination": "102", "callstart": "2026-10-22 12:00:00",
+              "seconds": 40, "disposition": "no answer"},
+             {"pbx_call_id": pbx, "sip": "+56911110000", "clid": "+56911110000", "destination": "102", "callstart": "2026-10-22 12:00:00",
+              "seconds": 8, "disposition": "answered"},
+             {"pbx_call_id": pbx2, "sip": "102", "clid": "102", "destination": "103", "callstart": "2026-10-22 13:00:00",
+              "seconds": 30, "disposition": "answered"}]
+    monkeypatch.setattr(zadarma, "llamar_api", lambda *a, **k: {"stats": filas})
+    try:
+        zadarma.sincronizar_estadisticas(db, datetime(2026, 10, 22), datetime(2026, 10, 23))
+        db.expire_all()
+        a = db.query(Llamada).filter(Llamada.pbx_call_id == pbx).one()
+        b = db.query(Llamada).filter(Llamada.pbx_call_id == pbx2).one()
+        assert a.resultado == "answered" and a.sentido == "entrante"
+        assert b.sentido == "interna"
+        assert gs.resumen_setter("x", "102", [b], 10)["llamadas"] == 0
+        from app.services.evaluador_llamadas import motivo_para_omitir
+        assert motivo_para_omitir(b) == "llamada interna"
+    finally:
+        db.query(Llamada).filter(Llamada.pbx_call_id.in_([pbx, pbx2])).delete(synchronize_session=False)
+        db.commit()
+
+
+def test_numero_ausente_no_es_texto_none(config):
+    c = zadarma.fila_estadistica_a_campos({"sip": "102", "callstart": "2026-10-22 10:00:00", "seconds": 5, "disposition": "no answer"})
+    assert c["numero_cliente"] is None
+    assert zadarma._ext("xx-xx-1234") is None and zadarma._ext("383974-102") == "102" and zadarma._ext("4444") is None
+
+
+def test_rango_acotado(client, db, admin):
+    _, h = admin
+    assert client.get("/llamadas/gestion/rango?desde=2026-01-01&hasta=2026-12-31", headers=h).status_code == 422
+    assert client.get("/llamadas/calidad?desde=2026-10-01&hasta=9999-12-31", headers=h).status_code == 422
+    assert client.get("/llamadas/horarios?desde=2026-10-22&hasta=2026-10-01", headers=h).status_code == 422
+    assert client.get("/llamadas/calidad?desde=2026-10-01&hasta=2026-10-22", headers=h).status_code == 200
+
+
+def test_json_raro_en_estado(db, tmp_path, monkeypatch):
+    import json as _json
+    monkeypatch.setattr(settings, "state_dir", str(tmp_path))
+    for contenido in ("null", "[]", "5", '{"por_dia": null}', '{"por_dia": {"2026-10-22": null}}', '{"por_dia": {"2026-10-22": {"102": "x"}}}'):
+        (tmp_path / "reuniones_setters.json").write_text(contenido)
+        (tmp_path / "metas_llamadas.json").write_text(contenido)
+        assert isinstance(gs.metas(), dict)
+        gs.gestion_dia(db, DIA)     # no debe lanzar

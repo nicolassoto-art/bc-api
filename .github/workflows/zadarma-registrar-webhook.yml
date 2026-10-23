@@ -26,6 +26,11 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
+      - name: Validar entradas
+        env:
+          BASE: ${{ inputs.base }}
+        run: |
+          [[ "$BASE" =~ ^https://[A-Za-z0-9.-]+$ ]] || { echo "base inválida"; exit 1; }
       - name: Registrar
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}

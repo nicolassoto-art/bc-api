@@ -135,3 +135,11 @@ def test_transcripcion_repetida_no_reabre_evaluada(client, config, pbx, db):
     _enviar(client, transcripcion)
     db.expire_all()
     assert db.query(Llamada).filter(Llamada.pbx_call_id == pbx).one().estado == "ok"
+
+
+def test_webhook_ignora_eventos_desconocidos_y_token_no_ascii(client, config, pbx, db):
+    r = client.post("/webhooks/zadarma?k=tóken", data={"event": "NOTIFY_START"}, headers=IP_OK)
+    assert r.status_code == 403
+    r = _enviar(client, {"event": "ALGO_RARO", "pbx_call_id": pbx, "caller_id": "+56900000000"})
+    assert r.status_code == 200
+    assert db.query(ZadarmaEvento).filter(ZadarmaEvento.pbx_call_id == pbx).count() == 0
