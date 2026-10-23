@@ -37,7 +37,7 @@ jobs:
           cd /opt/ghl-ia
           PY=$(ls -d /opt/ghl-ia/.venv/bin/python /opt/ghl-ia/venv/bin/python 2>/dev/null | head -1)
           DESTINO="$DESTINO" ASUNTO="$ASUNTO" CC="$CC" $PY - <<'PYEOF'
-import asyncio, base64, os
+          import asyncio, base64, os
           from app.leads_request.bloqueo_no_pide_job import mandar_correo
           html_ = base64.b64decode(open("/tmp/correo_equipo.b64").read()).decode("utf-8")
           cc = [c.strip() for c in os.environ.get("CC", "").split(",") if c.strip()] or None
