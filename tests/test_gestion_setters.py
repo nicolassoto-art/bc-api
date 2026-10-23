@@ -135,3 +135,33 @@ def test_vista_previa_admin(client, db, dia, admin):
     otra = _token_para(db, "setter.qa@test.local")
     # una setter no puede mirar otro anexo con ?anexo=
     assert client.get("/mis-llamadas/gestion?fecha=2026-10-22&anexo=103", headers=otra).json()["anexo"] == "102"
+
+
+def test_reuniones_desde_la_tarea(db, dia, monkeypatch, tmp_path):
+    import json as _json
+    monkeypatch.setattr(settings, "state_dir", str(tmp_path))
+    (tmp_path / "reuniones_setters.json").write_text(_json.dumps({"generado": "2026-10-22T18:00:00+00:00", "por_dia": {
+        "2026-10-22": {"102": {"agendadas": 3, "reuniones_del_dia": 2, "asistidas": 1, "inasistencias": 1}}}}))
+    r = {x["anexo"]: x for x in gs.gestion_dia(db, DIA)}
+    assert r["102"]["reuniones"]["agendadas"] == 3 and r["102"]["reuniones"]["tasa_asistencia"] == 50
+    assert r["103"]["reuniones"]["agendadas"] == 0
+    (tmp_path / "reuniones_setters.json").unlink()
+    assert gs.gestion_dia(db, DIA)[0]["reuniones"] is None
+
+
+def test_extractor_reuniones():
+    import importlib.util, pathlib
+    spec = importlib.util.spec_from_file_location("ext", pathlib.Path(__file__).parents[1] / "scripts/extraer_reuniones_setters.py")
+    ext = importlib.util.module_from_spec(spec); spec.loader.exec_module(ext)
+    foto = {"calendar_events": [
+        {"createdBy": {"userId": "U102"}, "dateAdded": "2026-10-21T15:00:00-03:00", "startTime": "2026-10-22T10:00:00-03:00", "appointmentStatus": "showed"},
+        {"createdBy": {"userId": "U102"}, "dateAdded": "2026-10-21T16:00:00-03:00", "startTime": "2026-10-22T11:00:00-03:00", "appointmentStatus": "noshow"},
+        {"createdBy": {"userId": "OTRO"}, "calendarId": "CAL103", "dateAdded": "2026-10-22T02:30:00Z", "startTime": "2030-01-01T10:00:00Z", "appointmentStatus": "confirmed"},
+        {"createdBy": {"userId": "U102"}, "title": "Prueba interna", "dateAdded": "2026-10-21T15:00:00-03:00"},
+        {"createdBy": {"userId": "NADIE"}, "dateAdded": "2026-10-21T15:00:00-03:00"},
+    ]}
+    d = ext.extraer(foto, {"U102": "102"}, {"CAL103": "103"})["por_dia"]
+    assert d["2026-10-21"]["102"]["agendadas"] == 2
+    assert d["2026-10-22"]["102"]["asistidas"] == 1 and d["2026-10-22"]["102"]["inasistencias"] == 1
+    assert d["2026-10-21"]["103"]["agendadas"] == 1          # 02:30 UTC = 23:30 del 21 en Chile
+    assert d["2030-01-01"]["103"]["pendientes"] == 1

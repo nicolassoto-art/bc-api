@@ -1,0 +1,53 @@
+name: Servidor · instalar tarea de reuniones de las setters
+
+# Instala (o actualiza) en el VPS el temporizador systemd que cada 10 minutos lee la
+# foto de GHL (latest.json, solo del administrador) y deja SOLO conteos de reuniones
+# de las setters en /opt/bc-api/estado/reuniones_setters.json para bc-api.
+# Aprobado por Nicolás el 22-oct-2026. Idempotente.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  instalar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+      - name: Instalar temporizador
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" bash -s <<'EOF2'
+          set -e
+          if [ "$(id -u)" = "0" ]; then SUDO=""; else SUDO="sudo"; fi
+          $SUDO tee /etc/systemd/system/bcapi-reuniones-setters.service >/dev/null <<'UNIT'
+          [Unit]
+          Description=bc-api · conteos de reuniones de las setters desde la foto de GHL
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/bin/python3 /opt/bc-api/scripts/extraer_reuniones_setters.py --setter 102=j2vjPJ78gO7maOxUEh4W --setter 103=SZpegYySvjtgTpJZVqDE --calendario 103=NfBiNDyswEeL4KXJyXN4
+          UNIT
+          $SUDO tee /etc/systemd/system/bcapi-reuniones-setters.timer >/dev/null <<'UNIT'
+          [Unit]
+          Description=bc-api · reuniones de las setters cada 10 minutos
+          [Timer]
+          OnBootSec=2min
+          OnUnitActiveSec=10min
+          Persistent=true
+          [Install]
+          WantedBy=timers.target
+          UNIT
+          $SUDO sed -i 's/^          //' /etc/systemd/system/bcapi-reuniones-setters.service /etc/systemd/system/bcapi-reuniones-setters.timer
+          $SUDO systemctl daemon-reload
+          $SUDO systemctl enable --now bcapi-reuniones-setters.timer
+          $SUDO systemctl start bcapi-reuniones-setters.service
+          $SUDO systemctl status bcapi-reuniones-setters.service --no-pager -n 5 | tail -5
+          ls -l /opt/bc-api/estado/reuniones_setters.json
+          $SUDO systemctl list-timers bcapi-reuniones-setters.timer --no-pager | head -3
+          EOF2

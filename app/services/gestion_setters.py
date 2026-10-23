@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 from ..models.llamada import Llamada
 from ..settings import settings
 
+import json
+
 CORTA_S = 20          # contestada pero menos de 20 s: buzón o cuelgue
 CONVERSACION_S = 60   # conversación real
 
@@ -93,6 +95,29 @@ def resumen_setter(nombre: str, anexo: str, llamadas: list[Llamada], detencion_m
     return out
 
 
+REUNIONES_VACIAS = {"agendadas": 0, "reuniones_del_dia": 0, "asistidas": 0, "inasistencias": 0,
+                    "canceladas": 0, "pendientes": 0, "sin_resultado": 0}
+
+
+def cargar_reuniones() -> dict:
+    """Conteos de reuniones de las setters que deja la tarea del servidor
+    (scripts/extraer_reuniones_setters.py) a partir de la foto de GHL. {} si no hay."""
+    try:
+        with open(settings.state_path / "reuniones_setters.json", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def reuniones_de(datos: dict, fecha: date, anexo: str) -> Optional[dict]:
+    if not datos:
+        return None
+    r = {**REUNIONES_VACIAS, **((datos.get("por_dia") or {}).get(fecha.isoformat(), {}).get(anexo) or {})}
+    cerradas = r["asistidas"] + r["inasistencias"]
+    r["tasa_asistencia"] = round(100 * r["asistidas"] / cerradas) if cerradas else None
+    return r
+
+
 def _llamadas_del_dia(db: Session, fecha: date, anexos: list[str]) -> list[Llamada]:
     ini = datetime.combine(fecha, datetime.min.time())
     return (db.query(Llamada)
@@ -105,13 +130,24 @@ def gestion_dia(db: Session, fecha: date, anexos: Optional[list[str]] = None) ->
     anexos = anexos or list(setters)
     todas = _llamadas_del_dia(db, fecha, anexos)
     det = settings.detencion_min
-    return [resumen_setter(setters.get(a, a), a, [x for x in todas if x.anexo == a], det) for a in anexos]
+    reuniones = cargar_reuniones()
+    out = []
+    for a in anexos:
+        r = resumen_setter(setters.get(a, a), a, [x for x in todas if x.anexo == a], det)
+        r["reuniones"] = reuniones_de(reuniones, fecha, a)
+        r["reuniones_actualizadas"] = reuniones.get("generado")
+        if r["reuniones"] is not None:
+            r["semaforo"]["agendadas"] = _semaforo(r["reuniones"]["agendadas"], settings.meta_agendadas_dia)
+        out.append(r)
+    return out
 
 
 def gestion_rango(db: Session, desde: date, hasta: date, anexos: Optional[list[str]] = None) -> list[dict]:
     dias, d = [], desde
     while d <= hasta and len(dias) < 62:
         for r in gestion_dia(db, d, anexos):
+            r["tiene_actividad"] = bool(r["llamadas"] or (r.get("reuniones") or {}).get("agendadas")
+                                        or (r.get("reuniones") or {}).get("reuniones_del_dia"))
             r.pop("linea_tiempo", None)
             r.pop("detenciones", None)
             dias.append({"fecha": d.isoformat(), **r})
