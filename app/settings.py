@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     zadarma_webhook_token: str = ""
     # Filtro por IP de origen (185.45.152.40/30 según la documentación de Zadarma):
     # "off" no mira · "warn" solo avisa en el log · "enforce" rechaza con 403.
-    zadarma_ip_mode: str = "warn"
+    zadarma_ip_mode: str = "enforce"
     # Anexo → nombre de la setter, coma-separado "102:Mafalda Yaksic,103:Maria Alejandra Araneda".
     zadarma_anexos: str = "102:Mafalda Yaksic,103:Maria Alejandra Araneda"
 
