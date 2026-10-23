@@ -63,6 +63,7 @@ def test_gestion_del_dia(db, dia):
 def test_rango_y_horarios(db, dia):
     filas = [x for x in gs.gestion_rango(db, DIA, DIA) if x["anexo"] == "102"]
     assert filas[0]["fecha"] == "2026-10-22" and "linea_tiempo" not in filas[0]
+    assert filas[0]["detenciones_n"] == 1 and "detenciones" not in filas[0]
     h = {x["hora"]: x for x in gs.mejor_horario(db, DIA, DIA)}
     assert h["09:00"]["llamadas"] == 4 and h["09:00"]["contestadas"] == 3
 

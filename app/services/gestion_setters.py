@@ -209,7 +209,7 @@ def gestion_rango(db: Session, desde: date, hasta: date, anexos: Optional[list[s
             r["tiene_actividad"] = bool(r["llamadas"] or (r.get("reuniones") or {}).get("agendadas")
                                         or (r.get("reuniones") or {}).get("reuniones_del_dia"))
             r.pop("linea_tiempo", None)
-            r.pop("detenciones", None)
+            r["detenciones_n"] = len(r.pop("detenciones", []) or [])
             dias.append({"fecha": d.isoformat(), **r})
         d += timedelta(days=1)
     return dias
