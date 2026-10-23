@@ -48,6 +48,11 @@ for ruta in RUTAS:
         if ids or c.get("id") == CAL_MARIA:
             print("calendario de setter:", c.get("id"), "|", c.get("name"), "| setters:", ids, "| miembros:", len(miembros),
                   "| eventos:", sum(1 for e in ev if e.get("calendarId") == c.get("id")))
+    import re
+    for c in cals:
+        if re.search(r"mafalda|yaksic|setter|rotaci|araneda", str(c.get("name")), re.I):
+            print("calendario por nombre:", c.get("id"), "|", c.get("name"), "| eventos:", sum(1 for e in ev if e.get("calendarId") == c.get("id")),
+                  "| miembros:", [m.get("userId") for m in (c.get("teamMembers") or []) if isinstance(m, dict)])
     for uid, nombre in SETTERS.items():
         asignadas = Counter(str(e.get("appointmentStatus")) for e in ev if e.get("assignedUserId") == uid)
         print("citas asignadas a", nombre, ":", dict(asignadas))
