@@ -35,6 +35,22 @@ for ruta in RUTAS:
         print("en calendario de María (estado):", dict(cal))
         fechas = sorted(str(e.get("dateAdded") or e.get("createdAt") or "")[:10] for e in ev if e.get("dateAdded") or e.get("createdAt"))
         print("rango dateAdded:", fechas[:1], fechas[-1:])
+    cals = d.get("calendars") or []
+    print("calendars:", len(cals), "campos:", sorted(cals[0].keys()) if cals else None)
+    for c in cals:
+        miembros = []
+        for k in ("teamMembers", "team_members", "members"):
+            miembros += [m.get("userId") or m.get("id") for m in (c.get(k) or []) if isinstance(m, dict)]
+        for k in ("userId", "assignedUserId"):
+            if c.get(k):
+                miembros.append(c[k])
+        ids = [SETTERS[m] for m in miembros if m in SETTERS]
+        if ids or c.get("id") == CAL_MARIA:
+            print("calendario de setter:", c.get("id"), "|", c.get("name"), "| setters:", ids, "| miembros:", len(miembros),
+                  "| eventos:", sum(1 for e in ev if e.get("calendarId") == c.get("id")))
+    for uid, nombre in SETTERS.items():
+        asignadas = Counter(str(e.get("appointmentStatus")) for e in ev if e.get("assignedUserId") == uid)
+        print("citas asignadas a", nombre, ":", dict(asignadas))
     us = d.get("users") or []
     print("users:", len(us), "con ids de setters:", [SETTERS[u.get("id")] for u in us if isinstance(u, dict) and u.get("id") in SETTERS])
 sys.exit(0)
