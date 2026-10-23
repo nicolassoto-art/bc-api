@@ -32,7 +32,7 @@ class ModeloFalso:
 
     def create(self, **kw):
         self.llamadas += 1
-        assert kw["tool_choice"]["name"] == "registrar_evaluacion"
+        assert kw["tool_choice"] == {"type": "auto"} and kw["tools"][0]["name"] == "registrar_evaluacion"
         if self.falla:
             raise RuntimeError("caída simulada")
         return SimpleNamespace(content=[SimpleNamespace(type="tool_use", name="registrar_evaluacion", input=self.salida)])

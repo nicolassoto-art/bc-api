@@ -11,6 +11,10 @@ on:
       hasta:
         description: "Hasta (AAAA-MM-DD, vacío = hoy)"
         default: ""
+      reintentar_errores:
+        description: "Volver a evaluar las llamadas en error"
+        type: boolean
+        default: false
 
 jobs:
   sincronizar:
@@ -31,8 +35,9 @@ jobs:
           SERVICE_USER: ${{ secrets.SERVICE_USER || 'bcapi' }}
           DESDE: ${{ inputs.desde }}
           HASTA: ${{ inputs.hasta }}
+          REINT: ${{ inputs.reintentar_errores && '--reintentar-errores' || '' }}
         run: |
           ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" bash -s <<EOF2
           set -e
-          sudo -u $SERVICE_USER bash -lc "cd $INSTALL_DIR && .venv/bin/python scripts/zadarma_sincronizar.py --desde '$DESDE' ${HASTA:+--hasta '$HASTA'}"
+          sudo -u $SERVICE_USER bash -lc "cd $INSTALL_DIR && .venv/bin/python scripts/zadarma_sincronizar.py --desde '$DESDE' ${HASTA:+--hasta '$HASTA'} $REINT"
           EOF2

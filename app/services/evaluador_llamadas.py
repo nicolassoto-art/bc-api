@@ -199,7 +199,9 @@ def evaluar_transcripcion(texto: str, setter: Optional[str], cliente: Any = None
         temperature=0,
         system=[{"type": "text", "text": SISTEMA, "cache_control": {"type": "ephemeral"}}],
         tools=[HERRAMIENTA],
-        tool_choice={"type": "tool", "name": HERRAMIENTA["name"]},
+        # Algunos modelos no aceptan forzar la herramienta (tool_choice "tool"/"any"):
+        # se deja en "auto" y la instrucción pide registrarla; si no la usa, se reintenta.
+        tool_choice={"type": "auto"},
         messages=[{"role": "user", "content": contexto}],
     )
     for bloque in resp.content:

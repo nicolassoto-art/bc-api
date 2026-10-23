@@ -23,11 +23,16 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--desde", required=True)
     ap.add_argument("--hasta", default="")
+    ap.add_argument("--reintentar-errores", action="store_true", help="vuelve a evaluar las llamadas en error")
     a = ap.parse_args()
     desde = datetime.strptime(a.desde, "%Y-%m-%d")
     hasta = datetime.strptime(a.hasta, "%Y-%m-%d") + timedelta(days=1) if a.hasta else datetime.now()
     db = SessionLocal()
     try:
+        if a.reintentar_errores:
+            k = db.query(Llamada).filter(Llamada.estado == "error").update({"estado": "pendiente", "intentos": 0})
+            db.commit()
+            print(f"Llamadas en error que vuelven a evaluarse: {k}")
         n = zadarma.sincronizar_estadisticas(db, desde, hasta)
         estados: dict = {}
         t = zadarma.traer_transcripciones_faltantes(db, limite=80, estados=estados)
