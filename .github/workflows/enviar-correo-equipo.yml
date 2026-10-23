@@ -31,20 +31,21 @@ jobs:
           CC: ${{ inputs.cc }}
           HTML_B64: ${{ inputs.html_b64 }}
         run: |
-          printf '%s' "$HTML_B64" | ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" "cat > /tmp/correo_equipo.b64"
-          ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" DESTINO="$DESTINO" ASUNTO="$ASUNTO" CC="$CC" bash -s <<'EOF2'
+          python3 -c 'import json,os; print(json.dumps({k: os.environ[k] for k in ("DESTINO","ASUNTO","CC","HTML_B64")}))' \
+            | ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" "cat > /tmp/correo_equipo.json"
+          ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" bash -s <<'EOF2'
           set -e
           cd /opt/ghl-ia
           PY=$(ls -d /opt/ghl-ia/.venv/bin/python /opt/ghl-ia/venv/bin/python 2>/dev/null | head -1)
-          DESTINO="$DESTINO" ASUNTO="$ASUNTO" CC="$CC" $PY - <<'PYEOF'
-          import asyncio, base64, os
+          $PY - <<'PYEOF'
+          import asyncio, base64, json
           from app.leads_request.bloqueo_no_pide_job import mandar_correo
-          html_ = base64.b64decode(open("/tmp/correo_equipo.b64").read()).decode("utf-8")
-          cc = [c.strip() for c in os.environ.get("CC", "").split(",") if c.strip()] or None
-          ok, err = asyncio.run(mandar_correo(os.environ["DESTINO"], os.environ["ASUNTO"], html_,
-                                              tipo="aviso_equipo_llamadas", cc=cc,
-                                              reply_to="nicolas.soto@bigcapital.cl"))
+          d = json.load(open("/tmp/correo_equipo.json"))
+          html_ = base64.b64decode(d["HTML_B64"]).decode("utf-8")
+          cc = [c.strip() for c in d.get("CC", "").split(",") if c.strip()] or None
+          ok, err = asyncio.run(mandar_correo(d["DESTINO"], d["ASUNTO"], html_, tipo="aviso_equipo_llamadas",
+                                              cc=cc, reply_to="nicolas.soto@bigcapital.cl"))
           print("ENVIADO" if ok else f"NO ENVIADO: {err}")
           PYEOF
-          rm -f /tmp/correo_equipo.b64
+          rm -f /tmp/correo_equipo.json
           EOF2
