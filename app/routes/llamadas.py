@@ -21,7 +21,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps.auth import current_user, lector_informes
+from ..deps.auth import current_user, lector_informes, super_admin
 from ..models.llamada import Llamada
 from ..models import Usuario
 from ..services import gestion_setters, zadarma
@@ -91,6 +91,29 @@ def gestion(fecha: Optional[date] = None, db: Session = Depends(get_db)):
 @consulta.get("/gestion/rango")
 def gestion_rango(desde: date, hasta: date, db: Session = Depends(get_db)):
     return gestion_setters.gestion_rango(db, desde, hasta)
+
+
+@consulta.get("/alertas")
+def alertas_hoy(db: Session = Depends(get_db)):
+    return gestion_setters.alertas(db)
+
+
+@consulta.get("/calidad")
+def calidad(desde: date, hasta: date, db: Session = Depends(get_db)):
+    return gestion_setters.calidad(db, desde, hasta)
+
+
+@consulta.get("/metas")
+def ver_metas():
+    return {**gestion_setters.metas(), "limites": gestion_setters.METAS_LIMITES}
+
+
+@consulta.put("/metas")
+def fijar_metas(datos: dict, _: Usuario = Depends(super_admin)):
+    try:
+        return gestion_setters.guardar_metas(datos)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
 
 @consulta.get("/horarios")
@@ -182,6 +205,11 @@ def _propia(db: Session, llamada_id: int, anexo: str) -> Llamada:
 @mias.get("/gestion")
 def mi_gestion(fecha: Optional[date] = None, anexo: str = Depends(_anexo_propio), db: Session = Depends(get_db)):
     return gestion_setters.gestion_dia(db, fecha or date.today(), [anexo])[0]
+
+
+@mias.get("/calidad")
+def mi_calidad(desde: date, hasta: date, anexo: str = Depends(_anexo_propio), db: Session = Depends(get_db)):
+    return gestion_setters.calidad(db, desde, hasta, [anexo])[0]
 
 
 @mias.get("/gestion/rango")

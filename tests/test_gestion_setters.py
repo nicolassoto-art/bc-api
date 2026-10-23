@@ -165,3 +165,66 @@ def test_extractor_reuniones():
     assert d["2026-10-22"]["102"]["asistidas"] == 1 and d["2026-10-22"]["102"]["inasistencias"] == 1
     assert d["2026-10-21"]["103"]["agendadas"] == 1          # 02:30 UTC = 23:30 del 21 en Chile
     assert d["2030-01-01"]["103"]["pendientes"] == 1
+
+
+# ── Alertas, calidad y metas ────────────────────────────────────────────────
+def test_metas_editables(db, tmp_path, monkeypatch, client, admin):
+    monkeypatch.setattr(settings, "state_dir", str(tmp_path))
+    assert gs.metas() == {"llamadas": settings.meta_llamadas_dia, "agendadas": settings.meta_agendadas_dia,
+                          "detencion_min": settings.detencion_min}
+    _, h = admin
+    r = client.put("/llamadas/metas", json={"llamadas": 50, "agendadas": 3, "detencion_min": 15}, headers=h)
+    assert r.status_code == 200 and r.json()["llamadas"] == 50
+    assert gs.metas()["detencion_min"] == 15
+    assert client.put("/llamadas/metas", json={"llamadas": 0}, headers=h).status_code == 422
+    assert client.put("/llamadas/metas", json={"llamadas": "mucho"}, headers=h).status_code == 422
+    assert client.put("/llamadas/metas", json={"llamadas": True}, headers=h).status_code == 422
+    assert client.get("/llamadas/metas", headers=h).json()["llamadas"] == 50
+    # un lector de Informes ve las metas pero no las cambia
+    lector = _token_para(db, "lector.metas@test.local")
+    monkeypatch.setattr(settings, "informes_lectores", "lector.metas@test.local")
+    assert client.get("/llamadas/metas", headers=lector).status_code == 200
+    assert client.put("/llamadas/metas", json={"llamadas": 10}, headers=lector).status_code == 403
+
+
+def test_metas_corruptas_usan_las_de_settings(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "state_dir", str(tmp_path))
+    (tmp_path / "metas_llamadas.json").write_text("{no es json")
+    assert gs.metas()["llamadas"] == settings.meta_llamadas_dia
+    (tmp_path / "metas_llamadas.json").write_text('{"llamadas": 99999, "agendadas": -4}')
+    assert gs.metas()["llamadas"] == settings.meta_llamadas_dia and gs.metas()["agendadas"] == settings.meta_agendadas_dia
+
+
+def test_alertas(db, config, dia):
+    # el día de la fixture es jueves 22-oct-2026
+    sin = {a["tipo"] for a in gs.alertas(db, datetime(2026, 10, 22, 9, 30))}
+    assert sin == set()                                                   # antes de las 10 y última llamada a las 09:40 (hace 0)
+    a10 = [a for a in gs.alertas(db, datetime(2026, 10, 22, 10, 30)) if a["setter"] == "Prueba Dos"]
+    assert [a["tipo"] for a in a10] == ["sin_llamadas"]                    # 103 no llamó
+    det = [a for a in gs.alertas(db, datetime(2026, 10, 22, 11, 0)) if a["setter"] == "Prueba Interna"]
+    assert [a["tipo"] for a in det] == ["detenida"]                        # última a las 09:40, ya 80 min
+    tarde = {a["tipo"] for a in gs.alertas(db, datetime(2026, 10, 22, 18, 30)) if a["setter"] == "Prueba Interna"}
+    assert "sin_agendadas" not in tarde                                    # agendó 1 en la llamada de las 09:30
+    assert gs.alertas(db, datetime(2026, 10, 24, 11, 0)) == []             # sábado
+
+
+def test_calidad_por_paso(db, config):
+    pref = f"cal_{uuid.uuid4().hex[:8]}"
+    ev = {"pasos": [{"paso": "apertura", "cumple": "si", "puntaje": 80}, {"paso": "cierre", "cumple": "no_aplica", "puntaje": 0},
+                    {"paso": "dolor", "cumple": "no", "puntaje": 20}],
+          "reglas": {"nombro_proyecto_en_apertura": True, "rut_antes_de_agendar": False,
+                     "ofrecio_dos_horarios": "no", "aviso_recordatorio_whatsapp": "si"}}
+    db.add_all([_ll(pref, 1, 10, 0, 120, estado="ok", puntaje=50.0, evaluacion=ev),
+                _ll(pref, 2, 11, 0, 120, estado="ok", puntaje=70.0, evaluacion=ev)])
+    db.commit()
+    try:
+        c = {x["anexo"]: x for x in gs.calidad(db, DIA, DIA)}["102"]
+        assert c["evaluadas"] == 2 and c["puntaje_promedio"] == 60.0
+        pasos = {p["paso"]: p for p in c["pasos"]}
+        assert pasos["apertura"]["promedio"] == 80 and pasos["cierre"]["promedio"] is None and pasos["dolor"]["n"] == 2
+        reglas = {r["regla"]: r["veces"] for r in c["reglas"]}
+        assert reglas["nombro_proyecto_en_apertura"] == 2 and reglas["ofrecio_dos_horarios"] == 2
+        assert reglas["rut_antes_de_agendar"] == 0 and reglas["aviso_recordatorio_whatsapp"] == 0
+    finally:
+        db.query(Llamada).filter(Llamada.pbx_call_id.like(f"{pref}_%")).delete(synchronize_session=False)
+        db.commit()
