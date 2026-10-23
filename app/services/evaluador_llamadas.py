@@ -2,7 +2,7 @@
 
 Pauta: "Script telefónico · La llamada que cierra reuniones" (5 pasos, reglas,
 escudo de objeciones). Mismo patrón que la evaluación de reuniones del agente GHL:
-herramienta forzada, temperatura 0, tope de caracteres y falla sin romper nada.
+herramienta en modo auto, tope de caracteres y falla sin romper nada.
 
 Flujo: el webhook deja la llamada en `pendiente` cuando llega la transcripción; el
 job `evaluar_pendientes` (programador, cada N min, un solo worker) la toma con
@@ -196,7 +196,6 @@ def evaluar_transcripcion(texto: str, setter: Optional[str], cliente: Any = None
     resp = cliente.messages.create(
         model=settings.evaluador_modelo,
         max_tokens=3000,
-        temperature=0,
         system=[{"type": "text", "text": SISTEMA, "cache_control": {"type": "ephemeral"}}],
         tools=[HERRAMIENTA],
         # Algunos modelos no aceptan forzar la herramienta (tool_choice "tool"/"any"):
