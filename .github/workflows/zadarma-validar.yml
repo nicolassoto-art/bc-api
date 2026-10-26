@@ -1,0 +1,44 @@
+name: Zadarma · validar cifras
+
+# Compara (solo lectura) lo que muestra el panel contra Zadarma. Corre en el VPS, donde están las claves (.env.zadarma).
+on:
+  workflow_dispatch:
+    inputs:
+      desde:
+        description: "Desde (AAAA-MM-DD)"
+        required: true
+      hasta:
+        description: "Hasta (AAAA-MM-DD, vacío = hoy)"
+        default: ""
+
+jobs:
+  sincronizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+      - name: Validar entradas
+        env:
+          DESDE: ${{ inputs.desde }}
+          HASTA: ${{ inputs.hasta }}
+        run: |
+          [[ "$DESDE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "desde inválido"; exit 1; }
+          [[ -z "$HASTA" || "$HASTA" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "hasta inválido"; exit 1; }
+      - name: Sincronizar
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          INSTALL_DIR: ${{ secrets.INSTALL_DIR || '/opt/bc-api' }}
+          SERVICE_USER: ${{ secrets.SERVICE_USER || 'bcapi' }}
+          DESDE: ${{ inputs.desde }}
+          HASTA: ${{ inputs.hasta }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" bash -s <<EOF2
+          set -e
+          sudo -u $SERVICE_USER bash -lc "cd $INSTALL_DIR && .venv/bin/python scripts/validar_llamadas.py --desde '$DESDE' ${HASTA:+--hasta '$HASTA'}"
+          EOF2
