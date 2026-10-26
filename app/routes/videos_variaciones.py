@@ -85,12 +85,15 @@ def _hmac(texto: str) -> str:
     return hmac.new(_clave(), texto.encode(), hashlib.sha256).hexdigest()
 
 
-def _crear_token(email: str) -> str:
-    cuerpo = base64.urlsafe_b64encode(json.dumps({"e": email, "x": int(time.time()) + SESION_SEG}).encode()).decode().rstrip("=")
+def _crear_token(email: str, vida: int = SESION_SEG, lote: Optional[str] = None) -> str:
+    datos = {"e": email, "x": int(time.time()) + vida}
+    if lote:
+        datos["l"] = lote                      # entrada de descarga: sirve solo para ese lote
+    cuerpo = base64.urlsafe_b64encode(json.dumps(datos).encode()).decode().rstrip("=")
     return f"{cuerpo}.{_hmac(cuerpo)}"
 
 
-def _email_de_token(token: str) -> Optional[str]:
+def _datos_de_token(token: str) -> Optional[Dict[str, Any]]:
     try:
         cuerpo, firma = token.split(".", 1)
         if not hmac.compare_digest(firma, _hmac(cuerpo)):
@@ -98,18 +101,29 @@ def _email_de_token(token: str) -> Optional[str]:
         datos = json.loads(base64.urlsafe_b64decode(cuerpo + "=" * (-len(cuerpo) % 4)))
         if datos["x"] < time.time() or datos["e"] not in EMAILS:
             return None
-        return datos["e"]
+        return datos
     except Exception:
         return None
 
 
-async def sesion(authorization: Optional[str] = Header(None), t: Optional[str] = Query(None)) -> str:
-    """Bearer en el encabezado; ?t= para las descargas directas desde un enlace."""
-    token = (authorization or "").removeprefix("Bearer ").strip() or (t or "")
-    email = _email_de_token(token)
+def _email_de_token(token: str) -> Optional[str]:
+    d = _datos_de_token(token)
+    return d["e"] if d and "l" not in d else None      # una entrada de descarga no abre sesión
+
+
+async def sesion(authorization: Optional[str] = Header(None)) -> str:
+    email = _email_de_token((authorization or "").removeprefix("Bearer ").strip())
     if not email:
         raise HTTPException(401, "Tu sesión venció. Ingresa de nuevo con tu correo.")
     return email
+
+
+async def sesion_descarga(lid: str, t: str = Query("")) -> str:
+    """Descarga desde un enlace: lleva una entrada de 2 minutos para ese lote, nunca la sesión."""
+    d = _datos_de_token(t)
+    if not d or d.get("l") != lid:
+        raise HTTPException(401, "El enlace de descarga venció. Vuelve a apretar Descargar.")
+    return d["e"]
 
 
 def _archivo_codigo(email: str) -> Path:
@@ -655,8 +669,14 @@ def _lanzar(lid: str) -> None:
 
 # ─────────────────────────── descarga ───────────────────────────
 
+@router.post("/descargar/{lid}/entrada")
+async def entrada_descarga(lid: str, email: str = Depends(sesion)):
+    _del_usuario(lid, email)
+    return {"t": _crear_token(email, vida=120, lote=lid)}
+
+
 @router.get("/descargar/{lid}/zip")
-async def descargar_zip(lid: str, email: str = Depends(sesion)):
+async def descargar_zip(lid: str, email: str = Depends(sesion_descarga)):
     t = _del_usuario(lid, email)
     ruta = _lote_dir(lid) / "videos.zip"
     if t.get("estado") != "listo" or not ruta.exists():
@@ -665,7 +685,7 @@ async def descargar_zip(lid: str, email: str = Depends(sesion)):
 
 
 @router.get("/descargar/{lid}/video")
-async def descargar_video(lid: str, combo: str, email: str = Depends(sesion)):
+async def descargar_video(lid: str, combo: str, email: str = Depends(sesion_descarga)):
     t = _del_usuario(lid, email)
     c = next((x for x in t["combos"] if x["id"] == combo and x["estado"] == "listo"), None)
     ruta = _lote_dir(lid) / "salida" / (c or {}).get("archivo", "")

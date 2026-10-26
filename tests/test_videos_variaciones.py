@@ -114,7 +114,10 @@ def test_flujo_completo_tres_hooks_un_desarrollo_un_cta(cliente, tmp_path):
     assert t["combos"][1]["archivo"].startswith("H2 Gancho dos + D1")
     assert "320×240" in t["combos"][0]["detalle"]
     assert "640×360" in t["combos"][1]["detalle"]
-    z = cliente.get(f"/videos/descargar/{lote}/zip", headers=h)
+    assert cliente.get(f"/videos/descargar/{lote}/zip", headers=h).status_code == 401      # la sesión no sirve de entrada
+    ent = cliente.post(f"/videos/descargar/{lote}/entrada", headers=h).json()["t"]
+    assert cliente.get("/videos/lote/" + lote, headers={"Authorization": "Bearer " + ent}).status_code == 401
+    z = cliente.get(f"/videos/descargar/{lote}/zip", params={"t": ent})
     assert z.status_code == 200 and z.headers["content-type"] == "application/zip"
     zp = tmp_path / "salida.zip"
     zp.write_bytes(z.content)
@@ -131,7 +134,7 @@ def test_flujo_completo_tres_hooks_un_desarrollo_un_cta(cliente, tmp_path):
         assert abs(float(flujos["video"]["duration"]) - float(flujos["audio"]["duration"])) < 0.05
         assert c["id"] != "H2-D1-C1" or int(flujos["video"]["nb_read_packets"]) == 2 * 30 + 3 * 30 + 1 * 30   # a 30 fps del hook
         assert c["id"] == "H2-D1-C1" or int(flujos["video"]["nb_read_packets"]) == 6 * 25
-    assert cliente.get(f"/videos/descargar/{lote}/video", params={"combo": "H2-D1-C1"}, headers=h).status_code == 200
+    assert cliente.get(f"/videos/descargar/{lote}/video", params={"combo": "H2-D1-C1", "t": ent}).status_code == 200
 
 
 def test_pedazo_fuera_de_lugar_devuelve_lo_recibido(cliente, tmp_path):
