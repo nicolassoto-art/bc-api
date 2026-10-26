@@ -1,16 +1,16 @@
-# Graph Report - bc-api  (2026-10-05)
+# Graph Report - bc-api  (2026-10-26)
 
 ## Corpus Check
-- 199 files · ~160,705 words
+- 220 files · ~182,315 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1728 nodes · 2902 edges · 289 communities (123 shown, 166 thin omitted)
-- Extraction: 96% EXTRACTED · 4% INFERRED · 0% AMBIGUOUS · INFERRED: 127 edges (avg confidence: 0.79)
+- 2124 nodes · 3789 edges · 304 communities (134 shown, 170 thin omitted)
+- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 173 edges (avg confidence: 0.78)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `7822e25c`
+- Built from commit: `9af51d0b`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -97,7 +97,7 @@
 - Auditoria de issues de importacion
 - Sincronizacion de modelos desde DOM
 - Verificacion de import de detalle
-- Compatibilidad de tipos Python 3.9+
+- video_proyecto.py
 - Descubrimiento del editor JetBrokers
 - Tests del healthcheck
 - Auditoria de superficies (todos)
@@ -133,7 +133,7 @@
 - Inicializador de servicios
 - Workflow de auditoria de superficies
 - Chequeo de datos ViMa
-- Chequeo de datos ViMa (v2)
+- estado_stock
 - Diagnostico completo Vivaceta
 - Inicializador de tests
 - check
@@ -153,7 +153,7 @@
 - diag_workview.py
 - diag_stock_total.py
 - parse_tipologia
-- 2026_07_14_0000-007_codigo_corto.py
+- __init__.py
 - 2026_07_23_0000-008_ultima_revision_at.py
 - 2026_07_23_0100-009_ticket_resolucion.py
 - check_proyecto.py
@@ -169,7 +169,7 @@
 - README: arquitectura y operacion bc-api
 - scripts/seed_from_jetbroker.py (planeado, aun no creado)
 - vps_install.sh
-- _build_idx_map
+- zadarma.py
 - _catalogo_vs_stock
 - env.py
 - audit_aj_urbana_freshness.py
@@ -184,31 +184,31 @@
 - discover_jb_editor.py
 - inspect_marketplace_workview.py
 - patch_modelo_huerfanas.py
-- rank_pendientes.py
+- capacitaciones_hls.py
 - review_all.py
 - review_full.py
-- main
+- tickets.py
 - audit_modelos_stock.py
 - audit_proyectos.py
-- diag_assets.py
-- diag_bod_raw.py
+- documentos.py
+- test_video_proyecto.py
 - diag_chips_full.py
 - diag_euro.py
 - diag_investigate.py
 - diag_mkt_types.py
 - diag_modelo_superficies.py
-- diag_paginador.py
-- diag_paginador_unidades.py
-- diag_vm_cotizar.py
+- test_video_proyecto.py
+- firma_api
+- test_estado_stock.py
 - diag_vm_stock.py
-- diag_vm_tipo.py
+- migrar_snapshot_viejo
 - diag_vm_typesel.py
 - fix_inmobiliaria_placeholder.py
 - reimport_todos_84.py
 - review_ingevec.py
 - review_issues.py
 - sync_modelos_from_dom.py
-- test_fetch_files.py
+- test_llamadas_consulta.py
 - verify_detail.py
 - diag_usuario
 - patch_publicar_catalogo.py
@@ -242,7 +242,7 @@
 - Workflow: Diag paginador unidades
 - Workflow: Diag vm scroll
 - Workflow: Diag vm scroll
-- Session
+- diag_investigate.py
 - BaseModel
 - Session
 - BaseModel
@@ -259,7 +259,7 @@
 - BaseModel
 - BaseModel
 - Session
-- Path
+- diag_modelo_superficies.py
 - datetime
 - Client
 - Path
@@ -271,36 +271,50 @@
 - Path
 - AsyncClient
 - diag_etiquetas_jb.py
-- diag_filtros_unidades.py
-- diag_headers.py
-- diag_rosas.py
+- diag_paginador.py
+- origen_stock.py
+- _SMTP
 - diag_workview.py
-- normalize_inmobiliarias
-- get_db
+- ._log_timeline_evento
+- rank_pendientes.py
+- .build_jb_style_excel
+- _build_idx_map
+- inspect_marketplace_workview.py
+- main
+- diag_bod_raw.py
+- diag_detail_page.py
+- diag_filtros_unidades.py
+- diag_paginador_unidades.py
+- diag_rosas.py
+- diag_vm_scroll2.py
+- diag_vm_typesel.py
+- diag_workview.py
+- diag_usuario
+- _respetar_reserva_bc
 
 ## God Nodes (most connected - your core abstractions)
 1. `JBImporter` - 91 edges
-2. `Proyecto` - 51 edges
-3. `Usuario` - 44 edges
-4. `estado_stock()` - 38 edges
-5. `Unidad` - 30 edges
-6. `subir_excel()` - 23 edges
-7. `build_daily_report()` - 22 edges
-8. `fallas_de_proyecto()` - 20 edges
-9. `_ficha()` - 20 edges
-10. `etiqueta_origen()` - 19 edges
+2. `Usuario` - 61 edges
+3. `Proyecto` - 60 edges
+4. `Llamada` - 52 edges
+5. `estado_stock()` - 38 edges
+6. `Unidad` - 33 edges
+7. `subir_excel()` - 23 edges
+8. `build_daily_report()` - 22 edges
+9. `fallas_de_proyecto()` - 20 edges
+10. `_ficha()` - 20 edges
 
 ## Surprising Connections (you probably didn't know these)
+- `main()` --indirect_call--> `Llamada`  [INFERRED]
+  scripts/zadarma_sincronizar.py → app/models/llamada.py
+- `test_sincronizar_idempotente()` --indirect_call--> `Llamada`  [INFERRED]
+  tests/test_gestion_setters.py → app/models/llamada.py
+- `llamadas()` --indirect_call--> `Llamada`  [INFERRED]
+  tests/test_llamadas_consulta.py → app/models/llamada.py
 - `test_mejoras_cuentan_a_cualquier_persona_y_nunca_a_robots()` --indirect_call--> `Proyecto`  [INFERRED]
   tests/test_informe_equipo.py → app/models/proyecto.py
-- `main()` --indirect_call--> `Proyecto`  [INFERRED]
-  scripts/backfill_codigo_corto.py → app/models/proyecto.py
-- `main()` --indirect_call--> `Proyecto`  [INFERRED]
-  scripts/backfill_precio_cotizacion_lista.py → app/models/proyecto.py
-- `preview_daily_report()` --indirect_call--> `db()`  [INFERRED]
-  app/main.py → tests/conftest.py
-- `preview_pendientes_pdf()` --indirect_call--> `db()`  [INFERRED]
-  app/main.py → tests/conftest.py
+- `proyecto()` --indirect_call--> `Proyecto`  [INFERRED]
+  tests/test_video_proyecto.py → app/models/proyecto.py
 
 ## Import Cycles
 - None detected.
@@ -309,23 +323,23 @@
 - **** — github_workflows_import_jb_workflow, github_workflows_batch_import_jb_workflow, github_workflows_monitor_health_workflow [EXTRACTED 1.00]
 - **** — eventos_registro, concept_eventos_anomalos_jsonl, github_workflows_registrar_eventos_workflow [EXTRACTED 1.00]
 
-## Communities (289 total, 166 thin omitted)
+## Communities (304 total, 170 thin omitted)
 
 ### Community 0 - "Rutas admin: informes e inmobiliarias"
-Cohesion: 0.08
-Nodes (46): Proyecto, Proyecto + entidades hijas (unidades, imágenes, documentos).  El modelo refleja, actualizar(), alertas_proyecto(), comercial_broker(), crear(), detalle(), detalle_publico() (+38 more)
+Cohesion: 0.09
+Nodes (45): diag_email(), normalize_inmobiliarias(), Unifica EN EL SISTEMA las inmobiliarias que son la misma con distinto tipeo, Diagnóstico SMTP (solo super admin). Sin args: estado de config.     Con ?send=1, Proyecto, actualizar(), alertas_proyecto(), comercial_broker() (+37 more)
 
 ### Community 1 - "Rutas de unidades (deptos)"
-Cohesion: 0.17
-Nodes (30): Red final: una unidad con marca de reserva nunca se guarda disponible.      Cubr, _respetar_reserva_bc(), Unidad, actualizar(), actualizar_arriendos(), crear(), crear_alerta_timeline(), crear_evento_timeline() (+22 more)
+Cohesion: 0.18
+Nodes (25): Unidad, actualizar(), actualizar_arriendos(), crear(), crear_alerta_timeline(), crear_evento_timeline(), descargar_plantilla(), eliminar() (+17 more)
 
 ### Community 2 - "Servicio de email y alertas"
 Cohesion: 0.11
 Nodes (33): aplicar_patch(), clasificar(), descargar_y_preparar_imagen(), es_candidata(), escribir_summary(), health_check(), listar_imagenes(), listar_proyectos() (+25 more)
 
 ### Community 3 - "Gestion de inmobiliarias (catalogo)"
-Cohesion: 0.11
-Nodes (27): es_cuenta_automatica(), etiqueta_origen(), True si el email corresponde a una cuenta de servicio/scraper.      Decide SOLO, Devuelve (texto_para_el_timeline, es_automatico).      Precedencia: origen explí, Tests de la etiqueta de origen del timeline de stock.  Bug que cubren (2026-09-0, Degradación segura: dice menos, nunca miente., El booleano NO puede depender del prefijo del texto.      Antes: `_es_auto = _or, Mientras unidades.py no cambie, el prefijo se mantiene por consistencia     visu (+19 more)
+Cohesion: 0.05
+Nodes (83): _aware(), es_alerta_stock_actualizado(), es_automatico(), _es_jetbrokers(), estado_stock(), grupo_publicacion(), motivo_legible(), _nombre_persona() (+75 more)
 
 ### Community 4 - "Reporte de importacion y utilidades scraping"
 Cohesion: 0.10
@@ -339,21 +353,25 @@ Nodes (27): _excel(), _marcar(), _pid(), _proyecto_con(), Marca "reservada por B
 Cohesion: 0.47
 Nodes (6): Workflow: Batch import JB (encadenamiento dinámico, L-V 10-18 Chile), Workflow: Batch re-import (plantas + vacíos), Workflow: Import ALL pending JB (uno a la vez, hasta terminar), Workflow: Import JetBrokers project to bc-api, Workflow: List JetBrokers projects, Workflow: Monitor health bc-api + cadena import
 
+### Community 7 - "Modulo JBImporter (importador core)"
+Cohesion: 0.16
+Nodes (16): Llamada, llamada(), ModeloFalso, Evaluador de llamadas: puntaje, omisiones, reintentos y job con modelo simulado., test_job_evalua_pendiente(), test_job_no_toma_las_recien_llegadas(), test_job_registrado_en_el_programador(), test_job_reintenta_y_luego_error() (+8 more)
+
 ### Community 8 - "Autenticacion y esquemas de sesion"
 Cohesion: 0.06
 Nodes (80): _actualizar(), admin_herramientas(), _agregar(), _api_url_para(), _arrancar_vigia(), _audios(), _avisar_falla(), _barrer_viejos() (+72 more)
 
 ### Community 9 - "Diagnosticos API JetBrokers"
-Cohesion: 0.09
-Nodes (23): _build_jb_extras(), _desc_modificacion(), _fmt_val(), _num_or_none(), _parse_dorm_banos(), _parse_jb_bodegas(), _parse_jb_estacionamientos(), _parse_jb_packs() (+15 more)
+Cohesion: 0.50
+Nodes (4): main(), _norm(), Backfill: deducir Proyecto.region desde Proyecto.comuna.  Muchos proyectos impor, Lowercase + strip + sin tildes (para matchear 'Ñuñoa' con 'nunoa').
 
 ### Community 10 - "Descarga y gestion de assets JB"
-Cohesion: 0.11
-Nodes (30): _is_jb_excel(), _parse_jb_excel(), Parsea sheet UNIDAD del Excel JB → lista de dicts compatibles con bc-api.      R, Detecta si el .xlsx es formato JB (tiene los 4 sheets típicos)., check_baja_masiva(), get_jwt(), _is_depto(), sync_jb_stock.py — Sync liviano de stock JetBrokers → bc-api (bajo consumo JB). (+22 more)
+Cohesion: 0.20
+Nodes (15): check_baja_masiva(), get_jwt(), _is_depto(), sync_jb_stock.py — Sync liviano de stock JetBrokers → bc-api (bajo consumo JB)., Obtiene un JWT — prioriza BC_API_JWT (ya fresco), sino exchange con BC_TOKEN., Compara deptos disponibles actuales en bc-api vs los que trae el Excel nuevo., Tests de la guardia anti-baja-masiva de scripts/sync_jb_stock.py (pura, sin red/, test_baja_bajo_piso_absoluto_no_aborta() (+7 more)
 
 ### Community 12 - "Exportador Playwright del catalogo JB"
-Cohesion: 0.20
-Nodes (16): DocumentoOut, ImagenOut, ImagenUpdate, ProyectoBase, ProyectoIn, ProyectoOut, ProyectoSummary, BaseModel (+8 more)
+Cohesion: 0.16
+Nodes (15): _estado_stock_seguro(), listar(), _ProyectoLigero, Lo mínimo de un Proyecto que lee estado_stock, armado desde la fila del listado, estado_stock sin tumbar el listado: si un proyecto trae datos raros, el listado, ProyectoSummary, Vista resumida para el listado — sin unidades/imagenes para no inflar el payload, datos() (+7 more)
 
 ### Community 13 - "Mapeo de campos JB hacia bc-api"
 Cohesion: 0.10
@@ -361,51 +379,51 @@ Nodes (29): _es_protegido(), True si el proyecto no debe tocarse desde el import
 
 ### Community 14 - "Vista previa del informe diario"
 Cohesion: 0.09
-Nodes (21): _acquire_scheduler_lock(), diag_email(), diag_usuario(), preview_fallas_pdf(), preview_pendientes_pdf(), bc-api · backend privado para Herramientas BigCapital.  Uvicorn entry: `uvicorn, Dispara el informe diario manualmente (solo super_admin) y lo ENVÍA SOLO A QUIEN, PDF con el listado COMPLETO de pendientes vigentes (críticos, sin cortar —     p (+13 more)
+Nodes (21): _acquire_scheduler_lock(), preview_fallas_pdf(), preview_pendientes_pdf(), bc-api · backend privado para Herramientas BigCapital.  Uvicorn entry: `uvicorn, Dispara el informe diario manualmente (solo super_admin) y lo ENVÍA SOLO A QUIEN, PDF con el listado COMPLETO de pendientes vigentes (críticos, sin cortar —     p, PDF completo del correo «fallas en fichas», SIN enviarlo ni guardar estado., True solo en UN worker. uvicorn con >1 worker = N procesos, cada uno corre el (+13 more)
 
 ### Community 15 - "Ruta de importacion batch (API)"
 Cohesion: 0.17
 Nodes (20): batch_import(), BatchImportRequest, BatchImportResult, _build_notas(), ImportDetail, _make_proyecto(), _make_unidades(), _normalize_jb_photo_url() (+12 more)
 
 ### Community 16 - "Generacion HTML del informe diario"
-Cohesion: 0.12
-Nodes (18): preview_daily_report(), Devuelve el HTML del informe diario con los datos REALES de prod, SIN enviarlo, _build_html(), _calidad_band(), _catalogo_vs_stock_html(), _disclaimer_html(), _faltantes_html(), _kpi_cell() (+10 more)
+Cohesion: 0.16
+Nodes (18): _cliente(), enmascarar(), evaluar_llamada(), evaluar_pendientes(), evaluar_transcripcion(), motivo_para_omitir(), puntaje_total(), Any (+10 more)
 
 ### Community 17 - "Reporte de actividad del operador"
 Cohesion: 0.11
 Nodes (45): comercial_normalizado(), _ejemplos(), es_depto(), fallas_de_proyecto(), fallas_seguras(), _fisico(), _fmt_pct(), _it() (+37 more)
 
 ### Community 19 - "Rutas de documentos del proyecto"
-Cohesion: 0.33
-Nodes (11): Documento, actualizar(), DocumentoUpdate, DocumentoUrlIn, eliminar(), _ensure_project(), listar(), Upload / list / patch / delete de documentos (Brochure, Plano, SPA, etc.) por pr (+3 more)
+Cohesion: 0.50
+Nodes (4): geocode(), main(), Geocodificar masivamente proyectos sin GPS usando Nominatim (OpenStreetMap).  83, Devuelve (lat, lon) o None si no resuelve.
 
 ### Community 21 - "Test de paridad DOM (JB vs BC)"
 Cohesion: 0.12
 Nodes (15): 1. Lista de proyectos de BigCapital (org `uv13koru`), 2. Detalle de proyecto (la ficha completa — 75 campos), 3. Modelos + plantas, 4. Unidades (stock individual), 5. Archivos (fotos + documentos), 6. Descarga de imágenes, API pública JetBrokers 7.43.1 — mapa completo (descubierto 2026-06-05), Autenticación (+7 more)
 
 ### Community 22 - "Rutas de imagenes del proyecto"
-Cohesion: 0.15
-Nodes (24): _attach_pendientes_pdf(), Adjunta el PDF con TODOS los pendientes vigentes (persisten + nuevos). Si no, Disparado por APScheduler L-V 09am. Retorna el estado real del envío     ('envia, Email INMEDIATO cuando algo falla (scraper, importación, etc.).      Lo emiten l, send_daily_report(), send_error_alert(), _configured(), enviar_html() (+16 more)
+Cohesion: 0.19
+Nodes (20): Email INMEDIATO cuando algo falla (scraper, importación, etc.).      Lo emiten l, send_error_alert(), _configured(), enviar_html(), _esc(), _fecha_cl(), _html(), notify_change() (+12 more)
 
 ### Community 23 - "Verificacion visual con IA (AI Vision)"
-Cohesion: 0.26
-Nodes (13): Inmobiliaria, actualizar(), crear(), eliminar(), _gen_id(), listar(), _normalize(), _proyectos_usados_map() (+5 more)
+Cohesion: 0.16
+Nodes (17): Inmobiliaria, Catálogo maestro de inmobiliarias.  Antes vivía en localStorage del navegador de, actualizar(), crear(), eliminar(), _gen_id(), listar(), _normalize() (+9 more)
 
 ### Community 24 - "Importacion desde export manual JB"
-Cohesion: 0.12
-Nodes (14): FastAPI dependencies for auth: extract user from Authorization header., super_admin(), create_token(), hash_password(), JWT + password hashing., Returns (token, expires_in_seconds)., verify_password(), main() (+6 more)
+Cohesion: 0.11
+Nodes (20): exchange_bc_token(), ExchangeIn, login(), me(), Exchange a legacy bc_token for a bc-api JWT.      Validates the token against th, LoginIn, TokenOut, UserOut (+12 more)
 
 ### Community 25 - "Motor del informe diario de stock"
-Cohesion: 0.06
-Nodes (55): _age_hours(), _alertas_de_proyecto(), _antiguedad_color(), build_daily_report(), _calidad_score(), _catalogo_vs_stock(), _critico_key(), _disp() (+47 more)
+Cohesion: 0.08
+Nodes (31): _age_hours(), _alertas_de_proyecto(), _antiguedad_color(), build_daily_report(), _calidad_score(), _catalogo_vs_stock(), _critico_key(), _disp() (+23 more)
 
 ### Community 26 - "Calculo de metricas del informe diario"
-Cohesion: 0.07
-Nodes (17): ImportReport, AsyncClient, Path, Extrae modelos únicos desde el array de units, con sus blueprints., Llama /api/project-file/{jb_id}/list/0 para listar todos los archivos del proyec, Descarga TODOS los archivos del proyecto (fotos+planos+docs) + cover., Borra todas las Imagenes con categoria que empieza con 'jb-' o 'cover'., Sube TODOS los assets descargados a bc-api con categoria apropiada.          IDE (+9 more)
+Cohesion: 0.08
+Nodes (14): ImportReport, AsyncClient, Path, Extrae modelos únicos desde el array de units, con sus blueprints., Llama /api/project-file/{jb_id}/list/0 para listar todos los archivos del proyec, Descarga TODOS los archivos del proyecto (fotos+planos+docs) + cover., Borra todas las Imagenes con categoria que empieza con 'jb-' o 'cover'., Sube TODOS los assets descargados a bc-api con categoria apropiada.          IDE (+6 more)
 
 ### Community 27 - "CI/CD, despliegue y seed inicial"
 Cohesion: 0.18
-Nodes (22): _clave_orden(), fusionar_timeline(), parse_fecha(), Any, datetime, Historia (timeline) de un proyecto — bc-api · 2026-10-05  La historia vive en `P, Fecha de un evento → datetime aware UTC, o None si no se puede leer.      Acepta, Tope de la historia. Conserva el orden recibido.      Se quedan: todo evento que (+14 more)
+Nodes (23): _clave_orden(), es_alerta(), fusionar_timeline(), parse_fecha(), Any, datetime, Historia (timeline) de un proyecto — bc-api · 2026-10-05  La historia vive en `P, Fecha de un evento → datetime aware UTC, o None si no se puede leer.      Acepta (+15 more)
 
 ### Community 28 - "Test de paridad UI campo a campo"
 Cohesion: 0.17
@@ -420,12 +438,12 @@ Cohesion: 0.09
 Nodes (33): Dispara el procesador de inbox manualmente (solo super_admin). Lee emails con, trigger_inbox_poll(), _aplicar_excel(), _dominio_de(), _extract_body_text(), _extract_from_original(), _extraer_nombre_proyecto_del_excel(), _fetch_new() (+25 more)
 
 ### Community 33 - "Borrado de proyecto antes de reimportar"
-Cohesion: 0.25
-Nodes (10): date, _dump_paginator(), _first(), main(), normalize_quote(), _num(), scrape_jb_quotes.py — Baja TODAS las cotizaciones de la organización desde JetBr, Diagnóstico (sin PII): vuelca la estructura del paginador de /quotes     para sa (+2 more)
+Cohesion: 0.29
+Nodes (9): _dump_paginator(), _first(), main(), normalize_quote(), _num(), scrape_jb_quotes.py — Baja TODAS las cotizaciones de la organización desde JetBr, Diagnóstico (sin PII): vuelca la estructura del paginador de /quotes     para sa, Primer valor no vacío entre varios nombres de campo posibles. (+1 more)
 
 ### Community 34 - "Configuracion de la aplicacion (Settings)"
-Cohesion: 0.29
-Nodes (3): Path, Settings, BaseSettings
+Cohesion: 0.18
+Nodes (4): Path, correo (minúsculas) → anexo., Settings, BaseSettings
 
 ### Community 38 - "Reimportacion de proyectos multibloque"
 Cohesion: 0.26
@@ -436,8 +454,8 @@ Cohesion: 0.26
 Nodes (12): bcapi_login(), bcapi_upsert(), filter_by_org(), main(), Importa proyectos desde un EXPORT MANUAL del usuario logueado en JetBroker.  Flu, Filtra proyectos cuya organization matchee org_query (case-insensitive, fuzzy)., Transforma proyecto JB → payload bc-api., to_bcapi_payload() (+4 more)
 
 ### Community 40 - "Permisos de acceso a Stock/Worker"
-Cohesion: 0.29
-Nodes (8): HTTPAuthorizationCredentials, current_user(), Valida el token de servicio del Cloudflare Worker (catálogo público).      Compa, Acceso a Stock propio: super admin O usuario con permiso de stock.      El permi, service_token(), stock_access(), decode_token(), Raises JWTError on invalid/expired.
+Cohesion: 0.48
+Nodes (6): extraer(), _fecha(), main(), _pares(), datetime, Extrae las reuniones de las setters desde la foto de GHL (latest.json) para bc-a
 
 ### Community 59 - "Script de instalacion en el VPS"
 Cohesion: 0.26
@@ -445,7 +463,7 @@ Nodes (12): append_event(), detect_bc_anomalies(), detect_workflow_anomalies(), 
 
 ### Community 62 - "Diagnostico de carga de detalle (click)"
 Cohesion: 0.05
-Nodes (32): _bajada_jb_habilitada(), BajadaJBApagada, _exigir_bajada_habilitada(), Exception, jb_importer.py — Importador JetBrokers → bc-api.  Módulo reusable. Diseñado para, Se intentó bajar stock de JetBrokers con la bajada apagada., Sentinel interno para saltar una sección de scrape_marketplace_workview     en m, _SkipSection (+24 more)
+Nodes (30): _bajada_jb_habilitada(), BajadaJBApagada, _exigir_bajada_habilitada(), Exception, jb_importer.py — Importador JetBrokers → bc-api.  Módulo reusable. Diseñado para, Se intentó bajar stock de JetBrokers con la bajada apagada., Sentinel interno para saltar una sección de scrape_marketplace_workview     en m, _SkipSection (+22 more)
 
 ### Community 64 - "Scraping de etiquetas JB"
 Cohesion: 0.21
@@ -461,19 +479,15 @@ Nodes (13): Smoke test del CRUD de proyectos., Si el server no tiene BC_API_SERV
 
 ### Community 69 - "Investigacion de casos puntuales"
 Cohesion: 0.20
-Nodes (9): Eventos anómalos — registro automático, 🚨 Fallos de workflow (92 en total, mostrando últimos 30), ℹ Batches fuera de ventana L-V 10-18 (120 en total, mostrando últimos 30), ℹ Errores leyendo GH CLI (1 en total, mostrando últimos 1), ℹ Inmobiliaria sin asignar (32 en total, mostrando últimos 30), ℹ Nombre stub no actualizado (2 en total, mostrando últimos 2), ℹ Workflows cancelados (240 en total, mostrando últimos 30), ⚠ Proyectos con modelos pero sin unidades (175 en total, mostrando últimos 30) (+1 more)
-
-### Community 71 - "Diagnostico de superficies por modelo"
-Cohesion: 0.24
-Nodes (10): Ticket, actualizar(), crear(), listar(), Tickets de reporte de fallas (Fase 5).  - POST  /tickets        → crear (cualqui, Cambia el estado de un ticket (abierto/cerrado) SIN tocar la resolución.     Lo, Marca resuelto CON evidencia: qué se hizo (texto, obligatorio) + captura     de, Crea un ticket. Cualquier usuario autenticado de Herramientas puede hacerlo. (+2 more)
+Nodes (9): Eventos anómalos — registro automático, 🚨 Fallos de workflow (127 en total, mostrando últimos 30), ℹ Batches fuera de ventana L-V 10-18 (135 en total, mostrando últimos 30), ℹ Errores leyendo GH CLI (1 en total, mostrando últimos 1), ℹ Inmobiliaria sin asignar (32 en total, mostrando últimos 30), ℹ Nombre stub no actualizado (2 en total, mostrando últimos 2), ℹ Workflows cancelados (270 en total, mostrando últimos 30), ⚠ Proyectos con modelos pero sin unidades (190 en total, mostrando últimos 30) (+1 more)
 
 ### Community 73 - "db.py"
-Cohesion: 0.24
-Nodes (5): SQLAlchemy engine + session factory., Re-export models for Alembic autogenerate + convenience., Catálogo maestro de inmobiliarias.  Antes vivía en localStorage del navegador de, Tickets de reporte de fallas (Fase 5).  Cualquier usuario autenticado de Herrami, Usuario — auth and audit.
+Cohesion: 0.16
+Nodes (25): acotar_rango(), alertas(), calidad(), cargar_reuniones(), _fin(), gestion_dia(), gestion_rango(), guardar_metas() (+17 more)
 
-### Community 82 - "Compatibilidad de tipos Python 3.9+"
-Cohesion: 0.29
-Nodes (8): exchange_bc_token(), ExchangeIn, login(), me(), Exchange a legacy bc_token for a bc-api JWT.      Validates the token against th, LoginIn, TokenOut, UserOut
+### Community 82 - "video_proyecto.py"
+Cohesion: 0.08
+Nodes (53): _ahora(), _bitrate(), _borrar_archivos(), calidades_con_respaldo(), cancelar(), _comando_hls(), _dir_trabajo(), elegir_calidades() (+45 more)
 
 ### Community 83 - "Descubrimiento del editor JetBrokers"
 Cohesion: 0.20
@@ -487,13 +501,9 @@ Nodes (9): _card(), _imp(), Tests de JBImporter._parse_marketplace_unidades (pur
 Cohesion: 0.31
 Nodes (8): main(), normalize(), verify_jb_ui_parity.py — Test 4: comparación UI campo-por-campo.  Abre BC vista, Scrape BC vista. Inyecta bc_api_token directo en localStorage para saltar login., Normaliza valor para comparación: lowercase, sin acentos, sin espacios extra., Scrape el tab General del editor JB. Retorna lista de {section, label, value}., scrape_bc_vista(), scrape_jb_general()
 
-### Community 100 - "Migracion: tabla inmobiliarias"
-Cohesion: 0.39
-Nodes (8): _crear_proy(), _jb_excel(), Tests del flag permitir_sin_unidades en POST /proyectos/{id}/unidades/excel/uplo, Excel JB mínimo: UNIDAD (opcionalmente vacío) + ESTAC + BODEGA + INSTRUCCIONES., SEGURIDAD: un upload sin deptos + flag NO debe dar de baja deptos existentes., test_flag_no_da_de_baja_deptos_existentes(), test_unidad_vacia_con_flag_sincroniza_estac_bodega(), test_unidad_vacia_sin_flag_da_400()
-
 ### Community 101 - "Migracion: timestamp de stock"
 Cohesion: 0.09
-Nodes (46): conteo_stock_interno(), preview_fallas_fichas(), preview_stock_sin_revisar(), HTML del correo «proyectos sin revisar» con datos reales, SIN enviarlo., HTML del correo «fallas en fichas» con datos reales, SIN enviarlo ni guardar est, Números para decidir el encendido: fichas por regla (y % del total), fallas por, _editor_url(), Link al EDITOR del proyecto (donde se corrige), opcionalmente en una pestaña. (+38 more)
+Nodes (47): conteo_stock_interno(), preview_fallas_fichas(), preview_stock_sin_revisar(), HTML del correo «proyectos sin revisar» con datos reales, SIN enviarlo., HTML del correo «fallas en fichas» con datos reales, SIN enviarlo ni guardar est, Números para decidir el encendido: fichas por regla (y % del total), fallas por, _editor_url(), Link al EDITOR del proyecto (donde se corrige), opcionalmente en una pestaña. (+39 more)
 
 ### Community 102 - "Migracion: tabla de tickets"
 Cohesion: 0.25
@@ -535,9 +545,9 @@ Nodes (6): build_numero_to_unitid_map(), main(), scrape_superficies_individual.p
 Cohesion: 0.43
 Nodes (6): find_proyecto_by_jb_id(), get_jwt(), main(), wipe_proyecto_jb.py — Borra TODO de un proyecto antes de re-importar limpio.  Es, Busca proyecto cuyo extra.jb_id == jb_id., wipe()
 
-### Community 118 - "Chequeo de datos ViMa (v2)"
-Cohesion: 0.19
-Nodes (23): estado_stock(), Estado del stock del proyecto `p` (Proyecto o un objeto con los mismos campos)., _auto(), _ev(), _iso(), _naive(), _p(), test_al_dia_y_sin_revisar_a_los_4_dias() (+15 more)
+### Community 118 - "estado_stock"
+Cohesion: 0.67
+Nodes (3): main(), _mask(), diag_auth.py — Resuelve el 401: ¿es el header de versión (7.42.0 vs 7.43.1) o el
 
 ### Community 119 - "Diagnostico completo Vivaceta"
 Cohesion: 0.15
@@ -564,12 +574,12 @@ Cohesion: 0.47
 Nodes (5): main(), verify_jb_visual.py — Test 3: screenshots side-by-side de JB editor vs BC vista., Usa una segunda página de Playwright (reusar mismo browser para ahorrar)., screenshot_bc_tabs(), screenshot_jb_tabs()
 
 ### Community 126 - "Registro de imports a bc-api"
-Cohesion: 0.50
-Nodes (4): count_jb_assets(), main(), audit_assets_vs_jb.py — Audita fotos+plantas en bc-api y compara con JB.  1. Lis, Navega a /projects/edit/{jb_id} → tab Documentos y cuenta tipos.
+Cohesion: 0.08
+Nodes (59): _actualizar(), _archivo_codigo(), _armar_combos(), _armar_zip(), _arrancar_vigia(), _barrer(), borrar_clip(), _clave() (+51 more)
 
 ### Community 129 - "audit_aj_urbana_freshness.py"
-Cohesion: 0.15
-Nodes (12): _es_depto(), main(), _norm(), Backfill: deriva tipologia="{d}D{b}B" para unidades-depto sin tipología, usando, main(), _norm(), Backfill: deducir Proyecto.region desde Proyecto.comuna.  Muchos proyectos impor, Lowercase + strip + sin tildes (para matchear 'Ñuñoa' con 'nunoa'). (+4 more)
+Cohesion: 0.60
+Nodes (4): _es_depto(), main(), _norm(), Backfill: deriva tipologia="{d}D{b}B" para unidades-depto sin tipología, usando
 
 ### Community 130 - "import_marketplace_workview.py"
 Cohesion: 0.29
@@ -580,20 +590,20 @@ Cohesion: 0.50
 Nodes (4): main(), diag_csv_batch.py — Diagnóstico read-only de los 20 proyectos del CSV de Ingevec, Sluggify igual que bc-api: minúsculas, sin acentos, espacios → guiones., slugify()
 
 ### Community 137 - "diag_stock_total.py"
-Cohesion: 0.50
-Nodes (4): find_stock_fields(), main(), diag_stock_total.py — Para los 5 proyectos sin unidades, consulta la API JB y du, Recorre recursivamente el JSON y devuelve campos numéricos cuyo nombre     sugie
+Cohesion: 0.11
+Nodes (8): Gestión diaria de las setters, sincronización con Zadarma y accesos., test_acceso_informes(), test_eco_4444_no_cuenta(), test_metas_editables(), test_setter_ve_solo_lo_suyo(), test_sincronizar_idempotente(), test_vista_previa_admin(), _token_para()
 
 ### Community 138 - "parse_tipologia"
 Cohesion: 0.50
 Nodes (4): main(), parse_tipologia(), fix_huerfanas_modelos.py — Para cada unidad huérfana (modelo no existe en extra., 1D-1B → (1,1); 2D2B → (2,2); 3D-2B(5) → (3,2).
 
-### Community 139 - "2026_07_14_0000-007_codigo_corto.py"
-Cohesion: 0.13
-Nodes (18): _aware(), es_alerta_stock_actualizado(), es_automatico(), _es_jetbrokers(), grupo_publicacion(), motivo_legible(), _nombre_persona(), Any (+10 more)
-
-### Community 140 - "2026_07_23_0000-008_ultima_revision_at.py"
+### Community 139 - "__init__.py"
 Cohesion: 0.29
 Nodes (13): _excel(), _proy(), Unidad NUEVA por Excel: descuento/bono con celda vacía quedan None ("sin dato"),, Excel JB mínimo con columnas Descuento y Bonopie en la hoja UNIDAD., Proyecto NUEVO por corrida: con un id fijo, una corrida anterior contra la misma, Un 0 que SÍ viene en el Excel es dato real de la fuente: se guarda 0., Regresión del camino de actualización: vacío sigue preservando lo cargado., _subir() (+5 more)
+
+### Community 140 - "2026_07_23_0000-008_ultima_revision_at.py"
+Cohesion: 0.67
+Nodes (3): main(), diag_mkt_stock.py — Encuentra endpoints de estac/bodegas/packs en MARKETPLACE (r, summ()
 
 ### Community 141 - "2026_07_23_0100-009_ticket_resolucion.py"
 Cohesion: 0.50
@@ -615,13 +625,13 @@ Nodes (4): main(), verify_jb_all.py — Orquestador: corre los 3 tests en serie.
 Cohesion: 0.70
 Nodes (4): die(), log(), vps_install.sh script, warn()
 
-### Community 155 - "_build_idx_map"
-Cohesion: 0.50
-Nodes (4): _build_idx_map(), _normalize_label(), Normaliza header: sin tildes, lowercase, sin puntos, espacios normalizados., Mapea índice de columna → bc-api key, con matching robusto (case+tildes+sinónimo
+### Community 155 - "zadarma.py"
+Cohesion: 0.10
+Nodes (34): _anexo(), aplicar_evento(), enlace_grabacion(), _entero(), _ext(), _fecha(), fila_estadistica_a_campos(), firma_evento() (+26 more)
 
 ### Community 156 - "_catalogo_vs_stock"
 Cohesion: 0.36
-Nodes (10): Imagen, actualizar(), eliminar(), _ensure_project(), ImagenUrlIn, listar(), Upload / list / delete de imágenes por proyecto.  Las imágenes se guardan en dis, Registra una imagen por URL externa (sin subir archivo).     Útil para importar (+2 more)
+Nodes (7): firma_api(), Firma de la API REST: base64(hex(HMAC-SHA1(metodo + query + md5(query))))., _llamar(), main(), _oculto(), Registra en Zadarma la URL del webhook de bc-api y activa la transcripción.  Uso, Texto de la respuesta sin el token del webhook (la URL registrada lo lleva en ?k
 
 ### Community 157 - "env.py"
 Cohesion: 0.13
@@ -639,17 +649,21 @@ Nodes (3): main(), clasificar_csv.py — Cruza el CSV master (92 proyectos JB) c
 Cohesion: 0.67
 Nodes (3): main(), Reescribe sintaxis de tipos para que el código sea Python 3.9+ compatible.  PEP, transform()
 
+### Community 161 - "diag_api_explore.py"
+Cohesion: 0.14
+Nodes (13): Llamadas de las setters (Zadarma) y registro crudo de los eventos recibidos.  `z, ZadarmaEvento, main(), Trae a bc-api las llamadas de Zadarma de un período (respaldo del webhook).  Uso, _enviar(), pbx(), Webhook de Zadarma: firmas, barreras e idempotencia de las llamadas., test_ip_fuera_de_rango() (+5 more)
+
 ### Community 162 - "diag_auth.py"
-Cohesion: 0.67
-Nodes (3): main(), _mask(), diag_auth.py — Resuelve el 401: ¿es el header de versión (7.42.0 vs 7.43.1) o el
+Cohesion: 0.07
+Nodes (42): preview_daily_report(), Devuelve el HTML del informe diario con los datos REALES de prod, SIN enviarlo, _build_html(), _calidad_band(), _catalogo_vs_stock_html(), _disclaimer_html(), _enriquecer_resueltos(), _faltantes_html() (+34 more)
 
 ### Community 163 - "diag_detail.py"
 Cohesion: 0.67
 Nodes (3): main(), diag_detail.py — Caza el endpoint de DETALLE de proyecto en la API pública JB 7., _summ()
 
 ### Community 164 - "diag_mkt_stock.py"
-Cohesion: 0.67
-Nodes (3): main(), diag_mkt_stock.py — Encuentra endpoints de estac/bodegas/packs en MARKETPLACE (r, summ()
+Cohesion: 0.12
+Nodes (21): boton(), card(), codigo(), dato(), email_html(), esc(), etiqueta(), h2() (+13 more)
 
 ### Community 165 - "diag_pipeline.py"
 Cohesion: 0.67
@@ -664,56 +678,96 @@ Cohesion: 0.67
 Nodes (3): log(), discover_jb_editor.py — Descubre qué expone el editor de JetBrokers para 1 proye, run()
 
 ### Community 168 - "inspect_marketplace_workview.py"
-Cohesion: 0.67
-Nodes (3): main(), inspect_marketplace_workview.py — Reconocimiento de una URL /marketplace/workvie, run()
+Cohesion: 0.14
+Nodes (18): Re-export models for Alembic autogenerate + convenience., Imagen, Proyecto + entidades hijas (unidades, imágenes, documentos).  El modelo refleja, DeclarativeBase, Base, get_db(), SQLAlchemy engine + session factory., FastAPI dependency: yields a SQLAlchemy session per request. (+10 more)
 
 ### Community 169 - "patch_modelo_huerfanas.py"
 Cohesion: 0.67
 Nodes (3): main(), parse_db(), patch_modelo_huerfanas.py — Repara unidades con modelo="" en proyectos afectados
 
+### Community 170 - "capacitaciones_hls.py"
+Cohesion: 0.31
+Nodes (12): alturas_para(), generar(), generar_async(), hls_de(), _mapa(), Any, Path, _raiz() (+4 more)
+
 ### Community 171 - "review_all.py"
 Cohesion: 0.67
 Nodes (3): gp(), main(), review_all.py — Revisión final consolidada de todos los proyectos importados v2.
 
-### Community 173 - "main"
-Cohesion: 0.67
-Nodes (3): _gen_id(), main(), Seed: poblar el catálogo maestro 'inmobiliarias' a partir de los nombres distint
+### Community 173 - "tickets.py"
+Cohesion: 0.09
+Nodes (23): _build_jb_extras(), _desc_modificacion(), _fmt_val(), _num_or_none(), _parse_dorm_banos(), _parse_jb_bodegas(), _parse_jb_estacionamientos(), _parse_jb_packs() (+15 more)
 
-### Community 187 - "diag_assets.py"
-Cohesion: 0.51
-Nodes (9): _leer(), _pid(), _proyecto(), Estado del stock (correo "proyectos sin revisar") — 2026-10-05.  Regla de Nicolá, test_reserva_de_la_intranet_no_cuenta_como_revision(), test_verificado_con_archivo_no_anota_evento(), test_verificado_con_cuerpo_es_revision_de_persona(), test_verificado_en_papelera_y_sin_sesion() (+1 more)
-
-### Community 188 - "diag_bod_raw.py"
-Cohesion: 0.32
-Nodes (7): _norm(), norm_inmobiliaria(), Etiqueta de origen para los eventos de stock del timeline — bc-api · 2026-09-01, Nombre de inmobiliaria normalizado (sin tildes, minúsculas, espacios colapsados), Nombre corto del robot de una inmobiliaria para mostrar a personas     ("robot I, Normaliza para usar como clave: sin tildes, minúsculas, espacios colapsados., robot_de()
+### Community 188 - "test_video_proyecto.py"
+Cohesion: 0.22
+Nodes (16): DocumentoOut, ImagenOut, ImagenUpdate, ProyectoBase, ProyectoIn, ProyectoOut, BaseModel, Pydantic schemas: input/output shapes para los endpoints REST. (+8 more)
 
 ### Community 191 - "diag_investigate.py"
 Cohesion: 0.50
 Nodes (3): main(), import_marketplace_workview.py — Importa un proyecto de marketplace/workview (pr, run()
 
-### Community 195 - "diag_paginador_unidades.py"
+### Community 192 - "diag_mkt_types.py"
+Cohesion: 0.23
+Nodes (14): Documento, actualizar(), DocumentoUpdate, DocumentoUrlIn, eliminar(), _ensure_project(), listar(), Upload / list / patch / delete de documentos (Brochure, Plano, SPA, etc.) por pr (+6 more)
+
+### Community 193 - "diag_modelo_superficies.py"
+Cohesion: 0.18
+Nodes (26): alertas_hoy(), _anexo_propio(), calidad(), detalle_llamada(), fijar_metas(), _filtrar(), gestion(), gestion_rango() (+18 more)
+
+### Community 200 - "migrar_snapshot_viejo"
+Cohesion: 0.25
+Nodes (15): _is_jb_excel(), _parse_jb_excel(), Parsea sheet UNIDAD del Excel JB → lista de dicts compatibles con bc-api.      R, Detecta si el .xlsx es formato JB (tiene los 4 sheets típicos)., run_one(), _imp(), Round-trip: JBImporter.build_jb_style_excel() -> app.routes.unidades._parse_jb_e, Regresión: encontrado en producción (unidad 1402, modelo "B") -- el     modelo d (+7 more)
+
+### Community 209 - "diag_usuario"
+Cohesion: 0.39
+Nodes (8): _crear_proy(), _jb_excel(), Tests del flag permitir_sin_unidades en POST /proyectos/{id}/unidades/excel/uplo, Excel JB mínimo: UNIDAD (opcionalmente vacío) + ESTAC + BODEGA + INSTRUCCIONES., SEGURIDAD: un upload sin deptos + flag NO debe dar de baja deptos existentes., test_flag_no_da_de_baja_deptos_existentes(), test_unidad_vacia_con_flag_sincroniza_estac_bodega(), test_unidad_vacia_sin_flag_da_400()
+
+### Community 241 - "diag_investigate.py"
+Cohesion: 0.21
+Nodes (12): _clip(), _dur(), _entrar(), Variaciones de video: acceso por código, subida por pedazos, combinaciones y ZIP, _subir(), test_archivo_que_no_es_video_se_rechaza(), test_barrido_borra_lotes_de_mas_de_tres_dias(), test_codigo_vale_una_sola_vez() (+4 more)
+
+### Community 283 - "diag_paginador.py"
+Cohesion: 0.19
+Nodes (11): Tickets de reporte de fallas (Fase 5).  Cualquier usuario autenticado de Herrami, Ticket, actualizar(), crear(), listar(), Tickets de reporte de fallas (Fase 5).  - POST  /tickets        → crear (cualqui, Cambia el estado de un ticket (abierto/cerrado) SIN tocar la resolución.     Lo, Marca resuelto CON evidencia: qué se hizo (texto, obligatorio) + captura     de (+3 more)
+
+### Community 286 - "diag_workview.py"
+Cohesion: 0.20
+Nodes (13): current_user(), lector_informes(), Session, FastAPI dependencies for auth: extract user from Authorization header., Valida el token de servicio del Cloudflare Worker (catálogo público).      Compa, Super admin o lectores de Informes (settings.informes_lectores): pestaña Llamada, Acceso a Stock propio: super admin O usuario con permiso de stock.      El permi, service_token() (+5 more)
+
+### Community 287 - "._log_timeline_evento"
+Cohesion: 0.33
+Nodes (3): #93: deja traza en extra.timeline cuando el import corre por los         fallbac, POST de unidades que YA vienen en formato bc-api (del scrape DOM Unidades)., Inserta unidades en bc-api desde el array de API JB.          Usa el campo apart
+
+### Community 288 - "rank_pendientes.py"
+Cohesion: 0.50
+Nodes (4): find_stock_fields(), main(), diag_stock_total.py — Para los 5 proyectos sin unidades, consulta la API JB y du, Recorre recursivamente el JSON y devuelve campos numéricos cuyo nombre     sugie
+
+### Community 290 - "_build_idx_map"
+Cohesion: 0.50
+Nodes (4): _build_idx_map(), _normalize_label(), Normaliza header: sin tildes, lowercase, sin puntos, espacios normalizados., Mapea índice de columna → bc-api key, con matching robusto (case+tildes+sinónimo
+
+### Community 292 - "inspect_marketplace_workview.py"
 Cohesion: 0.67
-Nodes (3): parse_seed(), Importa proyectos del seed-pinar.js (frontend stock-interno) a la DB Postgres., seed()
+Nodes (3): main(), inspect_marketplace_workview.py — Reconocimiento de una URL /marketplace/workvie, run()
 
 ## Knowledge Gaps
-- **132 isolated node(s):** `📈 Estadísticas globales`, `📋 Detalle por proyecto`, `⚠ Proyectos sin unidades (13)`, `⚠ Proyectos sin modelos (7)`, `⚠ Proyectos con unidades huérfanas (5)` (+127 more)
+- **133 isolated node(s):** `📈 Estadísticas globales`, `📋 Detalle por proyecto`, `⚠ Proyectos sin unidades (13)`, `⚠ Proyectos sin modelos (7)`, `⚠ Proyectos con unidades huérfanas (5)` (+128 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **166 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **170 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Proyecto` connect `Rutas admin: informes e inmobiliarias` to `Rutas de unidades (deptos)`, `audit_aj_urbana_freshness.py`, `Infraestructura DB y autenticacion`, `2026_07_23_0000-008_ultima_revision_at.py`, `Vista previa del informe diario`, `Ruta de importacion batch (API)`, `Rutas de documentos del proyecto`, `Importador desde bigcapital.cl Worker`, `Motor del informe diario de stock`, `CI/CD, despliegue y seed inicial`, `_catalogo_vs_stock`, `env.py`, `Dry-run de importacion (solo lectura)`, `normalize_inmobiliarias`, `main`, `diag_assets.py`, `diag_paginador_unidades.py`, `diag_vm_tipo.py`, `Migracion: tabla inmobiliarias`, `Migracion: timestamp de stock`, `Migracion: borrado logico de proyecto`, `Diagnostico completo Vivaceta`?**
-  _High betweenness centrality (0.083) - this node is a cross-community bridge._
-- **Why does `JBImporter` connect `Reporte de importacion y utilidades scraping` to `import_marketplace_workview.py`, `diag_csv_batch.py`, `Path`, `Modulo JBImporter (importador core)`, `diag_stock_total.py`, `Descarga y gestion de assets JB`, `Mapeo de campos JB hacia bc-api`, `diag_etiquetas_jb.py`, `Calculo de metricas del informe diario`, `diag_filtros_unidades.py`, `diag_headers.py`, `diag_rosas.py`, `Motor de alertas de proyecto (criticos)`, `diag_workview.py`, `diag_api_explore.py`, `diag_auth.py`, `diag_detail.py`, `diag_mkt_stock.py`, `diag_pipeline.py`, `diag_stock_extra.py`, `Borrado de proyecto antes de reimportar`, `inspect_marketplace_workview.py`, `rank_pendientes.py`, `diag_chips_full.py`, `Diagnostico de carga de detalle (click)`, `diag_investigate.py`, `diag_mkt_types.py`, `diag_modelo_superficies.py`, `diag_paginador.py`, `diag_vm_cotizar.py`, `diag_vm_stock.py`, `diag_vm_typesel.py`, `test_fetch_files.py`, `diag_usuario`, `Diagnostico depto sin planta (Vivaceta)`, `Inicializador del paquete app`, `Auditoría profunda — Modelos y Stock`?**
-  _High betweenness centrality (0.082) - this node is a cross-community bridge._
-- **Why does `Unidad` connect `Rutas de unidades (deptos)` to `Rutas admin: informes e inmobiliarias`, `diag_paginador_unidades.py`, `Migracion: tabla inmobiliarias`, `Infraestructura DB y autenticacion`, `Diagnosticos API JetBrokers`, `2026_07_23_0000-008_ultima_revision_at.py`, `Ruta de importacion batch (API)`, `Diagnostico completo Vivaceta`, `diag_assets.py`?**
-  _High betweenness centrality (0.042) - this node is a cross-community bridge._
-- **Are the 35 inferred relationships involving `Proyecto` (e.g. with `normalize_inmobiliarias()` and `batch_import()`) actually correct?**
-  _`Proyecto` has 35 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 7 inferred relationships involving `Usuario` (e.g. with `current_user()` and `stock_access()`) actually correct?**
-  _`Usuario` has 7 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 14 inferred relationships involving `Unidad` (e.g. with `_respetar_reserva_bc()` and `batch_import()`) actually correct?**
-  _`Unidad` has 14 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `JBImporter` connect `Reporte de importacion y utilidades scraping` to `import_marketplace_workview.py`, `diag_csv_batch.py`, `diag_modelo_superficies.py`, `2026_07_23_0000-008_ultima_revision_at.py`, `Mapeo de campos JB hacia bc-api`, `diag_etiquetas_jb.py`, `Calculo de metricas del informe diario`, `origen_stock.py`, `Motor de alertas de proyecto (criticos)`, `._log_timeline_evento`, `rank_pendientes.py`, `.build_jb_style_excel`, `Borrado de proyecto antes de reimportar`, `diag_detail.py`, `inspect_marketplace_workview.py`, `diag_pipeline.py`, `diag_bod_raw.py`, `diag_detail_page.py`, `diag_filtros_unidades.py`, `diag_paginador_unidades.py`, `diag_rosas.py`, `diag_stock_extra.py`, `diag_vm_scroll2.py`, `diag_vm_typesel.py`, `diag_workview.py`, `documentos.py`, `diag_chips_full.py`, `Diagnostico de carga de detalle (click)`, `diag_investigate.py`, `diag_euro.py`, `test_video_proyecto.py`, `firma_api`, `test_estado_stock.py`, `diag_vm_stock.py`, `migrar_snapshot_viejo`, `diag_vm_typesel.py`, `Migracion: tabla inmobiliarias`, `Diagnostico depto sin planta (Vivaceta)`, `Inicializador del paquete app`, `estado_stock`, `Auditoría profunda — Modelos y Stock`?**
+  _High betweenness centrality (0.069) - this node is a cross-community bridge._
+- **Why does `Proyecto` connect `Rutas admin: informes e inmobiliarias` to `Rutas de unidades (deptos)`, `audit_aj_urbana_freshness.py`, `Gestion de inmobiliarias (catalogo)`, `Infraestructura DB y autenticacion`, `Diagnosticos API JetBrokers`, `__init__.py`, `Exportador Playwright del catalogo JB`, `Vista previa del informe diario`, `Ruta de importacion batch (API)`, `Rutas de documentos del proyecto`, `Importador desde bigcapital.cl Worker`, `Verificacion visual con IA (AI Vision)`, `Motor del informe diario de stock`, `CI/CD, despliegue y seed inicial`, `env.py`, `Dry-run de importacion (solo lectura)`, `diag_auth.py`, `main`, `inspect_marketplace_workview.py`, `diag_mkt_types.py`, `diag_usuario`, `video_proyecto.py`, `Migracion: timestamp de stock`, `Migracion: borrado logico de proyecto`, `Diagnostico completo Vivaceta`?**
+  _High betweenness centrality (0.068) - this node is a cross-community bridge._
+- **Why does `run_one()` connect `migrar_snapshot_viejo` to `Descarga y gestion de assets JB`, `Reporte de importacion y utilidades scraping`?**
+  _High betweenness centrality (0.028) - this node is a cross-community bridge._
+- **Are the 6 inferred relationships involving `Usuario` (e.g. with `_token_para()` and `exchange_bc_token()`) actually correct?**
+  _`Usuario` has 6 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 41 inferred relationships involving `Proyecto` (e.g. with `normalize_inmobiliarias()` and `batch_import()`) actually correct?**
+  _`Proyecto` has 41 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 30 inferred relationships involving `Llamada` (e.g. with `detalle_llamada()` and `grabacion_llamada()`) actually correct?**
+  _`Llamada` has 30 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `SQLAlchemy engine + session factory.`, `FastAPI dependency: yields a SQLAlchemy session per request.`, `FastAPI dependencies for auth: extract user from Authorization header.` to the rest of the system?**
-  _595 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _670 weakly-connected nodes found - possible documentation gaps or missing edges._

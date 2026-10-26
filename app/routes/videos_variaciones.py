@@ -5,8 +5,9 @@ hook × desarrollo × CTA, siempre en el orden hook → desarrollo → CTA, y la
 
 Decisiones (Nicolás, 25-oct-2026):
 - Acceso por clave al correo: solo las personas de la lista (BC_VIDEOS_EMAILS) reciben el código.
-- Calidad máxima: si los clips son compatibles se unen sin recodificar (copia exacta); si no, se
-  ajustan al tamaño y los fps del HOOK y se codifican con x264 crf 12, audio AAC 320 kbps.
+- Calidad máxima y uniones que no se notan: siempre se recodifica en una pasada (una copia exacta
+  deja saltos). Tamaño y fps del HOOK, color bt709, x264 crf 12, audio AAC 320 kbps; el audio de
+  cada clip dura lo mismo que su imagen y lleva fundido de 10 ms en los bordes.
 - Cada clip tiene un nombre claro (el que le pone Francisco) y cada video sale con ese nombre:
   «H1 nombre + D1 nombre + C1 nombre.mp4».
 - Se descarga todo junto en un ZIP.
