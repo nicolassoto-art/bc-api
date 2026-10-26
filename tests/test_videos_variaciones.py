@@ -112,8 +112,8 @@ def test_flujo_completo_tres_hooks_un_desarrollo_un_cta(cliente, tmp_path):
     assert [c["estado"] for c in t["combos"]] == ["listo"] * 3
     assert t["combos"][0]["archivo"] == "H1 Gancho uno + D1 Explicación + C1 Llamado.mp4"
     assert t["combos"][1]["archivo"].startswith("H2 Gancho dos + D1")
-    assert "copia exacta" in t["combos"][0]["detalle"]
-    assert "recodificado a 640×360" in t["combos"][1]["detalle"]
+    assert "320×240" in t["combos"][0]["detalle"]
+    assert "640×360" in t["combos"][1]["detalle"]
     z = cliente.get(f"/videos/descargar/{lote}/zip", headers=h)
     assert z.status_code == 200 and z.headers["content-type"] == "application/zip"
     zp = tmp_path / "salida.zip"
@@ -123,6 +123,14 @@ def test_flujo_completo_tres_hooks_un_desarrollo_un_cta(cliente, tmp_path):
         zf.extractall(tmp_path / "x")
     for c in t["combos"]:
         assert abs(_dur(tmp_path / "x" / c["archivo"]) - 6.0) < 0.6      # hook + desarrollo + cta = 2 + 3 + 1
+    for c in t["combos"]:      # uniones sin cortes: imagen y sonido duran lo mismo y no falta ni sobra ningún cuadro
+        r = subprocess.run(["ffprobe", "-v", "error", "-count_packets", "-show_entries",
+                            "stream=codec_type,duration,nb_read_packets", "-of", "json", str(tmp_path / "x" / c["archivo"])],
+                           capture_output=True, text=True, check=True)
+        flujos = {x["codec_type"]: x for x in json.loads(r.stdout)["streams"]}
+        assert abs(float(flujos["video"]["duration"]) - float(flujos["audio"]["duration"])) < 0.05
+        assert c["id"] != "H2-D1-C1" or int(flujos["video"]["nb_read_packets"]) == 2 * 30 + 3 * 30 + 1 * 30   # a 30 fps del hook
+        assert c["id"] == "H2-D1-C1" or int(flujos["video"]["nb_read_packets"]) == 6 * 25
     assert cliente.get(f"/videos/descargar/{lote}/video", params={"combo": "H2-D1-C1"}, headers=h).status_code == 200
 
 

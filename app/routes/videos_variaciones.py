@@ -449,19 +449,6 @@ def _fps(v: Dict[str, Any]) -> float:
     return 30.0
 
 
-def _firma_copia(info: Dict[str, Any]) -> Optional[tuple]:
-    """Lo que debe ser IGUAL en los tres clips para unirlos sin recodificar. None = no se puede copiar."""
-    vs, au = cap._videos(info), cap._audios(info)
-    if not vs or vs[0].get("codec_name") != "h264" or vs[0].get("pix_fmt") not in ("yuv420p", "yuvj420p"):
-        return None
-    if au and au[0].get("codec_name") != "aac":
-        return None
-    v = vs[0]
-    a = au[0] if au else {}
-    return (v.get("profile"), v.get("width"), v.get("height"), _dimensiones(v), v.get("pix_fmt"), _fps(v),
-            v.get("sample_aspect_ratio") or "1:1", bool(au), a.get("sample_rate"), a.get("channels"))
-
-
 def _rutas(lid: str, combo: Dict[str, Any]) -> List[Path]:
     return [_lote_dir(lid) / "partes" / f"{combo[p]}.src" for p in PARTES]
 
@@ -536,40 +523,42 @@ async def _unir(lid: str, combo: Dict[str, Any], destino: Path, cb) -> str:
     if any(not cap._videos(i) for i in infos):
         raise cap.FallaFfmpeg("Un clip no se puede leer.")
     duracion = sum(cap._duracion(i) for i in infos)
-    firmas = [_firma_copia(i) for i in infos]
     tmp = destino.with_name(f".{destino.stem}.{os.getpid()}.tmp.mp4")
     with contextlib.suppress(Exception):
         tmp.unlink()
-    if all(f is not None for f in firmas) and len(set(firmas)) == 1:
-        lista = destino.with_name(f".{destino.stem}.lista.txt")
-        lista.write_text("\n".join(_escapar_lista(r) for r in rutas) + "\n")
+    # Siempre se recodifica en UNA pasada (nunca copia): así la unión no se nota. Una copia exacta
+    # deja saltos en las uniones: silencio o un clic al inicio del audio AAC, imagen y sonido
+    # corridos, y cambios de color si un clip viene en otra matriz o rango.
+    hook = cap._videos(infos[0])[0]
+    W, H = _dimensiones(hook)
+    W, H, F = W - W % 2, H - H % 2, _fps(hook)
+    args, partes_f = [], []
+    for i, (r, info) in enumerate(zip(rutas, infos)):
+        args += ["-i", str(r)]
+        v = cap._videos(info)[0]
         try:
-            await _correr(["-f", "concat", "-safe", "0", "-i", str(lista), "-c", "copy", "-movflags", "+faststart",
-                           str(tmp)], duracion, cb)
-        finally:
-            lista.unlink(missing_ok=True)
-        modo = "copia exacta"
-    else:
-        hook = cap._videos(infos[0])[0]
-        W, H = _dimensiones(hook)
-        W, H, F = W - W % 2, H - H % 2, _fps(hook)
-        args, partes_f = [], []
-        for i, (r, info) in enumerate(zip(rutas, infos)):
-            args += ["-i", str(r)]
-            partes_f.append(f"[{i}:v:0]scale={W}:{H}:force_original_aspect_ratio=decrease,"
-                            f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps={F},format=yuv420p,"
-                            f"setpts=PTS-STARTPTS[v{i}]")
-            if cap._audios(info):
-                partes_f.append(f"[{i}:a:0]aresample=48000,aformat=channel_layouts=stereo,asetpts=PTS-STARTPTS[a{i}]")
-            else:
-                d = max(cap._duracion(info), 0.1)
-                partes_f.append(f"anullsrc=r=48000:cl=stereo,atrim=0:{d:.3f},asetpts=PTS-STARTPTS[a{i}]")
-        enlace = "".join(f"[v{i}][a{i}]" for i in range(len(rutas)))
-        partes_f.append(f"{enlace}concat=n={len(rutas)}:v=1:a=1[v][a]")
-        await _correr(args + ["-filter_complex", ";".join(partes_f), "-map", "[v]", "-map", "[a]",
-                              "-c:v", "libx264", "-crf", "12", "-preset", "slow", "-pix_fmt", "yuv420p",
-                              "-c:a", "aac", "-b:a", "320k", "-movflags", "+faststart", str(tmp)], duracion, cb)
-        modo = f"recodificado a {W}×{H} · {F:g} fps (como el hook)"
+            dur = float(v.get("duration") or 0) or cap._duracion(info)
+        except (TypeError, ValueError):
+            dur = cap._duracion(info)
+        dur = max(dur, 0.1)
+        partes_f.append(f"[{i}:v:0]scale={W}:{H}:force_original_aspect_ratio=decrease:out_color_matrix=bt709:"
+                        f"out_range=tv,pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps={F},format=yuv420p,"
+                        f"trim=0:{dur:.3f},setpts=PTS-STARTPTS[v{i}]")
+        # El audio de cada clip dura EXACTAMENTE lo que su imagen (se rellena con silencio o se corta) y
+        # lleva un fundido de 10 ms en cada borde: sin desfase acumulado y sin clics en las uniones.
+        if cap._audios(info):
+            origen = f"[{i}:a:0]aresample=48000,aformat=channel_layouts=stereo"
+        else:
+            origen = "anullsrc=r=48000:cl=stereo"
+        partes_f.append(f"{origen},apad=whole_dur={dur:.3f},atrim=0:{dur:.3f},asetpts=PTS-STARTPTS,"
+                        f"afade=t=in:d=0.01,afade=t=out:st={max(dur - 0.01, 0):.3f}:d=0.01[a{i}]")
+    enlace = "".join(f"[v{i}][a{i}]" for i in range(len(rutas)))
+    partes_f.append(f"{enlace}concat=n={len(rutas)}:v=1:a=1[v][a]")
+    await _correr(args + ["-filter_complex", ";".join(partes_f), "-map", "[v]", "-map", "[a]",
+                          "-c:v", "libx264", "-crf", "12", "-preset", "slow", "-pix_fmt", "yuv420p",
+                          "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
+                          "-c:a", "aac", "-b:a", "320k", "-movflags", "+faststart", str(tmp)], duracion, cb)
+    modo = f"{W}×{H} · {F:g} fps (como el hook), unión sin cortes visibles"
     os.replace(tmp, destino)
     return modo
 
