@@ -135,6 +135,20 @@ def test_flujo_completo_tres_hooks_un_desarrollo_un_cta(cliente, tmp_path):
         assert abs(float(flujos["video"]["duration"]) - float(flujos["audio"]["duration"])) < 0.05
         assert c["id"] != "H2-D1-C1" or int(flujos["video"]["nb_read_packets"]) == 2 * 30 + 3 * 30 + 1 * 30   # a 30 fps del hook
         assert c["id"] == "H2-D1-C1" or int(flujos["video"]["nb_read_packets"]) == 6 * 25
+    # el orden dentro de CADA video es siempre hook → desarrollo → CTA (nunca un CTA al inicio ni un hook al final)
+    def color(ruta, seg):
+        r = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(seg), "-i", str(ruta), "-frames:v", "1", "-vf", "scale=1:1",
+                            "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True)
+        return tuple(r.stdout[:3])
+    ok_h = {"H1-D1-C1": (255, 0, 0), "H2-D1-C1": (0, 0, 255), "H3-D1-C1": (0, 128, 0)}      # rojo, azul, verde
+    for c in t["combos"]:
+        ruta = tmp_path / "x" / c["archivo"]
+        d = _dur(ruta)
+        inicio, medio, fin = color(ruta, 0.5), color(ruta, d - 1 - 1.5), color(ruta, d - 0.5)
+        esperado = ok_h[c["id"]]
+        assert all(abs(a - b) < 40 for a, b in zip(inicio, esperado)), (c["id"], "el hook no va primero", inicio)
+        assert all(a > 200 for a in medio), (c["id"], "el desarrollo (blanco) no va en medio", medio)
+        assert all(a < 40 for a in fin), (c["id"], "el CTA (negro) no va al final", fin)
     assert cliente.get(f"/videos/descargar/{lote}/video", params={"combo": "H2-D1-C1", "t": ent}).status_code == 200
 
 
