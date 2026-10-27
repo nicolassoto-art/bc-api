@@ -1,0 +1,28 @@
+name: Reuniones setters · validar con GHL
+
+# Diagnóstico (solo lectura) de las reuniones de las setters en la foto de GHL. Corre en el VPS, donde están las claves (.env.zadarma).
+on:
+  workflow_dispatch:
+
+jobs:
+  sincronizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+      - name: Diagnosticar
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          INSTALL_DIR: ${{ secrets.INSTALL_DIR || '/opt/bc-api' }}
+          SERVICE_USER: ${{ secrets.SERVICE_USER || 'bcapi' }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "$VPS_USER@$VPS_HOST" bash -s <<EOF2
+          set -e
+          if [ "\$(id -u)" = 0 ]; then S=""; else S="sudo -n"; fi; \$S /usr/bin/python3 $INSTALL_DIR/scripts/validar_reuniones_setters.py
+          EOF2
