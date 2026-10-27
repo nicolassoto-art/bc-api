@@ -8,8 +8,8 @@ Decisiones (Nicolás, 25-oct-2026):
 - Calidad máxima y uniones que no se notan: siempre se recodifica en una pasada (una copia exacta
   deja saltos). Tamaño y fps del HOOK, color bt709, x264 crf 12, audio AAC 320 kbps; el audio de
   cada clip dura lo mismo que su imagen y lleva fundido de 10 ms en los bordes.
-- Cada clip tiene un nombre claro (el que le pone Francisco) y cada video sale con ese nombre:
-  «H1 nombre + D1 nombre + C1 nombre.mp4».
+- Solo se escribe el nombre del proyecto; cada video sale como «proyecto_112.mp4» (1.er dígito hook,
+  2.º CTA, 3.º desarrollo) y el ZIP trae un LEEME.txt que dice qué archivos son.
 - Se descarga todo junto en un ZIP.
 - Excepción acotada a «el VPS es taller, no bodega» (capacitaciones.py): los originales y los
   resultados se guardan 3 días y se borran solos.
@@ -389,17 +389,29 @@ class Orden(BaseModel):
 class Generar(BaseModel):
     lote: str
     orden: Orden
+    proyecto: str = ""
 
 
-def _armar_combos(t: Dict[str, Any], orden: Dict[str, List[str]]) -> List[Dict[str, Any]]:
-    """hook → desarrollo → CTA, en orden estable: H1-D1-C1, H1-D1-C2, … (el último varía más rápido)."""
+def _codigo(ih: int, idd: int, ic: int) -> str:
+    """Número del video, en el orden que pidió Nicolás: hook, CTA, desarrollo (hook 1, desarrollo 2 y
+    CTA 1 = 112). Con 10 clips o más en una parte se separan con guiones para que no haya dudas."""
+    return f"{ih}{ic}{idd}" if max(ih, idd, ic) < 10 else f"{ih}-{ic}-{idd}"
+
+
+def _origen(clip: Dict[str, Any]) -> str:
+    return clip.get("archivo") or clip.get("nombre") or "sin nombre"
+
+
+def _armar_combos(t: Dict[str, Any], orden: Dict[str, List[str]], proyecto: str = "") -> List[Dict[str, Any]]:
+    """hook → desarrollo → CTA, en orden estable: 111, 112, … (el último varía más rápido).
+    Lo único que se escribe es el nombre del proyecto: el archivo es «proyecto_112.mp4» y el LEEME del ZIP dice cuál es cuál."""
     clips = t["clips"]
     numerados = {p: [(i + 1, clips[c]) for i, c in enumerate(orden[p])] for p in PARTES}
     out = []
     for (ih, h), (idd, d), (ic, c) in itertools.product(numerados["hook"], numerados["desarrollo"], numerados["cta"]):
-        etiqueta = f"H{ih}-D{idd}-C{ic}"
-        nombre = f"H{ih} {h['nombre']} + D{idd} {d['nombre']} + C{ic} {c['nombre']}"
-        out.append({"id": etiqueta, "archivo": _nombre_limpio(nombre, 150) + ".mp4",
+        codigo = _codigo(ih, idd, ic)
+        out.append({"id": f"H{ih}-D{idd}-C{ic}", "codigo": codigo, "archivo": f"{proyecto}_{codigo}.mp4" if proyecto else f"{codigo}.mp4",
+                    "partes": {"hook": _origen(h), "desarrollo": _origen(d), "cta": _origen(c)},
                     "hook": h["id"], "desarrollo": d["id"], "cta": c["id"],
                     "estado": "pendiente", "progreso": 0, "detalle": ""})
     return out
@@ -421,7 +433,8 @@ async def generar(c: Generar, email: str = Depends(sesion)):
             cl = t["clips"].get(i)
             if not cl or cl.get("parte") != p or cl.get("estado") != "listo":
                 raise HTTPException(400, f"Un clip de {p} no terminó de subir.")
-    combos = _armar_combos(t, orden)
+    proyecto = _nombre_limpio(c.proyecto).replace(" ", "_") if c.proyecto.strip() else ""     # hipotecario_112.mp4
+    combos = _armar_combos(t, orden, proyecto)
     if len(combos) > TOPE_COMBOS:
         raise HTTPException(400, f"Son {len(combos)} videos; el máximo es {TOPE_COMBOS}. Quita alguno.")
     # espacio: cada combinación pesa a lo más lo de sus tres clips; más el zip final
@@ -431,7 +444,7 @@ async def generar(c: Generar, email: str = Depends(sesion)):
         raise HTTPException(507, f"No hay espacio para generar {len(combos)} videos ahora. Avísale a Nicolás.")
 
     def poner(x: Dict[str, Any]) -> None:
-        x.update(estado="generando", combos=combos, progreso=0, orden=orden)
+        x.update(estado="generando", combos=combos, progreso=0, orden=orden, proyecto=proyecto)
 
     _actualizar(c.lote, poner)
     _lanzar(c.lote)
@@ -587,6 +600,12 @@ def _armar_zip(lid: str, t: Dict[str, Any]) -> Optional[str]:
         return None
     tmp = d / f"zip.{os.getpid()}.tmp"
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED, allowZip64=True) as z:
+        leeme = ["Cada número es: 1.er dígito = hook, 2.º = CTA, 3.º = desarrollo (112 = hook 1, CTA 1, desarrollo 2).",
+                 "Qué archivo original es cada uno:", ""]
+        for c in listos:
+            p = c["partes"]
+            leeme.append(f"{c['archivo']}  =  {p['hook']}  +  {p['desarrollo']}  +  {p['cta']}")
+        z.writestr("LEEME.txt", "\n".join(leeme) + "\n")
         for c in listos:
             z.write(d / "salida" / c["archivo"], arcname=c["archivo"])
     os.replace(tmp, d / "videos.zip")
@@ -681,7 +700,7 @@ async def descargar_zip(lid: str, email: str = Depends(sesion_descarga)):
     ruta = _lote_dir(lid) / "videos.zip"
     if t.get("estado") != "listo" or not ruta.exists():
         raise HTTPException(409, "Los videos todavía no están listos.")
-    return FileResponse(ruta, media_type="application/zip", filename="videos-bigcapital.zip")
+    return FileResponse(ruta, media_type="application/zip", filename=f"{t.get('proyecto') or 'videos-bigcapital'}.zip")
 
 
 @router.get("/descargar/{lid}/video")
