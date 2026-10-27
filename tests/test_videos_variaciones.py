@@ -100,9 +100,9 @@ def test_flujo_completo_tres_hooks_un_desarrollo_un_cta(cliente, tmp_path):
     for cid, parte, ruta, nombre in clips:
         _subir(cliente, h, lote, cid, parte, ruta, nombre)
     orden = {"hook": ["a1" * 4, "b2" * 4, "c3" * 4], "desarrollo": ["d4" * 4], "cta": ["e5" * 4]}
-    r = cliente.post("/videos/generar", json={"lote": lote, "orden": orden}, headers=h)
+    r = cliente.post("/videos/generar", json={"lote": lote, "orden": orden, "proyecto": "Crédito Hipotecario"}, headers=h)
     assert r.status_code == 200, r.text
-    assert [c["id"] for c in r.json()["combos"]] == ["H1-D1-C1", "H2-D1-C1", "H3-D1-C1"]
+    assert [c["archivo"] for c in r.json()["combos"]] == ["Crédito_Hipotecario_111.mp4", "Crédito_Hipotecario_211.mp4", "Crédito_Hipotecario_311.mp4"]
     for _ in range(240):
         t = cliente.get(f"/videos/lote/{lote}", headers=h).json()
         if t["estado"] in ("listo", "error"):
@@ -110,8 +110,7 @@ def test_flujo_completo_tres_hooks_un_desarrollo_un_cta(cliente, tmp_path):
         time.sleep(0.5)
     assert t["estado"] == "listo", t
     assert [c["estado"] for c in t["combos"]] == ["listo"] * 3
-    assert t["combos"][0]["archivo"] == "H1 Gancho uno + D1 Explicación + C1 Llamado.mp4"
-    assert t["combos"][1]["archivo"].startswith("H2 Gancho dos + D1")
+    assert t["combos"][0]["partes"] == {"hook": "gancho uno.mp4", "desarrollo": "des.mp4", "cta": "cta.mp4"}
     assert "320×240" in t["combos"][0]["detalle"]
     assert "640×360" in t["combos"][1]["detalle"]
     assert cliente.get(f"/videos/descargar/{lote}/zip", headers=h).status_code == 401      # la sesión no sirve de entrada
@@ -122,7 +121,9 @@ def test_flujo_completo_tres_hooks_un_desarrollo_un_cta(cliente, tmp_path):
     zp = tmp_path / "salida.zip"
     zp.write_bytes(z.content)
     with zipfile.ZipFile(zp) as zf:
-        assert zf.namelist() == [c["archivo"] for c in t["combos"]]
+        assert zf.namelist() == ["LEEME.txt"] + [c["archivo"] for c in t["combos"]]
+        leeme = zf.read("LEEME.txt").decode()
+        assert "Crédito_Hipotecario_111.mp4  =  gancho uno.mp4  +  des.mp4  +  cta.mp4" in leeme
         zf.extractall(tmp_path / "x")
     for c in t["combos"]:
         assert abs(_dur(tmp_path / "x" / c["archivo"]) - 6.0) < 0.6      # hook + desarrollo + cta = 2 + 3 + 1
@@ -134,6 +135,20 @@ def test_flujo_completo_tres_hooks_un_desarrollo_un_cta(cliente, tmp_path):
         assert abs(float(flujos["video"]["duration"]) - float(flujos["audio"]["duration"])) < 0.05
         assert c["id"] != "H2-D1-C1" or int(flujos["video"]["nb_read_packets"]) == 2 * 30 + 3 * 30 + 1 * 30   # a 30 fps del hook
         assert c["id"] == "H2-D1-C1" or int(flujos["video"]["nb_read_packets"]) == 6 * 25
+    # el orden dentro de CADA video es siempre hook → desarrollo → CTA (nunca un CTA al inicio ni un hook al final)
+    def color(ruta, seg):
+        r = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(seg), "-i", str(ruta), "-frames:v", "1", "-vf", "scale=1:1",
+                            "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True)
+        return tuple(r.stdout[:3])
+    ok_h = {"H1-D1-C1": (255, 0, 0), "H2-D1-C1": (0, 0, 255), "H3-D1-C1": (0, 128, 0)}      # rojo, azul, verde
+    for c in t["combos"]:
+        ruta = tmp_path / "x" / c["archivo"]
+        d = _dur(ruta)
+        inicio, medio, fin = color(ruta, 0.5), color(ruta, d - 1 - 1.5), color(ruta, d - 0.5)
+        esperado = ok_h[c["id"]]
+        assert all(abs(a - b) < 40 for a, b in zip(inicio, esperado)), (c["id"], "el hook no va primero", inicio)
+        assert all(a > 200 for a in medio), (c["id"], "el desarrollo (blanco) no va en medio", medio)
+        assert all(a < 40 for a in fin), (c["id"], "el CTA (negro) no va al final", fin)
     assert cliente.get(f"/videos/descargar/{lote}/video", params={"combo": "H2-D1-C1", "t": ent}).status_code == 200
 
 
@@ -180,3 +195,18 @@ def test_barrido_borra_lotes_de_mas_de_tres_dias(cliente):
     ruta.write_text(json.dumps(d))
     vv._barrer()
     assert not vv._lote_dir(lote).exists()
+
+
+def test_codigo_hook_cta_desarrollo():
+    assert vv._codigo(1, 2, 1) == "112"          # hook 1, desarrollo 2, CTA 1
+    assert vv._codigo(2, 1, 3) == "231"
+    assert vv._codigo(1, 1, 10) == "1-10-1"
+
+
+def test_varios_desarrollos_numeracion_y_orden():
+    clips = {k: {"id": k, "archivo": k + ".mp4", "nombre": k} for k in ["h1", "h2", "d1", "d2", "c1"]}
+    combos = vv._armar_combos({"clips": clips}, {"hook": ["h1", "h2"], "desarrollo": ["d1", "d2"], "cta": ["c1"]}, "hipotecario")
+    # orden estable: por hook, luego desarrollo, luego CTA; el número es hook · CTA · desarrollo
+    assert [c["archivo"] for c in combos] == ["hipotecario_111.mp4", "hipotecario_112.mp4",
+                                              "hipotecario_211.mp4", "hipotecario_212.mp4"]
+    assert combos[1]["partes"] == {"hook": "h1.mp4", "desarrollo": "d2.mp4", "cta": "c1.mp4"}    # hook 1, desarrollo 2, CTA 1 = 112
