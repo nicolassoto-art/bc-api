@@ -15,19 +15,19 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "app/deps/auth.py": {
-    "mtime": 1790242861.5045195,
-    "ast_hash": "2bf97e69e903addf7513645794d9cc31",
-    "semantic_hash": "2bf97e69e903addf7513645794d9cc31"
+    "mtime": 1792693771.5935993,
+    "ast_hash": "5b9a670a2709974da410629a1ede4f6b",
+    "semantic_hash": ""
   },
   "app/main.py": {
-    "mtime": 1791158126.9635656,
-    "ast_hash": "42cbfe71d37df5aa53a34877636e80d9",
+    "mtime": 1793027090.5387483,
+    "ast_hash": "3a53993f59b114f876caa25334015c18",
     "semantic_hash": ""
   },
   "app/models/__init__.py": {
-    "mtime": 1790242861.5047293,
-    "ast_hash": "a5b4522ef12a7b9569d651181bb7f0cc",
-    "semantic_hash": "a5b4522ef12a7b9569d651181bb7f0cc"
+    "mtime": 1792621131.1382127,
+    "ast_hash": "ceb024a4ecbde50e9660fcb53248ba8d",
+    "semantic_hash": ""
   },
   "app/models/inmobiliaria.py": {
     "mtime": 1790242861.5048094,
@@ -80,8 +80,8 @@
     "semantic_hash": "9b981a728f3b5da6c820c95ff135b8f3"
   },
   "app/routes/proyectos.py": {
-    "mtime": 1791157728.3514843,
-    "ast_hash": "01f6520ec1269c80ffe1b424f8730e20",
+    "mtime": 1792421211.7674527,
+    "ast_hash": "07b9f8bf6292089ec59de9a716e9c9b0",
     "semantic_hash": ""
   },
   "app/routes/tickets.py": {
@@ -150,8 +150,8 @@
     "semantic_hash": ""
   },
   "app/settings.py": {
-    "mtime": 1791158126.3779886,
-    "ast_hash": "ac905fa85b25efba84f7d833e6efdf39",
+    "mtime": 1792720235.312106,
+    "ast_hash": "7d9caf10fac2943b35406019008dbf18",
     "semantic_hash": ""
   },
   "migrations/env.py": {
@@ -835,8 +835,8 @@
     "semantic_hash": "7bc9c0d7cca9aac124bac4186c306321"
   },
   ".github/workflows/deploy.yml": {
-    "mtime": 1790242861.496918,
-    "ast_hash": "8961dad3f1121dbceae3398a2693236e",
+    "mtime": 1792720941.054726,
+    "ast_hash": "df88bd90c19b955f69989db64de91d45",
     "semantic_hash": ""
   },
   ".github/workflows/diag-abdon.yml": {
@@ -1135,9 +1135,9 @@
     "semantic_hash": "fbd3564236701ab56bb6754ae83257b1"
   },
   ".github/workflows/registrar-eventos.yml": {
-    "mtime": 1790242861.501381,
-    "ast_hash": "c9ed236431fc9aab046087f307ef8fae",
-    "semantic_hash": "c9ed236431fc9aab046087f307ef8fae"
+    "mtime": 1791849117.759493,
+    "ast_hash": "c451935e8d29e58ad60bb0f1f4486daf",
+    "semantic_hash": ""
   },
   ".github/workflows/reimport-4-assets.yml": {
     "mtime": 1790242861.5014548,
@@ -1205,8 +1205,8 @@
     "semantic_hash": "27c0cef1e4022e2b49ae4650bce05c1c"
   },
   "EVENTOS.md": {
-    "mtime": 1791246324.7775197,
-    "ast_hash": "e6db7f1825ed937d23dd1866ff1240e8",
+    "mtime": 1792784358.8468566,
+    "ast_hash": "c7f7a6567f737a0f6053783fdac6aa87",
     "semantic_hash": ""
   },
   "IMPORT_LOG.md": {
@@ -1330,8 +1330,8 @@
     "semantic_hash": ""
   },
   ".github/workflows/audit-aj-urbana-freshness.yml": {
-    "mtime": 1790242861.4956753,
-    "ast_hash": "bb0446e0eb88a88db6a59b3281eb6fce",
+    "mtime": 1791897444.957178,
+    "ast_hash": "d70bee045c7da7d94719a1cac46a5289",
     "semantic_hash": ""
   },
   ".github/workflows/check-proyecto.yml": {
@@ -1395,8 +1395,8 @@
     "semantic_hash": ""
   },
   "app/routes/capacitaciones.py": {
-    "mtime": 1791246324.7983673,
-    "ast_hash": "e6c208bd4c6cf39015d042874594d998",
+    "mtime": 1792605972.8700335,
+    "ast_hash": "f3e113882d60ddb16b57ec4315eabe0e",
     "semantic_hash": ""
   },
   "app/services/origen_stock.py": {
@@ -1497,6 +1497,131 @@
   "tests/test_unidad_nueva_sin_dato.py": {
     "mtime": 1791156955.8923564,
     "ast_hash": "4292dcea6203da8e8b991679d3ce3ac7",
+    "semantic_hash": ""
+  },
+  "tests/test_listar_equivalencia.py": {
+    "mtime": 1792372068.9145741,
+    "ast_hash": "2ef15f6c1ac7a40889acdd2abcc50abc",
+    "semantic_hash": ""
+  },
+  "CLAUDE.md": {
+    "mtime": 1791849105.410421,
+    "ast_hash": "a5416a43c2a2e12196ac2b5362f60305",
+    "semantic_hash": ""
+  },
+  "app/models/llamada.py": {
+    "mtime": 1792614980.2051086,
+    "ast_hash": "7907c8fa63999bfa62b9455c50e0d43d",
+    "semantic_hash": ""
+  },
+  "app/routes/capacitaciones_hls.py": {
+    "mtime": 1792605977.511228,
+    "ast_hash": "ef7f88fc6fcdbe1b517fdaa7236031e2",
+    "semantic_hash": ""
+  },
+  "app/routes/llamadas.py": {
+    "mtime": 1792720855.1299238,
+    "ast_hash": "2f4a609a45366cda5747fb9350cdb790",
+    "semantic_hash": ""
+  },
+  "app/routes/video_proyecto.py": {
+    "mtime": 1792462022.9072008,
+    "ast_hash": "75e702c4a77000ada48de3cb498dfe4c",
+    "semantic_hash": ""
+  },
+  "app/services/zadarma.py": {
+    "mtime": 1792720894.2010612,
+    "ast_hash": "06b0ffc0651d58978ce00268bb6fd609",
+    "semantic_hash": ""
+  },
+  "migrations/versions/2026_10_21_0000-013_llamadas.py": {
+    "mtime": 1792614980.2055974,
+    "ast_hash": "0a7a036f15100c47de297aec6745f512",
+    "semantic_hash": ""
+  },
+  "scripts/zadarma_registrar_webhooks.py": {
+    "mtime": 1792720920.6569104,
+    "ast_hash": "c5ecd9b6b4e5a5634560504d9c89c1e3",
+    "semantic_hash": ""
+  },
+  "tests/test_video_proyecto.py": {
+    "mtime": 1792431118.6461465,
+    "ast_hash": "cbfb6fd9407f0a2e0bab6f97197bcc38",
+    "semantic_hash": ""
+  },
+  "tests/test_zadarma.py": {
+    "mtime": 1792720899.1793823,
+    "ast_hash": "49d203380ec940032bd0f5586f232dc6",
+    "semantic_hash": ""
+  },
+  "app/services/evaluador_llamadas.py": {
+    "mtime": 1792720855.1291287,
+    "ast_hash": "0738a05393a95dd5df7da2c1b8a39b37",
+    "semantic_hash": ""
+  },
+  "tests/test_evaluador_llamadas.py": {
+    "mtime": 1792713709.6626587,
+    "ast_hash": "772d2e33dffcfbf8ac3114cb46f9ff30",
+    "semantic_hash": ""
+  },
+  "tests/test_llamadas_consulta.py": {
+    "mtime": 1792622097.340238,
+    "ast_hash": "466429c0c07066f8269678668b5eddda",
+    "semantic_hash": ""
+  },
+  ".github/workflows/zadarma-registrar-webhook.yml": {
+    "mtime": 1792720941.065965,
+    "ast_hash": "7f3aa698caf6082328c3c02ef07f3dcf",
+    "semantic_hash": ""
+  },
+  "app/services/gestion_setters.py": {
+    "mtime": 1792784358.9555123,
+    "ast_hash": "cb767aa46e334e2d29c9693a625c55ff",
+    "semantic_hash": ""
+  },
+  "scripts/zadarma_sincronizar.py": {
+    "mtime": 1792713709.6629925,
+    "ast_hash": "8289b3a66239655b94911fb38e8f388e",
+    "semantic_hash": ""
+  },
+  "tests/test_gestion_setters.py": {
+    "mtime": 1792784358.956032,
+    "ast_hash": "4083de9de8b760faa4b0cdb0b4949005",
+    "semantic_hash": ""
+  },
+  ".github/workflows/zadarma-sincronizar.yml": {
+    "mtime": 1792720941.0614314,
+    "ast_hash": "80d98c377550625331c46573e06ed789",
+    "semantic_hash": ""
+  },
+  "scripts/extraer_reuniones_setters.py": {
+    "mtime": 1792713557.7845023,
+    "ast_hash": "d104e85257780685d9be1df1fad57e5a",
+    "semantic_hash": ""
+  },
+  ".github/workflows/instalar-reuniones-setters.yml": {
+    "mtime": 1792720941.075947,
+    "ast_hash": "8fab80da886eb0f4e598d89bedf466cb",
+    "semantic_hash": ""
+  },
+  ".github/workflows/enviar-correo-equipo.yml": {
+    "mtime": 1792720941.0707464,
+    "ast_hash": "0a28338d7125068e4a355c4be0c50cc9",
+    "semantic_hash": ""
+  },
+  "app/routes/videos_variaciones.py": {
+    "mtime": 1793027090.5380905,
+    "ast_hash": "f42e30cf23ab2adb5b618107631f57ec",
+    "semantic_hash": ""
+  },
+  "app/services/bc_email.py": {
+    "mtime": 1793026988.2478557,
+    "ast_hash": "29286c37f2d148cc9916318eab68592b",
+    "semantic_hash": ""
+  },
+  "tests/test_videos_variaciones.py": {
+    "mtime": 1793027114.5600772,
+    "ast_hash": "e714caa9d6cbb34246053585bb143e38",
     "semantic_hash": ""
   }
 }

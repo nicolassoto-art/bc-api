@@ -10,7 +10,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias, documentos, tickets, capacitaciones, video_proyecto, capacitaciones_hls, llamadas
+from .routes import auth, proyectos, imagenes, unidades, importador, inmobiliarias, documentos, tickets, capacitaciones, video_proyecto, capacitaciones_hls, llamadas, videos_variaciones
 from .settings import settings
 from .deps.auth import super_admin
 from fastapi.responses import HTMLResponse, Response
@@ -63,6 +63,7 @@ app.include_router(capacitaciones.router)   # compresión de videos (taller, no 
 app.include_router(capacitaciones_hls.router)   # calidades adaptativas de los videos de Capacitaciones
 app.include_router(llamadas.router)   # webhook de Zadarma (llamadas de las setters)
 app.include_router(llamadas.consulta)   # pestaña Llamadas de Informes
+app.include_router(videos_variaciones.router)   # variaciones hook+desarrollo+CTA (bigcapital.cl/videos)
 app.include_router(llamadas.mias)   # «Mis estadísticas de llamadas» de cada setter
 
 
