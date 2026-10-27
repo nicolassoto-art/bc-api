@@ -187,3 +187,12 @@ def test_codigo_hook_cta_desarrollo():
     assert vv._codigo(1, 2, 1) == "112"          # hook 1, desarrollo 2, CTA 1
     assert vv._codigo(2, 1, 3) == "231"
     assert vv._codigo(1, 1, 10) == "1-10-1"
+
+
+def test_varios_desarrollos_numeracion_y_orden():
+    clips = {k: {"id": k, "archivo": k + ".mp4", "nombre": k} for k in ["h1", "h2", "d1", "d2", "c1"]}
+    combos = vv._armar_combos({"clips": clips}, {"hook": ["h1", "h2"], "desarrollo": ["d1", "d2"], "cta": ["c1"]}, "hipotecario")
+    # orden estable: por hook, luego desarrollo, luego CTA; el número es hook · CTA · desarrollo
+    assert [c["archivo"] for c in combos] == ["hipotecario_111.mp4", "hipotecario_112.mp4",
+                                              "hipotecario_211.mp4", "hipotecario_212.mp4"]
+    assert combos[1]["partes"] == {"hook": "h1.mp4", "desarrollo": "d2.mp4", "cta": "c1.mp4"}    # hook 1, desarrollo 2, CTA 1 = 112
