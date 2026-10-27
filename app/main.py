@@ -39,9 +39,13 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# La página bigcapital.cl/videos habla con esta API desde el navegador: sus dos orígenes van siempre
+# permitidos, aunque el .env del VPS no los traiga.
+_ORIGENES_VIDEOS = ["https://www.bigcapital.cl", "https://bigcapital.cl"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=list(dict.fromkeys(settings.cors_origins_list + _ORIGENES_VIDEOS)),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
