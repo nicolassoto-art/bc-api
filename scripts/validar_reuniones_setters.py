@@ -23,6 +23,8 @@ CALS = {"nDdlsuYhUL1e9MfbTVZZ": "102", "NfBiNDyswEeL4KXJyXN4": "103"}
 def main() -> int:
     foto = json.load(open(FOTO, encoding="utf-8"))
     ev = foto.get("calendar_events") or []
+    import os
+    print("Foto modificada (UTC):", datetime.fromtimestamp(os.path.getmtime(FOTO), timezone.utc).isoformat()[:19], "· claves de metadata:", list((foto.get("metadata") or {}).keys())[:6])
     print("Foto generada:", (foto.get("metadata") or {}).get("generated_at"), "· ahora UTC:", datetime.now(timezone.utc).isoformat()[:19])
     print("Citas en la foto:", len(ev), "· borradas:", sum(1 for e in ev if e.get("deleted")))
     ini = [d for d in (_fecha(e.get("startTime")) for e in ev) if d]
@@ -49,6 +51,14 @@ def main() -> int:
         a = por_creador or por_cal
         atr[(a, k)] += 1
         estados[a][str(e.get("appointmentStatus") or "").lower()] += 1
+    otros = Counter()
+    for e in ev:
+        c = e.get("createdBy") or {}
+        uid = c.get("userId") if isinstance(c, dict) else c
+        if CALS.get(e.get("calendarId")) and not SETTERS.get(uid):
+            d = _fecha(e.get("dateAdded"))
+            otros[(CALS[e.get("calendarId")], str(uid)[:6] + "…", c.get("source") if isinstance(c, dict) else None, d.date().isoformat() if d else None, str(e.get("appointmentStatus")))] += 1
+    print("Citas en calendario de setter creadas por otro (anexo, creador, origen, día creada, estado):", dict(otros))
     for (a, k), n in sorted(atr.items()):
         print(f"  anexo {a}: {n} {k}")
     print("Estados atribuidos:", {a: dict(c) for a, c in estados.items()})
