@@ -164,7 +164,8 @@ def test_extractor_reuniones():
     d = ext.extraer(foto, {"U102": "102"}, {"CAL103": "103"})["por_dia"]
     assert d["2026-10-21"]["102"]["agendadas"] == 2
     assert d["2026-10-22"]["102"]["asistidas"] == 1 and d["2026-10-22"]["102"]["inasistencias"] == 1
-    assert d["2026-10-21"]["103"]["agendadas"] == 1          # 02:30 UTC = 23:30 del 21 en Chile
+    assert "agendadas" not in d["2026-10-21"].get("103", {})   # la creó otro en su calendario: no es agendada por ella
+    assert d["2026-10-22"]["102"].get("agendadas", 0) == 0
     assert d["2030-01-01"]["103"]["pendientes"] == 1
 
 

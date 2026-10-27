@@ -5,8 +5,9 @@ foto es solo del administrador). Deja en /opt/bc-api/estado/reuniones_setters.js
 SOLO conteos por anexo y día (sin nombres, teléfonos ni ids de contactos), legible
 por bc-api. Solo usa la biblioteca estándar de Python.
 
-Atribución: la cita es de la setter si la creó ella (createdBy.userId) o si está en
-su calendario. Por día de creación → agendadas; por día de la reunión → asistidas,
+Atribución: «agendadas» solo cuenta las que creó ella (createdBy.userId); las que otro creó en
+su calendario (formulario web, terceros) cuentan en sus reuniones del día pero no como agendadas.
+Por día de creación → agendadas; por día de la reunión → asistidas,
 inasistencias, canceladas, pendientes (futuras) y sin resultado (pasadas sin estado).
 
 Uso:
@@ -59,12 +60,13 @@ def extraer(foto: dict, setters: dict[str, str], calendarios: dict[str, str]) ->
             continue
         creador = e.get("createdBy") or {}
         uid = creador.get("userId") if isinstance(creador, dict) else creador
-        anexo = setters.get(uid) or calendarios.get(e.get("calendarId"))
+        propia = setters.get(uid)          # la creó ella
+        anexo = propia or calendarios.get(e.get("calendarId"))
         if not anexo:
             continue
         estado = str(e.get("appointmentStatus") or e.get("appoinmentStatus") or "").lower()
         creada, inicio = _fecha(e.get("dateAdded")), _fecha(e.get("startTime"))
-        if creada:
+        if creada and propia:              # una cita que otro creó en su calendario (formulario, tercero) no es agendada por ella
             dias[creada.date().isoformat()][anexo]["agendadas"] += 1
         if inicio:
             d = dias[inicio.date().isoformat()][anexo]
