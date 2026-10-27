@@ -210,3 +210,74 @@ def test_varios_desarrollos_numeracion_y_orden():
     assert [c["archivo"] for c in combos] == ["hipotecario_111.mp4", "hipotecario_112.mp4",
                                               "hipotecario_211.mp4", "hipotecario_212.mp4"]
     assert combos[1]["partes"] == {"hook": "h1.mp4", "desarrollo": "d2.mp4", "cta": "c1.mp4"}    # hook 1, desarrollo 2, CTA 1 = 112
+
+
+def _nivel(ruta, desde, seg):
+    r = subprocess.run(["ffmpeg", "-v", "info", "-ss", str(desde), "-t", str(seg), "-i", str(ruta), "-vn", "-af", "volumedetect",
+                        "-f", "null", "-"], capture_output=True, text=True, check=True)
+    return float(re.search(r"mean_volume: (-?[\d.]+) dB", r.stderr).group(1))
+
+
+def _generar_y_esperar(c, h, lote, orden, **extra):
+    r = c.post("/videos/generar", json={"lote": lote, "orden": orden, "proyecto": "musica", **extra}, headers=h)
+    assert r.status_code == 200, r.text
+    for _ in range(240):
+        t = c.get(f"/videos/lote/{lote}", headers=h).json()
+        if t["estado"] in ("listo", "error"):
+            return t
+        time.sleep(0.5)
+    raise AssertionError("no terminó")
+
+
+def test_musica_aparte_suena_de_corrido_y_baja_con_la_voz(cliente, tmp_path):
+    h = _entrar(cliente)
+    f = tmp_path / "f"
+    f.mkdir()
+    hook = _clip(f / "hook.mp4", "red", 2)                                 # voz (tono) 2 s
+    desa = _clip(f / "desa.mp4", "white", 3, audio=False)                  # silencio 3 s
+    cta = _clip(f / "cta.mp4", "black", 1)                                 # voz 1 s
+    cancion = f / "cancion.wav"                                            # 4 s: más corta que el video (6 s), se repite
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=880:duration=4", str(cancion)], check=True)
+    sin_audio = f / "mudo.mp4"
+    _clip(sin_audio, "blue", 1, audio=False)
+    orden = {"hook": ["a1" * 4], "desarrollo": ["d4" * 4], "cta": ["e5" * 4]}
+
+    def lote_nuevo():
+        lote = cliente.post("/videos/lote", headers=h).json()["id"]
+        for cid, parte, ruta in (("a1" * 4, "hook", hook), ("d4" * 4, "desarrollo", desa), ("e5" * 4, "cta", cta)):
+            _subir(cliente, h, lote, cid, parte, ruta, ruta.stem)
+        return lote
+
+    # sin música: el desarrollo mudo queda en silencio
+    l0 = lote_nuevo()
+    t0 = _generar_y_esperar(cliente, h, l0, orden)
+    assert t0["estado"] == "listo"
+    base = tmp_path / "sin.mp4"
+    base.write_bytes(cliente.get(f"/videos/descargar/{l0}/video", params={"combo": "H1-D1-C1", "t": cliente.post(f"/videos/descargar/{l0}/entrada", headers=h).json()["t"]}).content)
+
+    # un archivo sin sonido no sirve de música
+    l1 = cliente.post("/videos/lote", headers=h).json()["id"]
+    datos = sin_audio.read_bytes()
+    assert cliente.post("/videos/subir", params=dict(lote=l1, clip="f6" * 4, parte="musica", desde=0, archivo="mudo.mp4"), content=datos, headers=h).status_code == 200
+    assert cliente.post("/videos/subir/terminar", json={"lote": l1, "clip": "f6" * 4}, headers=h).status_code == 422
+
+    # con música
+    l2 = lote_nuevo()
+    _subir(cliente, h, l2, "f7" * 4, "musica", cancion, "cancion")
+    _subir(cliente, h, l2, "f8" * 4, "musica", cancion, "cancion 2")        # la segunda reemplaza a la primera
+    assert [c for c, v in cliente.get(f"/videos/lote/{l2}", headers=h).json()["clips"].items() if v["parte"] == "musica"] == ["f8" * 4]
+    t2 = _generar_y_esperar(cliente, h, l2, orden, musica="f8" * 4)
+    assert t2["estado"] == "listo" and "con música" in t2["combos"][0]["detalle"], t2
+    ent = cliente.post(f"/videos/descargar/{l2}/entrada", headers=h).json()["t"]
+    con = tmp_path / "con.mp4"
+    con.write_bytes(cliente.get(f"/videos/descargar/{l2}/video", params={"combo": "H1-D1-C1", "t": ent}).content)
+    assert abs(_dur(con) - 6.0) < 0.2
+    assert _nivel(base, 2.2, 2.5) < -60                 # sin música, el tramo mudo es silencio
+    assert _nivel(con, 2.2, 2.5) > -40                  # con música suena en el tramo mudo (también pasados los 4 s: se repite)
+    assert _nivel(con, 4.3, 0.5) > -40
+    assert _nivel(con, 0.2, 1.5) - _nivel(base, 0.2, 1.5) < 2.5     # con voz la música baja y casi no se nota
+    z = cliente.get(f"/videos/descargar/{l2}/zip", params={"t": ent})
+    zp = tmp_path / "z.zip"
+    zp.write_bytes(z.content)
+    with zipfile.ZipFile(zp) as zf:
+        assert "Música de fondo: cancion.wav" in zf.read("LEEME.txt").decode()

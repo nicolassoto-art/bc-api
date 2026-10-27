@@ -59,6 +59,9 @@ PEDAZO_MAX = 64 * 1024 * 1024               # máximo por petición de subida
 TOPE_ARCHIVO = 10 * 1024 ** 3               # tope técnico por clip
 TOPE_COMBOS = 60
 PARTES = ("hook", "desarrollo", "cta")
+MUSICA = "musica"                           # cuarta zona, opcional: una pista que suena de corrido bajo todo el video
+MUSICA_VOLUMEN = 0.5                        # nivel de la pista antes de bajarla cuando habla alguien
+FUNDIDO_UNION = 0.08                        # fundido de audio en cada borde de clip (s): sin clics ni cortes secos
 LETRA = {"hook": "H", "desarrollo": "D", "cta": "C"}
 CODIGO_VALIDEZ_SEG = 10 * 60
 CODIGO_INTENTOS = 5
@@ -285,7 +288,7 @@ async def subir(request: Request, lote: str, clip: str, parte: str, desde: int, 
     """Pedazo crudo (hasta 64 MB). `desde` debe ser el tamaño ya recibido; si no, 409 con
     `recibido` y el cliente retoma desde ahí. Repetir un pedazo no daña nada."""
     t = _del_usuario(lote, email)
-    if parte not in PARTES or not ID_CLIP.fullmatch(clip):
+    if parte not in PARTES + (MUSICA,) or not ID_CLIP.fullmatch(clip):
         raise HTTPException(400, "Parte o clip inválido.")
     if t["estado"] != "subiendo":
         raise HTTPException(409, "Este lote ya se está generando. Empieza uno nuevo.")
@@ -333,6 +336,21 @@ async def terminar(c: Terminar, email: str = Depends(sesion)):
         raise HTTPException(404, "Clip no encontrado.")
     info = await cap._sondear(ruta)
     vs = cap._videos(info)
+    es_musica = ((_leer(c.lote) or {}).get("clips", {}).get(c.clip, {}).get("parte")) == MUSICA
+    if es_musica:
+        if not cap._audios(info):
+            ruta.unlink(missing_ok=True)
+            _actualizar(c.lote, lambda x: x["clips"].pop(c.clip, None))
+            raise HTTPException(422, "Ese archivo no tiene sonido. Sube una canción (mp3, wav, m4a…) o un video con música.")
+
+        def poner_musica(x: Dict[str, Any]) -> None:
+            for otro in [k for k, v in x["clips"].items() if v.get("parte") == MUSICA and k != c.clip]:
+                x["clips"].pop(otro, None)         # una sola pista: la nueva reemplaza a la anterior
+                (_lote_dir(c.lote) / "partes" / f"{otro}.src").unlink(missing_ok=True)
+            x["clips"][c.clip].update(estado="listo", duracion=round(cap._duracion(info), 2), tam=ruta.stat().st_size)
+
+        t = _actualizar(c.lote, poner_musica)
+        return {"clip": (t or {}).get("clips", {}).get(c.clip)}
     if not vs:
         ruta.unlink(missing_ok=True)
         _actualizar(c.lote, lambda x: x["clips"].pop(c.clip, None))
@@ -390,6 +408,7 @@ class Generar(BaseModel):
     lote: str
     orden: Orden
     proyecto: str = ""
+    musica: Optional[str] = None               # id del clip de música (opcional)
 
 
 def _codigo(ih: int, idd: int, ic: int) -> str:
@@ -433,6 +452,11 @@ async def generar(c: Generar, email: str = Depends(sesion)):
             cl = t["clips"].get(i)
             if not cl or cl.get("parte") != p or cl.get("estado") != "listo":
                 raise HTTPException(400, f"Un clip de {p} no terminó de subir.")
+    musica = c.musica or None
+    if musica:
+        m = t["clips"].get(musica)
+        if not m or m.get("parte") != MUSICA or m.get("estado") != "listo":
+            raise HTTPException(400, "La música no terminó de subir.")
     proyecto = _nombre_limpio(c.proyecto).replace(" ", "_") if c.proyecto.strip() else ""     # hipotecario_112.mp4
     combos = _armar_combos(t, orden, proyecto)
     if len(combos) > TOPE_COMBOS:
@@ -444,7 +468,7 @@ async def generar(c: Generar, email: str = Depends(sesion)):
         raise HTTPException(507, f"No hay espacio para generar {len(combos)} videos ahora. Avísale a Nicolás.")
 
     def poner(x: Dict[str, Any]) -> None:
-        x.update(estado="generando", combos=combos, progreso=0, orden=orden, proyecto=proyecto)
+        x.update(estado="generando", combos=combos, progreso=0, orden=orden, proyecto=proyecto, musica=musica)
 
     _actualizar(c.lote, poner)
     _lanzar(c.lote)
@@ -579,14 +603,32 @@ async def _unir(lid: str, combo: Dict[str, Any], destino: Path, cb) -> str:
         else:
             origen = "anullsrc=r=48000:cl=stereo"
         partes_f.append(f"{origen},apad=whole_dur={dur:.3f},atrim=0:{dur:.3f},asetpts=PTS-STARTPTS,"
-                        f"afade=t=in:d=0.01,afade=t=out:st={max(dur - 0.01, 0):.3f}:d=0.01[a{i}]")
+                        f"afade=t=in:d={FUNDIDO_UNION},afade=t=out:st={max(dur - FUNDIDO_UNION, 0):.3f}:d={FUNDIDO_UNION}[a{i}]")
     enlace = "".join(f"[v{i}][a{i}]" for i in range(len(rutas)))
-    partes_f.append(f"{enlace}concat=n={len(rutas)}:v=1:a=1[v][a]")
+    musica = (_leer(lid) or {}).get("musica")
+    ruta_musica = _lote_dir(lid) / "partes" / f"{musica}.src" if musica else None
+    if ruta_musica is not None and ruta_musica.exists() and cap._audios(await cap._sondear(ruta_musica)):
+        # Pista de música aparte: suena de corrido de principio a fin (se repite si es más corta, se corta si
+        # es más larga), con entrada suave y cierre largo. Baja sola mientras alguien habla (sidechain con
+        # el audio de los clips) y sube en los silencios.
+        args += ["-i", str(ruta_musica)]
+        partes_f.append(f"{enlace}concat=n={len(rutas)}:v=1:a=1[v][voz]")
+        entra, sale = min(0.8, duracion / 4), min(2.0, duracion / 3)
+        partes_f.append(f"[{len(rutas)}:a:0]aresample=48000,aformat=channel_layouts=stereo,aloop=loop=-1:size=2000000000,"
+                        f"atrim=0:{duracion:.3f},asetpts=PTS-STARTPTS,volume={MUSICA_VOLUMEN},"
+                        f"afade=t=in:d={entra:.2f},afade=t=out:st={max(duracion - sale, 0):.3f}:d={sale:.2f}[mus]")
+        partes_f.append("[voz]asplit=2[voz1][voz2]")
+        partes_f.append("[mus][voz2]sidechaincompress=threshold=0.02:ratio=8:attack=30:release=500:makeup=1[bajo]")
+        partes_f.append("[voz1][bajo]amix=inputs=2:duration=first:normalize=0:dropout_transition=0,alimiter=limit=0.97[a]")
+        con_musica = True
+    else:
+        partes_f.append(f"{enlace}concat=n={len(rutas)}:v=1:a=1[v][a]")
+        con_musica = False
     await _correr(args + ["-filter_complex", ";".join(partes_f), "-map", "[v]", "-map", "[a]",
                           "-c:v", "libx264", "-crf", "12", "-preset", "slow", "-pix_fmt", "yuv420p",
                           "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
                           "-c:a", "aac", "-b:a", "320k", "-movflags", "+faststart", str(tmp)], duracion, cb)
-    modo = f"{W}×{H} · {F:g} fps (como el hook), unión sin cortes visibles"
+    modo = f"{W}×{H} · {F:g} fps (como el hook), unión sin cortes visibles" + (" · con música de fondo" if con_musica else "")
     os.replace(tmp, destino)
     return modo
 
@@ -605,6 +647,8 @@ def _armar_zip(lid: str, t: Dict[str, Any]) -> Optional[str]:
         for c in listos:
             p = c["partes"]
             leeme.append(f"{c['archivo']}  =  {p['hook']}  +  {p['desarrollo']}  +  {p['cta']}")
+        if t.get("musica") and t["clips"].get(t["musica"]):
+            leeme += ["", f"Música de fondo: {_origen(t['clips'][t['musica']])} (suena de corrido bajo todo el video)."]
         z.writestr("LEEME.txt", "\n".join(leeme) + "\n")
         for c in listos:
             z.write(d / "salida" / c["archivo"], arcname=c["archivo"])
