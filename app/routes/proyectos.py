@@ -151,6 +151,12 @@ def _unidad_dict(u: Unidad, arriendos: dict | None = None) -> dict:
         "descuento_pct": u.descuento_pct, "bono_pie_pct": u.bono_pie_pct,
         "disponible": u.disponible,
     }
+    # (2026-10-29, MNK sin IVA) Precio normal y marca «precio en revisión»: se adjuntan
+    # SOLO si existen, así la unidad de cualquier otro proyecto sale idéntica a antes.
+    if u.precio_con_iva_uf is not None:
+        out["precio_con_iva_uf"] = u.precio_con_iva_uf
+    if u.precio_en_revision:
+        out["precio_en_revision"] = True
     # Arriendo garantizado: columna real en Unidad desde la migración 006
     # (2026-06-16) — la fuente de verdad actual, la que llena el editor y expone
     # el endpoint /unidades. Antes esta función solo miraba extra.arriendos[numero]
@@ -400,9 +406,33 @@ def listar(
         )
         .where(Unidad.disponible == True)
         .where(Unidad.precio_lista_uf > 0)
+        # (2026-10-29) Una unidad con «precio en revisión» no entra al «desde»: su
+        # precio de lista puede ser uno viejo. Sin la marca (null en todo proyecto que
+        # no sea MNK activado) el resultado es el mismo de siempre.
+        .where(or_(Unidad.precio_en_revision.is_(None), Unidad.precio_en_revision == False))  # noqa: E712
         .group_by(Unidad.proyecto_id)
     ).all()
     precios_min = {pid: precio for pid, precio in precio_rows if precio}
+
+    # (2026-10-29, MNK sin IVA) Precio normal de la unidad que da el «desde». Solo se
+    # consulta para los proyectos con algún precio normal cargado; para el resto queda
+    # null y la respuesta trae el mismo «desde» de siempre.
+    con_iva_rows = db.execute(
+        select(Unidad.proyecto_id, Unidad.precio_lista_uf, Unidad.precio_con_iva_uf)
+        .where(Unidad.disponible == True)  # noqa: E712
+        .where(Unidad.precio_lista_uf > 0)
+        .where(or_(Unidad.precio_en_revision.is_(None), Unidad.precio_en_revision == False))  # noqa: E712
+        .where(Unidad.proyecto_id.in_(
+            select(Unidad.proyecto_id).where(Unidad.precio_con_iva_uf.is_not(None)).distinct()
+        ))
+    ).all()
+    precios_min_con_iva: dict[str, float] = {}
+    _mejor: dict[str, float] = {}
+    for pid, lista, con_iva in con_iva_rows:
+        if pid not in _mejor or lista < _mejor[pid]:
+            _mejor[pid] = lista
+            precios_min_con_iva[pid] = con_iva  # None si esa unidad no lo trae
+    precios_min_con_iva = {pid: v for pid, v in precios_min_con_iva.items() if v}
 
     # Foto fallback: si Proyecto.foto_principal_url está vacío (importados JB),
     # priorizar FACHADA real ('jb-foto', '', 'fachada', 'exterior') sobre plantas
@@ -447,6 +477,7 @@ def listar(
                     "unidades_disponibles": int(disp),
                     "pie_pct": p.x_pie_pct,
                     "precio_desde_uf": precios_min.get(p.id),
+                    "precio_desde_con_iva_uf": precios_min_con_iva.get(p.id),
                     "publicar_en_catalogo": bool(p.x_publicar),
                     "gps_verificado": bool(p.x_gps),
                     "foto_principal_url": foto,
@@ -656,6 +687,16 @@ def actualizar(
         ex["video_ubicacion"] = extra_srv["video_ubicacion"]
     else:
         ex.pop("video_ubicacion", None)
+    # (29-oct-2026) Las listas crudas de estacionamientos y bodegas que deja la subida de
+    # Excel JB (con su precio normal `PrecioConIvaUF` en MNK sin IVA) solo las escribe esa
+    # subida: la copia del navegador puede ser de antes de la última lectura horaria y
+    # el autoguardado del editor las volvía atrás. Mismo patrón que video_ubicacion.
+    if extra_srv.get("_excel_format") == "jb_v2.4":
+        for _k in ("_estacionamientos_dom", "_bodegas_dom", "_excel_format"):
+            if _k in extra_srv:
+                ex[_k] = extra_srv[_k]
+            else:
+                ex.pop(_k, None)
     datos["extra"] = ex
     for k, v in datos.items():
         setattr(p, k, v)
