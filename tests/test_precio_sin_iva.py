@@ -259,6 +259,36 @@ def test_put_de_proyecto_sin_formato_jb_queda_como_siempre(client, admin, db):
     assert _proyecto(db, pid).extra["_estacionamientos_dom"] == [{"Número": "E-2"}]
 
 
+def test_put_borrado_explicito_en_proyecto_jb_sin_dato_queda_como_siempre(client, admin, db):
+    """Proyecto JB sin precio normal: el PUT de scripts/wipe_proyecto_jb.py (extra sin las
+    listas crudas) y el de scripts/patch_stock.py (pop de las listas) las borran, como
+    antes del cambio."""
+    _, h = admin
+    # wipe modo full: extra = {jb_id}
+    pid = _proy(db)
+    _subir(client, h, pid, _excel([["16B", "B1", 3168]], estac=[["E-1A", 215]],
+                                  bodegas=[["B-1A", 75]]))
+    srv = _proyecto(db, pid).extra
+    assert srv["_excel_format"] == "jb_v2.4" and srv["_estacionamientos_dom"]
+    _put_proyecto(client, h, pid, {"jb_id": "abc"})
+    ex = _proyecto(db, pid).extra
+    for k in ("_estacionamientos_dom", "_bodegas_dom", "_excel_format"):
+        assert k not in ex
+    # wipe modo jb-only / patch_stock: borran las dos listas y dejan _excel_format
+    pid = _proy(db)
+    _subir(client, h, pid, _excel([["16B", "B1", 3168]], estac=[["E-1A", 215]],
+                                  bodegas=[["B-1A", 75]]))
+    srv = dict(_proyecto(db, pid).extra)
+    srv.pop("_estacionamientos_dom")
+    srv.pop("_bodegas_dom")
+    srv["estacionamientos_dom"] = [{"numero": "E-9"}]
+    _put_proyecto(client, h, pid, srv)
+    ex = _proyecto(db, pid).extra
+    assert "_estacionamientos_dom" not in ex and "_bodegas_dom" not in ex
+    assert ex["_excel_format"] == "jb_v2.4"
+    assert ex["estacionamientos_dom"] == [{"numero": "E-9"}]
+
+
 # ── Timeline ───────────────────────────────────────────────────────────────────
 
 def test_activacion_deja_un_solo_evento(client, admin, db):
@@ -355,3 +385,31 @@ def test_plantilla_con_dato_suma_columnas_y_vuelve_a_subir_igual(client, admin, 
     filas = _hoja_unidad(client, h, pid)
     assert filas[1][-2:] == ("PrecioConIvaUF", "PrecioEnRevision")
     assert filas[2][-2:] == (3168, 1)
+
+
+def test_activacion_mixta_no_cuenta_las_unidades_en_revision(client, admin, db):
+    """Activación con 2 deptos leídos y 1 en revisión (y un estacionamiento en revisión):
+    el evento cuenta solo las unidades que de verdad pasaron a sin IVA."""
+    _, h = admin
+    pid = _proy(db)
+    _subir(client, h, pid, _excel([["16B", "B1", 3168], ["17B", "B1", 3000], ["18B", "B1", 2900]],
+                                  estac=[["E-1A", 215], ["E-2A", 180]]), origen="jb_importer")
+    antes = list(_proyecto(db, pid).extra.get("timeline") or [])
+    sec = ("Número", "PrecioUF", "PrecioConIvaUF", "PrecioEnRevision")
+    _subir(client, h, pid, _excel(
+        [["16B", "B1", 2704.56, 3168, None], ["17B", "B1", 2561, 3000, None],
+         ["18B", "B1", 2900, 2900, 1]],
+        cols=COLS_SIN_IVA, estac=[["E-1A", 183.6, 215, None], ["E-2A", 180, 180, 1]],
+        cols_sec=sec), origen="jb_importer")
+    tl = _proyecto(db, pid).extra["timeline"]
+    nuevos = tl[:len(tl) - len(antes)]
+    tipos = [e["tipo"] for e in nuevos]
+    assert "Cambio a precio sin IVA" in tipos
+    act = next(e for e in nuevos if e["tipo"] == "Cambio a precio sin IVA")
+    assert "3 unidades: 2 deptos, 1 estacionamiento" in act["detalles"]
+    # Las que quedaron en revisión se detallan aparte, con su marca
+    resto = " ".join(e["detalles"] for e in nuevos if e["tipo"] != "Cambio a precio sin IVA")
+    assert "18B" in resto and "precio en revisión no→sí" in resto
+    assert "E-2A" in resto
+    u = _unidad(db, pid, "18B")
+    assert u.precio_en_revision is True and u.precio_lista_uf == 2900

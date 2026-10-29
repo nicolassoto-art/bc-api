@@ -858,7 +858,8 @@ def _comparar_secundarios(viejos: list, nuevos: list, clave: str,
             if _valor_cambio(o, n):
                 campos.append((k, o, n))
         civa_o, civa_n = old.get("precio_con_iva_uf"), it.get("precio_con_iva_uf")
-        if "precio_con_iva_uf" in it and civa_o is None and civa_n is not None:
+        if ("precio_con_iva_uf" in it and civa_o is None and civa_n is not None
+                and not it.get("precio_en_revision")):
             activados[clave].append(num)
             campos = [c for c in campos if c[0] not in _CAMPOS_PRECIO_REGIMEN]
         elif ("precio_con_iva_uf" in it and civa_o is not None and civa_n is None
@@ -1327,7 +1328,10 @@ async def subir_excel(
             if "precio_con_iva_uf" in data:
                 _civa_nuevo = data["precio_con_iva_uf"]
                 _cambio_regimen = False
-                if _civa_antes is None and _civa_nuevo is not None:
+                # Una unidad que llega «en revisión» sigue con el precio con IVA: no
+                # pasó a sin IVA y no se cuenta (sus cambios se detallan como siempre).
+                if (_civa_antes is None and _civa_nuevo is not None
+                        and not data.get("precio_en_revision")):
                     activados_sin_iva["deptos"].append(num)
                     _cambio_regimen = True
                 elif (_civa_antes is not None and _civa_nuevo is None

@@ -691,7 +691,15 @@ def actualizar(
     # Excel JB (con su precio normal `PrecioConIvaUF` en MNK sin IVA) solo las escribe esa
     # subida: la copia del navegador puede ser de antes de la última lectura horaria y
     # el autoguardado del editor las volvía atrás. Mismo patrón que video_ubicacion.
-    if extra_srv.get("_excel_format") == "jb_v2.4":
+    # SOLO en proyectos que ya traen el precio normal en esas listas (MNK sin IVA
+    # activado): en el resto el PUT queda como siempre, porque hay scripts que borran
+    # esas claves a propósito (scripts/wipe_proyecto_jb.py, scripts/patch_stock.py).
+    def _trae_precio_normal(lista) -> bool:
+        return isinstance(lista, list) and any(
+            isinstance(it, dict) and "PrecioConIvaUF" in it for it in lista)
+    if extra_srv.get("_excel_format") == "jb_v2.4" and (
+            _trae_precio_normal(extra_srv.get("_estacionamientos_dom"))
+            or _trae_precio_normal(extra_srv.get("_bodegas_dom"))):
         for _k in ("_estacionamientos_dom", "_bodegas_dom", "_excel_format"):
             if _k in extra_srv:
                 ex[_k] = extra_srv[_k]
