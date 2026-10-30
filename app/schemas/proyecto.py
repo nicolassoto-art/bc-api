@@ -48,11 +48,10 @@ class UnidadOut(UnidadIn):
     # copias viejas y, si el PUT normal la aceptara, borraría una reserva recién hecha.
     reserva_bc: Optional[str] = None
     reserva_bc_at: Optional[datetime] = None
-    # Solo salida (2026-10-29, MNK sin IVA): precio normal (con IVA) y marca «precio
-    # en revisión». Los escribe solo la subida de Excel; UnidadIn no los trae a
-    # propósito (el PUT del editor reenvía copias viejas y los borraría).
+    # Solo salida (2026-10-29, MNK sin IVA): precio normal (con IVA). Lo escribe solo
+    # la subida de Excel; UnidadIn no lo trae a propósito (el PUT del editor reenvía
+    # copias viejas y lo borraría).
     precio_con_iva_uf: Optional[float] = None
-    precio_en_revision: Optional[bool] = None
 
 
 class ReservaBcIn(BaseModel):

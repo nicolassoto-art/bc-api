@@ -151,12 +151,10 @@ def _unidad_dict(u: Unidad, arriendos: dict | None = None) -> dict:
         "descuento_pct": u.descuento_pct, "bono_pie_pct": u.bono_pie_pct,
         "disponible": u.disponible,
     }
-    # (2026-10-29, MNK sin IVA) Precio normal y marca «precio en revisión»: se adjuntan
-    # SOLO si existen, así la unidad de cualquier otro proyecto sale idéntica a antes.
+    # (2026-10-29, MNK sin IVA) Precio normal: se adjunta SOLO si existe, así la unidad
+    # de cualquier otro proyecto sale idéntica a antes.
     if u.precio_con_iva_uf is not None:
         out["precio_con_iva_uf"] = u.precio_con_iva_uf
-    if u.precio_en_revision:
-        out["precio_en_revision"] = True
     # Arriendo garantizado: columna real en Unidad desde la migración 006
     # (2026-06-16) — la fuente de verdad actual, la que llena el editor y expone
     # el endpoint /unidades. Antes esta función solo miraba extra.arriendos[numero]
@@ -406,10 +404,6 @@ def listar(
         )
         .where(Unidad.disponible == True)
         .where(Unidad.precio_lista_uf > 0)
-        # (2026-10-29) Una unidad con «precio en revisión» no entra al «desde»: su
-        # precio de lista puede ser uno viejo. Sin la marca (null en todo proyecto que
-        # no sea MNK activado) el resultado es el mismo de siempre.
-        .where(or_(Unidad.precio_en_revision.is_(None), Unidad.precio_en_revision == False))  # noqa: E712
         .group_by(Unidad.proyecto_id)
     ).all()
     precios_min = {pid: precio for pid, precio in precio_rows if precio}
@@ -421,7 +415,6 @@ def listar(
         select(Unidad.proyecto_id, Unidad.precio_lista_uf, Unidad.precio_con_iva_uf)
         .where(Unidad.disponible == True)  # noqa: E712
         .where(Unidad.precio_lista_uf > 0)
-        .where(or_(Unidad.precio_en_revision.is_(None), Unidad.precio_en_revision == False))  # noqa: E712
         .where(Unidad.proyecto_id.in_(
             select(Unidad.proyecto_id).where(Unidad.precio_con_iva_uf.is_not(None)).distinct()
         ))

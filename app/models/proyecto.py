@@ -136,13 +136,11 @@ class Unidad(Base):
     # Precio normal y sin IVA (2026-10-29, solo MNK con el interruptor del scraper
     # activo). En esos proyectos `precio_lista_uf` es el SIN IVA (precio del negocio:
     # bono, descuentos, pie y cotización se calculan sobre él) y `precio_con_iva_uf`
-    # guarda el precio normal solo para mostrarlo. `precio_en_revision` = el sin IVA
-    # de esta unidad todavía no se leyó de PlanOk: visible, sin cotizar ni cobrar.
-    # Null en todo lo demás = comportamiento de siempre. Solo los escribe la subida de
-    # Excel (y solo si el encabezado existe); el PUT del editor no los toca, igual
-    # que reserva_bc, porque el editor reenvía copias viejas de la unidad.
+    # guarda el precio normal solo para mostrarlo. Null en todo lo demás =
+    # comportamiento de siempre. Solo lo escribe la subida de Excel (y solo si el
+    # encabezado existe); el PUT del editor no lo toca, igual que reserva_bc, porque
+    # el editor reenvía copias viejas de la unidad.
     precio_con_iva_uf: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    precio_en_revision: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
 
     proyecto: Mapped["Proyecto"] = relationship(back_populates="unidades")
 

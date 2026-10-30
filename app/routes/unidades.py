@@ -53,36 +53,19 @@ JB_UNIDAD_MAP = {
     "Pack Número":              "_pack_num",
     "Id Externo":               "_jb_id",
     "_ModeloWarning":           "_modelo_warning",  # ext. Maestra: depto con modelo no registrado
-    # Ext. MNK sin IVA (2026-10-29): precio normal (con IVA) y marca «precio en
-    # revisión». Columnas al final de la hoja. Solo se tocan si el ENCABEZADO existe:
-    # presente y vacío ⇒ limpia; ausente (Excel viejo, restauración por curl, otra
-    # inmobiliaria) ⇒ se conserva lo que haya. Ver `_campos_sin_iva`.
+    # Ext. MNK sin IVA (2026-10-29): precio normal (con IVA). Columna al final de la
+    # hoja. Solo se toca si el ENCABEZADO existe: presente y vacío ⇒ limpia; ausente
+    # (Excel viejo, restauración por curl, otra inmobiliaria) ⇒ se conserva lo que
+    # haya. Ver `_campos_sin_iva`.
     "PrecioConIvaUF":           "precio_con_iva_uf",
-    "PrecioEnRevision":         "precio_en_revision",
 }
 
-def _bool_revision(v) -> bool | None:
-    """Celda «PrecioEnRevision» → True o None. Vacía, 0 o «no» = sin marca (None, no
-    False: así una unidad sin marca queda igual que una que nunca la tuvo y el timeline
-    no anota un cambio None→False que no significa nada)."""
-    if v is None or v == "":
-        return None
-    if isinstance(v, bool):
-        return True if v else None
-    if isinstance(v, (int, float)):
-        return True if v else None
-    s = str(v).strip().lower()
-    return True if s in ("1", "1.0", "true", "si", "sí", "x", "verdadero") else None
-
-
 def _campos_sin_iva(d: dict) -> dict:
-    """Valores de los campos sin IVA presentes en la fila `d` (encabezado existe).
-    Devuelve {} si el Excel no trae esas columnas: la unidad no se toca."""
+    """Precio normal de la fila `d` si el encabezado existe. Devuelve {} si el Excel
+    no trae esa columna: la unidad no se toca."""
     out = {}
     if "precio_con_iva_uf" in d:
         out["precio_con_iva_uf"] = _num_or_none(d.get("precio_con_iva_uf"))
-    if "precio_en_revision" in d:
-        out["precio_en_revision"] = _bool_revision(d.get("precio_en_revision"))
     return out
 
 # Mapeo de valores "Cotiza X" JB → flag bc-api
@@ -302,14 +285,12 @@ def _build_jb_extras(jb_estac: list[dict], jb_bodegas: list[dict], jb_packs: lis
     def _str(v):
         return str(v).strip() if v not in (None, "") else ""
 
-    # Ext. MNK sin IVA (2026-10-29): «PrecioConIvaUF» (precio normal) y «PrecioEnRevision»
-    # se agregan al item SOLO si la hoja trae ese encabezado, para que la salida de
-    # cualquier Excel sin esas columnas quede idéntica a la de siempre.
+    # Ext. MNK sin IVA (2026-10-29): «PrecioConIvaUF» (precio normal) se agrega al item
+    # SOLO si la hoja trae ese encabezado, para que la salida de cualquier Excel sin
+    # esa columna quede idéntica a la de siempre.
     def _sin_iva(src: dict, item: dict) -> None:
         if "PrecioConIvaUF" in src:
             item["precio_con_iva_uf"] = _num(src.get("PrecioConIvaUF"))
-        if "PrecioEnRevision" in src and _bool_revision(src.get("PrecioEnRevision")):
-            item["precio_en_revision"] = True
 
     def _acumular_con_iva(grp: dict, item: dict) -> None:
         """Junta el precio normal de cada miembro del pack (solo si su hoja lo trae)."""
@@ -781,7 +762,7 @@ _CAMPO_LABEL = {
     "disponible": "disponibilidad",
     "estac_flag": "cotiza estac", "bodega_flag": "cotiza bodega", "pack_flag": "cotiza pack",
     # Ext. MNK sin IVA (2026-10-29)
-    "precio_con_iva_uf": "precio normal", "precio_en_revision": "precio en revisión",
+    "precio_con_iva_uf": "precio normal",
     # Estacionamientos y bodegas (extra), misma idea
     "precio_uf": "precio",
 }
@@ -793,8 +774,6 @@ _CAMPOS_PRECIO_REGIMEN = {"precio_lista_uf", "precio_final_uf", "precio_con_iva_
 
 def _fmt_val(campo: str, val) -> str:
     """Formatea un valor para el comentario (precios con miles, disponible legible)."""
-    if campo == "precio_en_revision":
-        return "sí" if val else "no"
     if val is None or val == "":
         return "—"
     if campo in ("precio_lista_uf", "precio_final_uf", "precio_con_iva_uf", "precio_uf"):
@@ -851,19 +830,15 @@ def _comparar_secundarios(viejos: list, nuevos: list, clave: str,
             frases.append(f"{num} nuevo")
             continue
         campos = []
-        for k in ("precio_uf", "precio_con_iva_uf", "disponible", "precio_en_revision"):
+        for k in ("precio_uf", "precio_con_iva_uf", "disponible"):
             o, n = old.get(k), it.get(k)
-            if k == "precio_en_revision":
-                o, n = bool(o), bool(n)
             if _valor_cambio(o, n):
                 campos.append((k, o, n))
         civa_o, civa_n = old.get("precio_con_iva_uf"), it.get("precio_con_iva_uf")
-        if ("precio_con_iva_uf" in it and civa_o is None and civa_n is not None
-                and not it.get("precio_en_revision")):
+        if "precio_con_iva_uf" in it and civa_o is None and civa_n is not None:
             activados[clave].append(num)
             campos = [c for c in campos if c[0] not in _CAMPOS_PRECIO_REGIMEN]
-        elif ("precio_con_iva_uf" in it and civa_o is not None and civa_n is None
-              and not it.get("precio_en_revision")):
+        elif "precio_con_iva_uf" in it and civa_o is not None and civa_n is None:
             revertidos[clave].append(num)
             campos = [c for c in campos if c[0] not in _CAMPOS_PRECIO_REGIMEN]
         if campos:
@@ -947,15 +922,13 @@ def descargar_plantilla(
     unidades = (db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).order_by(Unidad.numero).all()
                 if con_datos else [])
     # Ext. MNK sin IVA (2026-10-29): si el proyecto tiene precio normal, la hoja suma
-    # «PrecioConIvaUF» y «PrecioEnRevision» al final (ValorUF = sin IVA). Sin el dato la
-    # plantilla sale con las mismas columnas de siempre.
+    # «PrecioConIvaUF» al final (ValorUF = sin IVA). Sin el dato la plantilla sale con
+    # las mismas columnas de siempre.
     cols = list(JB_UNIDAD_COLS)
     if any(u.precio_con_iva_uf is not None for u in unidades if _is_depto(u)):
-        cols += [("precio_con_iva_uf", "PrecioConIvaUF", "OPC"),
-                 ("precio_en_revision", "PrecioEnRevision", "OPC")]
+        cols += [("precio_con_iva_uf", "PrecioConIvaUF", "OPC")]
         wb["INSTRUCCIONES"].append(["  ValorUF = precio SIN IVA (precio del negocio) · "
-                                    "PrecioConIvaUF = precio normal (con IVA) · "
-                                    "PrecioEnRevision = 1 si el sin IVA está en revisión"])
+                                    "PrecioConIvaUF = precio normal (con IVA)"])
     # Row 1: marcadores REQ/OPC (como JB)
     ws.append([req for (_, _, req) in cols])
     # Row 2: labels en español (como JB)
@@ -975,8 +948,6 @@ def descargar_plantilla(
                     row.append(JB_FLAG_TO_LABEL.get(getattr(u, key) or "optional", "Opcional"))
                 elif key == "disponible":
                     row.append("TRUE" if u.disponible else "FALSE")
-                elif key == "precio_en_revision":
-                    row.append(1 if u.precio_en_revision else None)
                 else:
                     row.append(getattr(u, key, None))
             ws.append(row)
@@ -1328,14 +1299,10 @@ async def subir_excel(
             if "precio_con_iva_uf" in data:
                 _civa_nuevo = data["precio_con_iva_uf"]
                 _cambio_regimen = False
-                # Una unidad que llega «en revisión» sigue con el precio con IVA: no
-                # pasó a sin IVA y no se cuenta (sus cambios se detallan como siempre).
-                if (_civa_antes is None and _civa_nuevo is not None
-                        and not data.get("precio_en_revision")):
+                if _civa_antes is None and _civa_nuevo is not None:
                     activados_sin_iva["deptos"].append(num)
                     _cambio_regimen = True
-                elif (_civa_antes is not None and _civa_nuevo is None
-                      and not data.get("precio_en_revision")):
+                elif _civa_antes is not None and _civa_nuevo is None:
                     revertidos_sin_iva["deptos"].append(num)
                     _cambio_regimen = True
                 if _cambio_regimen:
