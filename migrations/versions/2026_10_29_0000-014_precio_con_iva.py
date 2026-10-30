@@ -11,7 +11,7 @@ queda en `precio_con_iva_uf`, solo para mostrarlo.
 Nullable y sin default: las unidades existentes quedan en null y todo se comporta
 igual que antes. Solo aditiva. NUNCA revertir el commit de este archivo: si se borra, el
 deploy siguiente falla en `alembic upgrade head` (la base quedaría en 014). Para volver
-atrás se revierte el código; las columnas quedan.
+atrás se revierte el código; la columna queda.
 """
 from typing import Union
 from alembic import op

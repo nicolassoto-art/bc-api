@@ -191,6 +191,20 @@ def test_listado_desde_con_iva(client, admin, db):
     assert fila["precio_desde_con_iva_uf"] == 3168
 
 
+def test_listado_desde_con_iva_empate_no_depende_del_orden(client, admin, db):
+    """Dos unidades con el mismo sin IVA: el «desde» normal es el de la que lo trae
+    (y el menor), sin importar en qué orden devuelva las filas la base."""
+    _, h = admin
+    for orden in ([["16B", "B1", 2704.56, None], ["17B", "B1", 2704.56, 3170]],
+                  [["17B", "B1", 2704.56, 3170], ["16B", "B1", 2704.56, None]],
+                  [["16B", "B1", 2704.56, 3190], ["17B", "B1", 2704.56, 3170]]):
+        pid = _proy(db)
+        _subir(client, h, pid, _excel(orden, cols=COLS_SIN_IVA))
+        fila = next(x for x in client.get("/proyectos", headers=h).json() if x["id"] == pid)
+        assert fila["precio_desde_uf"] == 2704.56
+        assert fila["precio_desde_con_iva_uf"] == 3170
+
+
 # ── Encabezado ausente conserva; presente y vacío limpia ───────────────────────
 
 def test_encabezado_ausente_conserva_y_vacio_limpia(client, admin, db):

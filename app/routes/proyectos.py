@@ -422,7 +422,12 @@ def listar(
     precios_min_con_iva: dict[str, float] = {}
     _mejor: dict[str, float] = {}
     for pid, lista, con_iva in con_iva_rows:
-        if pid not in _mejor or lista < _mejor[pid]:
+        # Empate en el «desde» (dos unidades con el mismo sin IVA): se queda la que trae
+        # precio normal y, entre ellas, la de menor precio normal. Así el resultado no
+        # depende del orden en que la base devuelva las filas.
+        if (pid not in _mejor or lista < _mejor[pid]
+                or (lista == _mejor[pid] and con_iva is not None
+                    and (precios_min_con_iva.get(pid) is None or con_iva < precios_min_con_iva[pid]))):
             _mejor[pid] = lista
             precios_min_con_iva[pid] = con_iva  # None si esa unidad no lo trae
     precios_min_con_iva = {pid: v for pid, v in precios_min_con_iva.items() if v}

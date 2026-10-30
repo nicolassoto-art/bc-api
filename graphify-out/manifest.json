@@ -80,8 +80,8 @@
     "semantic_hash": "9b981a728f3b5da6c820c95ff135b8f3"
   },
   "app/routes/proyectos.py": {
-    "mtime": 1793328835.296405,
-    "ast_hash": "a2cc430fd0b350437d08f077c6dcc64c",
+    "mtime": 1793329091.5533946,
+    "ast_hash": "a84ceee9b8c25983362e457486b05690",
     "semantic_hash": ""
   },
   "app/routes/tickets.py": {
@@ -1625,8 +1625,8 @@
     "semantic_hash": ""
   },
   "migrations/versions/2026_10_29_0000-014_precio_con_iva.py": {
-    "mtime": 1793328835.2946086,
-    "ast_hash": "1dda65181e277bac1133fd0284fb9698",
+    "mtime": 1793329078.6939704,
+    "ast_hash": "874909ebfb8d9bdd7c874b1618b1408c",
     "semantic_hash": ""
   },
   "scripts/validar_llamadas.py": {
@@ -1640,8 +1640,8 @@
     "semantic_hash": ""
   },
   "tests/test_precio_sin_iva.py": {
-    "mtime": 1793328879.8497043,
-    "ast_hash": "6ace43b5d704b7fe00e36b5f52cc2e07",
+    "mtime": 1793329087.6449957,
+    "ast_hash": "a985b7b970deeed999e7d6daa4a74de8",
     "semantic_hash": ""
   },
   ".github/workflows/reuniones-validar.yml": {
