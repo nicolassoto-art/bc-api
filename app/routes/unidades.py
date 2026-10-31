@@ -53,7 +53,20 @@ JB_UNIDAD_MAP = {
     "Pack Número":              "_pack_num",
     "Id Externo":               "_jb_id",
     "_ModeloWarning":           "_modelo_warning",  # ext. Maestra: depto con modelo no registrado
+    # Ext. MNK sin IVA (2026-10-29): precio normal (con IVA). Columna al final de la
+    # hoja. Solo se toca si el ENCABEZADO existe: presente y vacío ⇒ limpia; ausente
+    # (Excel viejo, restauración por curl, otra inmobiliaria) ⇒ se conserva lo que
+    # haya. Ver `_campos_sin_iva`.
+    "PrecioConIvaUF":           "precio_con_iva_uf",
 }
+
+def _campos_sin_iva(d: dict) -> dict:
+    """Precio normal de la fila `d` si el encabezado existe. Devuelve {} si el Excel
+    no trae esa columna: la unidad no se toca."""
+    out = {}
+    if "precio_con_iva_uf" in d:
+        out["precio_con_iva_uf"] = _num_or_none(d.get("precio_con_iva_uf"))
+    return out
 
 # Mapeo de valores "Cotiza X" JB → flag bc-api
 JB_COTIZA_MAP = {
@@ -272,6 +285,27 @@ def _build_jb_extras(jb_estac: list[dict], jb_bodegas: list[dict], jb_packs: lis
     def _str(v):
         return str(v).strip() if v not in (None, "") else ""
 
+    # Ext. MNK sin IVA (2026-10-29): «PrecioConIvaUF» (precio normal) se agrega al item
+    # SOLO si la hoja trae ese encabezado, para que la salida de cualquier Excel sin
+    # esa columna quede idéntica a la de siempre.
+    def _sin_iva(src: dict, item: dict) -> None:
+        if "PrecioConIvaUF" in src:
+            item["precio_con_iva_uf"] = _num(src.get("PrecioConIvaUF"))
+
+    def _acumular_con_iva(grp: dict, item: dict) -> None:
+        """Junta el precio normal de cada miembro del pack (solo si su hoja lo trae)."""
+        if "precio_con_iva_uf" in item:
+            grp.setdefault("_con_iva", []).append(item["precio_con_iva_uf"])
+
+    def _pack_con_iva(grp: dict) -> float | None:
+        """Precio normal del pack = suma de los de sus miembros; None si falta alguno
+        (nunca una suma parcial que mezcle precio normal y sin IVA)."""
+        vals = grp.get("_con_iva") or []
+        n = len(grp.get("estacionamientos") or []) + len(grp.get("bodegas") or [])
+        if len(vals) != n or any(v is None for v in vals):
+            return None
+        return round(sum(vals), 2)
+
     # Indexar por "Pack Número" → para armar packs
     packs_by_num: dict[str, dict] = {}
 
@@ -291,11 +325,13 @@ def _build_jb_extras(jb_estac: list[dict], jb_bodegas: list[dict], jb_packs: lis
             # "solo en pack": si la fila trae Pack Número, NO se vende suelto
             "disponible": not bool(pack_num),
         }
+        _sin_iva(e, item)
         if pack_num:
             item["pack_numero"] = pack_num
             grp = packs_by_num.setdefault(pack_num, {"estacionamientos": [], "bodegas": [], "precio_uf": 0.0})
             grp["estacionamientos"].append(numero)
             grp["precio_uf"] += item["precio_uf"] or 0
+            _acumular_con_iva(grp, item)
         estacs_out.append(item)
 
     bodegas_out = []
@@ -316,11 +352,13 @@ def _build_jb_extras(jb_estac: list[dict], jb_bodegas: list[dict], jb_packs: lis
             "tenencia": _str(b.get("Tenencia")),  # compat retro
             "disponible": not bool(pack_num),
         }
+        _sin_iva(b, item)
         if pack_num:
             item["pack_numero"] = pack_num
             grp = packs_by_num.setdefault(pack_num, {"estacionamientos": [], "bodegas": [], "precio_uf": 0.0})
             grp["bodegas"].append(numero)
             grp["precio_uf"] += item["precio_uf"] or 0
+            _acumular_con_iva(grp, item)
         bodegas_out.append(item)
 
     # Construcción de packs: si el Excel trae hoja PACKS (extensión Maestra),
@@ -337,24 +375,30 @@ def _build_jb_extras(jb_estac: list[dict], jb_bodegas: list[dict], jb_packs: lis
             bodegas_raw = _str(pk.get("Bodegas"))
             estacs_list = [s.strip() for s in estacs_raw.split(",") if s.strip()]
             bodegas_list = [s.strip() for s in bodegas_raw.split(",") if s.strip()]
-            packs_out.append({
+            pack = {
                 "id": f"jb-pack-{i}",
                 "numero": pn,
                 "estacionamientos": estacs_list,
                 "bodegas": bodegas_list,
                 "precio_uf": _num(pk.get("PrecioUF")),
                 "disponible": True,
-            })
+            }
+            if "PrecioConIvaUF" in pk:
+                pack["precio_con_iva_uf"] = _num(pk.get("PrecioConIvaUF"))
+            packs_out.append(pack)
     else:
         for i, (pn, grp) in enumerate(sorted(packs_by_num.items())):
-            packs_out.append({
+            pack = {
                 "id": f"jb-pack-{i}",
                 "numero": pn,
                 "estacionamientos": grp["estacionamientos"],
                 "bodegas": grp["bodegas"],
                 "precio_uf": grp["precio_uf"] or None,
                 "disponible": True,
-            })
+            }
+            if "_con_iva" in grp:
+                pack["precio_con_iva_uf"] = _pack_con_iva(grp)
+            packs_out.append(pack)
 
     # Re-calcular disponibilidad de estac/bodegas basado en los packs reales:
     # una unidad solo queda disponible=false si aparece en algún pack VÁLIDO
@@ -717,14 +761,22 @@ _CAMPO_LABEL = {
     "sup_terraza": "sup. terraza", "sup_logia": "sup. logia", "sup_jardin": "sup. jardín",
     "disponible": "disponibilidad",
     "estac_flag": "cotiza estac", "bodega_flag": "cotiza bodega", "pack_flag": "cotiza pack",
+    # Ext. MNK sin IVA (2026-10-29)
+    "precio_con_iva_uf": "precio normal",
+    # Estacionamientos y bodegas (extra), misma idea
+    "precio_uf": "precio",
 }
+
+# Campos que cambian juntos cuando una unidad pasa a precio sin IVA (o vuelve al con
+# IVA): se resumen en un solo evento en vez de detallarse unidad por unidad.
+_CAMPOS_PRECIO_REGIMEN = {"precio_lista_uf", "precio_final_uf", "precio_con_iva_uf", "precio_uf"}
 
 
 def _fmt_val(campo: str, val) -> str:
     """Formatea un valor para el comentario (precios con miles, disponible legible)."""
     if val is None or val == "":
         return "—"
-    if campo in ("precio_lista_uf", "precio_final_uf"):
+    if campo in ("precio_lista_uf", "precio_final_uf", "precio_con_iva_uf", "precio_uf"):
         try:
             return f"{float(val):,.0f} UF".replace(",", ".")
         except (TypeError, ValueError):
@@ -749,6 +801,66 @@ def _desc_modificacion(num: str, campos: list) -> str:
         for k, old, new in campos
     ]
     return f"{num}: " + ", ".join(partes)
+
+
+def _lleva_con_iva(*listas) -> bool:
+    """True si algún estacionamiento/bodega (antes o ahora) trae precio normal."""
+    return any(
+        isinstance(it, dict) and it.get("precio_con_iva_uf") is not None
+        for lst in listas for it in (lst or [])
+    )
+
+
+def _comparar_secundarios(viejos: list, nuevos: list, clave: str,
+                          activados: dict, revertidos: dict) -> list[str]:
+    """Cambios reales de estacionamientos o bodegas (extra) entre dos subidas.
+
+    Hasta el 2026-10-29 el timeline no los miraba (una baja de precio de un
+    estacionamiento no dejaba rastro). Se compara SOLO en proyectos con precio normal
+    (MNK sin IVA), para que el timeline y los correos del resto queden como siempre.
+    Devuelve frases cortas («E-12A: precio 215 UF→183 UF»); el paso a sin IVA (o la
+    vuelta) se anota en `activados`/`revertidos[clave]` y no se detalla.
+    """
+    antes = {str(it.get("numero")): it for it in (viejos or []) if isinstance(it, dict) and it.get("numero")}
+    ahora = {str(it.get("numero")): it for it in (nuevos or []) if isinstance(it, dict) and it.get("numero")}
+    frases: list[str] = []
+    for num, it in ahora.items():
+        old = antes.get(num)
+        if old is None:
+            frases.append(f"{num} nuevo")
+            continue
+        campos = []
+        for k in ("precio_uf", "precio_con_iva_uf", "disponible"):
+            o, n = old.get(k), it.get(k)
+            if _valor_cambio(o, n):
+                campos.append((k, o, n))
+        civa_o, civa_n = old.get("precio_con_iva_uf"), it.get("precio_con_iva_uf")
+        if "precio_con_iva_uf" in it and civa_o is None and civa_n is not None:
+            activados[clave].append(num)
+            campos = [c for c in campos if c[0] not in _CAMPOS_PRECIO_REGIMEN]
+        elif "precio_con_iva_uf" in it and civa_o is not None and civa_n is None:
+            revertidos[clave].append(num)
+            campos = [c for c in campos if c[0] not in _CAMPOS_PRECIO_REGIMEN]
+        if campos:
+            frases.append(_desc_modificacion(num, campos))
+    for num in antes:
+        if num not in ahora:
+            frases.append(f"{num} ya no viene")
+    return frases
+
+
+def _resumen_regimen(titulo: str, grupos: dict) -> str | None:
+    """«Cambio a precio sin IVA (12 unidades: 9 deptos, 3 estacionamientos)»."""
+    nombres = {"deptos": ("depto", "deptos"),
+               "estacionamientos": ("estacionamiento", "estacionamientos"),
+               "bodegas": ("bodega", "bodegas")}
+    partes = [f"{len(v)} {nombres[k][0] if len(v) == 1 else nombres[k][1]}"
+              for k, v in grupos.items() if v]
+    total = sum(len(v) for v in grupos.values())
+    if not total:
+        return None
+    _u = "unidad" if total == 1 else "unidades"
+    return f"{titulo} ({total} {_u}: {', '.join(partes)})"
 
 
 def _parse_dorm_banos(tipologia: str) -> tuple[int | None, int | None]:
@@ -807,19 +919,28 @@ def descargar_plantilla(
 
     # ── 2. UNIDAD ─────────────────────────────────────────────────────
     ws = wb.create_sheet("UNIDAD")
+    unidades = (db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).order_by(Unidad.numero).all()
+                if con_datos else [])
+    # Ext. MNK sin IVA (2026-10-29): si el proyecto tiene precio normal, la hoja suma
+    # «PrecioConIvaUF» al final (ValorUF = sin IVA). Sin el dato la plantilla sale con
+    # las mismas columnas de siempre.
+    cols = list(JB_UNIDAD_COLS)
+    if any(u.precio_con_iva_uf is not None for u in unidades if _is_depto(u)):
+        cols += [("precio_con_iva_uf", "PrecioConIvaUF", "OPC")]
+        wb["INSTRUCCIONES"].append(["  ValorUF = precio SIN IVA (precio del negocio) · "
+                                    "PrecioConIvaUF = precio normal (con IVA)"])
     # Row 1: marcadores REQ/OPC (como JB)
-    ws.append([req for (_, _, req) in JB_UNIDAD_COLS])
+    ws.append([req for (_, _, req) in cols])
     # Row 2: labels en español (como JB)
-    ws.append([label for (_, label, _) in JB_UNIDAD_COLS])
+    ws.append([label for (_, label, _) in cols])
 
     if con_datos:
-        unidades = db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).order_by(Unidad.numero).all()
         for u in unidades:
             if not _is_depto(u):
                 continue
             dorm, banos = _parse_dorm_banos(u.tipologia or "")
             row = []
-            for key, _label, _req in JB_UNIDAD_COLS:
+            for key, _label, _req in cols:
                 if key == "_dormitorios": row.append(dorm)
                 elif key == "_banos": row.append(banos)
                 elif key == "numero_depto": row.append(u.numero)
@@ -1078,6 +1199,10 @@ async def subir_excel(
 
     # ── Procesar filas (mismo loop para JB o legacy) ──
     auto_asignados = 0
+    # Ext. MNK sin IVA: unidades que pasan a precio sin IVA / vuelven al con IVA en esta
+    # subida (quedan vacías si el Excel no trae la columna «PrecioConIvaUF»).
+    activados_sin_iva: dict[str, list] = {"deptos": [], "estacionamientos": [], "bodegas": []}
+    revertidos_sin_iva: dict[str, list] = {"deptos": [], "estacionamientos": [], "bodegas": []}
     for i, d in rows_iter:
         num = str(d.get("numero_depto") or "").strip()
         if not num:
@@ -1129,9 +1254,13 @@ async def subir_excel(
             # explícito (caso pack), en cuyo caso respetamos.
             disponible=bool(d.get("disponible", True)),
         )
+        # Ext. MNK sin IVA (2026-10-29): solo si el Excel trae esas columnas. Sin ellas
+        # `data` queda exactamente igual que antes y la unidad no se toca.
+        data.update(_campos_sin_iva(d))
 
         if num in by_num:
             u = by_num[num]
+            _civa_antes = u.precio_con_iva_uf
             # Reservada en la intranet (marca reserva_bc, 2026-09-24): el Excel es el
             # stock de la inmobiliaria, que todavía no la registra, y no debe volver a
             # abrirla. Se ajusta ANTES de comparar para que el timeline no anote un
@@ -1163,6 +1292,21 @@ async def subir_excel(
                     cambios_campos.append((k, old, v))
                 setattr(u, k, v)
             updated.append(num)
+            # Paso a precio sin IVA (o vuelta al con IVA) de esta unidad: cambian a la vez
+            # el precio, el precio final y el precio normal. No se detalla unidad por
+            # unidad: va a UN solo evento del timeline (ver abajo). Lo demás que cambie
+            # en la misma unidad (disponibilidad, modelo…) se sigue anotando.
+            if "precio_con_iva_uf" in data:
+                _civa_nuevo = data["precio_con_iva_uf"]
+                _cambio_regimen = False
+                if _civa_antes is None and _civa_nuevo is not None:
+                    activados_sin_iva["deptos"].append(num)
+                    _cambio_regimen = True
+                elif _civa_antes is not None and _civa_nuevo is None:
+                    revertidos_sin_iva["deptos"].append(num)
+                    _cambio_regimen = True
+                if _cambio_regimen:
+                    cambios_campos = [c for c in cambios_campos if c[0] not in _CAMPOS_PRECIO_REGIMEN]
             if cambios_campos:
                 modificadas.append((num, cambios_campos))
         else:
@@ -1233,7 +1377,35 @@ async def subir_excel(
     def _corta(lst):
         return ", ".join(lst[:6]) + ("…" if len(lst) > 6 else "")
 
-    _sin_cambios = not (inserted or dados_de_baja or modificadas)
+    # Ext. MNK sin IVA (2026-10-29): estacionamientos y bodegas. Se comparan las listas
+    # crudas de la subida anterior (rearmadas con el mismo _build_jb_extras) y no
+    # extra.estacionamientos, que el autoguardado del editor reescribe con su propia
+    # forma. Solo en proyectos con precio normal: en el resto no se calcula nada y el
+    # timeline/correo quedan como siempre.
+    cambios_secundarios: list[str] = []
+    if is_jb and jb_extras:
+        _ex_old = proy.extra or {}
+        _old_shaped = {"estacionamientos": [], "bodegas": []}
+        if _ex_old.get("_excel_format") == "jb_v2.4":
+            _old_shaped = _build_jb_extras(
+                [x for x in (_ex_old.get("_estacionamientos_dom") or []) if isinstance(x, dict)],
+                [x for x in (_ex_old.get("_bodegas_dom") or []) if isinstance(x, dict)],
+            )
+        if _lleva_con_iva(_old_shaped["estacionamientos"], _old_shaped["bodegas"],
+                          jb_extras.get("estacionamientos"), jb_extras.get("bodegas")):
+            for _clave, _nombre in (("estacionamientos", "estacionamientos"), ("bodegas", "bodegas")):
+                _fr = _comparar_secundarios(_old_shaped[_clave], jb_extras.get(_clave) or [],
+                                            _clave, activados_sin_iva, revertidos_sin_iva)
+                if _fr:
+                    cambios_secundarios.append(
+                        f"{_nombre} → " + " · ".join(_fr[:5]) + ("…" if len(_fr) > 5 else ""))
+
+    # Paso a precio sin IVA / vuelta al con IVA: UN solo evento por subida, en vez de
+    # una línea por unidad («precio 3.168 UF→2.704 UF» × 150).
+    _det_activacion = _resumen_regimen("Cambio a precio sin IVA", activados_sin_iva)
+    _det_reversion = _resumen_regimen("Reversión a precio con IVA", revertidos_sin_iva)
+
+    _sin_cambios = not (inserted or dados_de_baja or modificadas or cambios_secundarios)
     if _sin_cambios:
         # Nada cambió respecto al estado anterior
         _depto_pl = "depto" if len(updated) == 1 else "deptos"
@@ -1257,6 +1429,7 @@ async def subir_excel(
             _descs = [_desc_modificacion(num, campos) for num, campos in modificadas]
             _det_mod = " · ".join(_descs[:5]) + ("…" if len(_descs) > 5 else "")
             _partes.append(f"{len(modificadas)} {_t} → {_det_mod}")
+        _partes.extend(cambios_secundarios)
         _detalles = f"{_origen} — " + ", ".join(_partes)
 
     _evento = {
@@ -1287,6 +1460,18 @@ async def subir_excel(
     # sí se registran (son raras, sirven de confirmación).
     if not (_es_auto and _sin_cambios):
         _tl.insert(0, _evento)
+    for _tipo_reg, _det_reg in (("Cambio a precio sin IVA", _det_activacion),
+                                ("Reversión a precio con IVA", _det_reversion)):
+        if _det_reg:
+            _tl.insert(0, {
+                "id": "tl-" + uuid.uuid4().hex[:10],
+                "fecha": datetime.utcnow().isoformat() + "Z",
+                "tipo": _tipo_reg,
+                "detalles": f"{_origen} — {_det_reg}",
+                "usuario": getattr(usuario, "email", None) or "sistema",
+                "origen_auto": _es_auto,
+                "archivo_url": None,
+            })
     # Si hay warnings, agregar también un evento rojo destacado en la timeline.
     if is_jb and deptos_con_warning:
         _warn_evt = {
@@ -1314,11 +1499,12 @@ async def subir_excel(
 
     # Mismo criterio que el timeline: corrida automática sin cambios reales no
     # manda email — a cadencia horaria sería spam (hasta 12 correos/día/proyecto).
-    if not (_es_auto and _sin_cambios):
+    if not (_es_auto and _sin_cambios and not _det_activacion and not _det_reversion):
         background_tasks.add_task(
             email_service.notify_change, "Stock actualizado", proy.nombre or proyecto_id,
             f"Subida de Excel: +{len(inserted)} nuevas, {len(updated)} actualizadas"
-            + (f", {len(dados_de_baja)} dadas de baja" if dados_de_baja else "") + ".",
+            + (f", {len(dados_de_baja)} dadas de baja" if dados_de_baja else "")
+            + "".join(f". {x}" for x in (_det_activacion, _det_reversion) if x) + ".",
             proyecto_id,
         )
     return {

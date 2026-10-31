@@ -48,6 +48,10 @@ class UnidadOut(UnidadIn):
     # copias viejas y, si el PUT normal la aceptara, borraría una reserva recién hecha.
     reserva_bc: Optional[str] = None
     reserva_bc_at: Optional[datetime] = None
+    # Solo salida (2026-10-29, MNK sin IVA): precio normal (con IVA). Lo escribe solo
+    # la subida de Excel; UnidadIn no lo trae a propósito (el PUT del editor reenvía
+    # copias viejas y lo borraría).
+    precio_con_iva_uf: Optional[float] = None
 
 
 class ReservaBcIn(BaseModel):
@@ -177,6 +181,10 @@ class ProyectoSummary(BaseModel):
     # Campos extraídos de extra.comercial para el listado
     pie_pct: Optional[float] = None
     precio_desde_uf: Optional[float] = None
+    # (2026-10-29, MNK sin IVA) Precio normal (con IVA) de la misma unidad que da
+    # `precio_desde_uf` (el «desde» sigue siendo `precio_lista_uf`, que en un proyecto
+    # activado es el sin IVA). Null en todo proyecto sin el dato.
+    precio_desde_con_iva_uf: Optional[float] = None
     # Flag extraído de extra.publicar_en_catalogo (toggle del catálogo público)
     publicar_en_catalogo: bool = False
     # Flag extraído de extra.gps_verificado — el listado lo usa para la alerta

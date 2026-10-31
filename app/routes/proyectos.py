@@ -151,6 +151,10 @@ def _unidad_dict(u: Unidad, arriendos: dict | None = None) -> dict:
         "descuento_pct": u.descuento_pct, "bono_pie_pct": u.bono_pie_pct,
         "disponible": u.disponible,
     }
+    # (2026-10-29, MNK sin IVA) Precio normal: se adjunta SOLO si existe, así la unidad
+    # de cualquier otro proyecto sale idéntica a antes.
+    if u.precio_con_iva_uf is not None:
+        out["precio_con_iva_uf"] = u.precio_con_iva_uf
     # Arriendo garantizado: columna real en Unidad desde la migración 006
     # (2026-06-16) — la fuente de verdad actual, la que llena el editor y expone
     # el endpoint /unidades. Antes esta función solo miraba extra.arriendos[numero]
@@ -404,6 +408,30 @@ def listar(
     ).all()
     precios_min = {pid: precio for pid, precio in precio_rows if precio}
 
+    # (2026-10-29, MNK sin IVA) Precio normal de la unidad que da el «desde». Solo se
+    # consulta para los proyectos con algún precio normal cargado; para el resto queda
+    # null y la respuesta trae el mismo «desde» de siempre.
+    con_iva_rows = db.execute(
+        select(Unidad.proyecto_id, Unidad.precio_lista_uf, Unidad.precio_con_iva_uf)
+        .where(Unidad.disponible == True)  # noqa: E712
+        .where(Unidad.precio_lista_uf > 0)
+        .where(Unidad.proyecto_id.in_(
+            select(Unidad.proyecto_id).where(Unidad.precio_con_iva_uf.is_not(None)).distinct()
+        ))
+    ).all()
+    precios_min_con_iva: dict[str, float] = {}
+    _mejor: dict[str, float] = {}
+    for pid, lista, con_iva in con_iva_rows:
+        # Empate en el «desde» (dos unidades con el mismo sin IVA): se queda la que trae
+        # precio normal y, entre ellas, la de menor precio normal. Así el resultado no
+        # depende del orden en que la base devuelva las filas.
+        if (pid not in _mejor or lista < _mejor[pid]
+                or (lista == _mejor[pid] and con_iva is not None
+                    and (precios_min_con_iva.get(pid) is None or con_iva < precios_min_con_iva[pid]))):
+            _mejor[pid] = lista
+            precios_min_con_iva[pid] = con_iva  # None si esa unidad no lo trae
+    precios_min_con_iva = {pid: v for pid, v in precios_min_con_iva.items() if v}
+
     # Foto fallback: si Proyecto.foto_principal_url está vacío (importados JB),
     # priorizar FACHADA real ('jb-foto', '', 'fachada', 'exterior') sobre plantas
     # ('jb-planta-*') y otros assets. min(id) alfabético elegía a veces
@@ -447,6 +475,7 @@ def listar(
                     "unidades_disponibles": int(disp),
                     "pie_pct": p.x_pie_pct,
                     "precio_desde_uf": precios_min.get(p.id),
+                    "precio_desde_con_iva_uf": precios_min_con_iva.get(p.id),
                     "publicar_en_catalogo": bool(p.x_publicar),
                     "gps_verificado": bool(p.x_gps),
                     "foto_principal_url": foto,
@@ -656,6 +685,24 @@ def actualizar(
         ex["video_ubicacion"] = extra_srv["video_ubicacion"]
     else:
         ex.pop("video_ubicacion", None)
+    # (29-oct-2026) Las listas crudas de estacionamientos y bodegas que deja la subida de
+    # Excel JB (con su precio normal `PrecioConIvaUF` en MNK sin IVA) solo las escribe esa
+    # subida: la copia del navegador puede ser de antes de la última lectura horaria y
+    # el autoguardado del editor las volvía atrás. Mismo patrón que video_ubicacion.
+    # SOLO en proyectos que ya traen el precio normal en esas listas (MNK sin IVA
+    # activado): en el resto el PUT queda como siempre, porque hay scripts que borran
+    # esas claves a propósito (scripts/wipe_proyecto_jb.py, scripts/patch_stock.py).
+    def _trae_precio_normal(lista) -> bool:
+        return isinstance(lista, list) and any(
+            isinstance(it, dict) and "PrecioConIvaUF" in it for it in lista)
+    if extra_srv.get("_excel_format") == "jb_v2.4" and (
+            _trae_precio_normal(extra_srv.get("_estacionamientos_dom"))
+            or _trae_precio_normal(extra_srv.get("_bodegas_dom"))):
+        for _k in ("_estacionamientos_dom", "_bodegas_dom", "_excel_format"):
+            if _k in extra_srv:
+                ex[_k] = extra_srv[_k]
+            else:
+                ex.pop(_k, None)
     datos["extra"] = ex
     for k, v in datos.items():
         setattr(p, k, v)
