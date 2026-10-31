@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # Token de servicio para el Cloudflare Worker (catálogo público).
     # Vacío = endpoint /proyectos/public deshabilitado (devuelve 503).
     bc_api_service_token: str = ""
+    # Clave con la que se derivan los códigos de «compartir video». Vacía = usa jwt_secret.
+    # Cambiarla invalida de golpe todos los links de video ya enviados a clientes.
+    video_compartir_secret: str = ""
     env: str = "development"
     log_level: str = "INFO"
 

@@ -269,6 +269,14 @@ def _proyecto_public_dict(p: Proyecto) -> dict:
     for k, v in _public_extra(extra).items():
         if k not in d:
             d[k] = v
+    # (31-oct-2026) Código estable para el link del video que el asesor manda al cliente: solo si ya hay video listo.
+    # Lo entrega este endpoint de servicio (Worker); el navegador del asesor lo recibe por el detalle con sesión.
+    try:
+        from .video_compartido import codigo_compartir, video_listo
+        if video_listo(p):
+            d["video_compartir"] = codigo_compartir(p.id)
+    except Exception:   # nunca romper el catálogo por esto
+        pass
     return d
 
 
