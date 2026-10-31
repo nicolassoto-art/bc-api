@@ -1,6 +1,6 @@
 # Eventos anómalos — registro automático
 
-Última actualización: Sat 31/10/2026 08:11 Chile · 822 eventos totales
+Última actualización: Sat 31/10/2026 15:13 Chile · 822 eventos totales
 
 Este archivo se regenera automáticamente desde `eventos_anomalos.jsonl`.
 Los eventos están deduplicados en ventanas de 24h.
