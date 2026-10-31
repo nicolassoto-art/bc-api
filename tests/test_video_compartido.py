@@ -99,3 +99,13 @@ def test_el_detalle_publico_trae_el_codigo_solo_con_video_listo(db):
     assert _proyecto_public_dict(db.get(Proyecto, PID))["video_compartir"] == codigo_compartir(PID)
     _poner(db, {"video_ubicacion": _video(TOKEN1, estado="error")})
     assert "video_compartir" not in _proyecto_public_dict(db.get(Proyecto, PID))
+
+
+def test_el_detalle_del_video_con_sesion_trae_el_codigo(client, db, admin):
+    _, h = admin
+    _poner(db, {"video_ubicacion": _video(TOKEN1)})
+    j = client.get(f"/proyectos/{PID}/video", headers=h).json()
+    assert j["video"]["compartir"] == codigo_compartir(PID)
+    _poner(db, {"video_ubicacion": _video(TOKEN1, estado="procesando")})
+    assert "compartir" not in client.get(f"/proyectos/{PID}/video", headers=h).json()["video"]
+    assert client.get(f"/proyectos/{PID}/video").status_code in (401, 403)      # sin sesión no se entrega

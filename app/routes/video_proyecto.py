@@ -262,6 +262,10 @@ def ver(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(st
     if not v:
         return {"video": None}
     v = dict(v)
+    if v.get("estado") == "listo":
+        # Código estable del link para el cliente (31-oct-2026): el botón «Compartir video» del catálogo lo lee de aquí.
+        from .video_compartido import codigo_compartir
+        v["compartir"] = codigo_compartir(proyecto_id)
     if v.get("estado") == "procesando" and v.get("trabajo"):
         e = _leer(v["trabajo"])
         if e:
