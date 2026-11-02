@@ -8,7 +8,12 @@ que el navegador resuelva contra el dominio actual de la API.
 """
 from __future__ import annotations
 from typing import List
+import ipaddress
+import socket
 import uuid
+from urllib.parse import urlparse
+
+import httpx
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Body
 from pydantic import BaseModel, HttpUrl
@@ -152,6 +157,86 @@ def registrar_url(
     db.commit()
     db.refresh(img)
     return img
+
+
+def _tipo_imagen(b: bytes) -> str:
+    """Tipo real por los primeros bytes (algunos sitios mandan application/octet-stream)."""
+    if b[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if b[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if b[:4] == b"RIFF" and b[8:12] == b"WEBP":
+        return "image/webp"
+    if b[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    return ""
+
+
+def _host_publico(url: str) -> bool:
+    """Solo https y hosts con IP pública: el servidor nunca descarga de su red interna."""
+    u = urlparse(url)
+    if u.scheme != "https" or not u.hostname:
+        return False
+    try:
+        for info in socket.getaddrinfo(u.hostname, 443):
+            ip = ipaddress.ip_address(info[4][0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return False
+    except Exception:
+        return False
+    return True
+
+
+def _es_externa(img: Imagen) -> bool:
+    return bool(img.url) and not img.url.startswith("/uploads/") and img.mime != "application/pdf"
+
+
+@router.post("/traer-externas")
+def traer_externas(
+    proyecto_id: str,
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(stock_access),
+):
+    """(02-nov-2026) Botón «Traer fotos externas a nuestro servidor» de la ficha. Descarga cada foto que hoy es
+    un enlace a otro sitio, la guarda en nuestro disco y la foto pasa a apuntar a la copia propia (mismo id,
+    categoría, orden y portada). Las que el servidor no puede bajar (p. ej. JetBrokers bloquea su IP) se
+    devuelven con ok=false: la ficha las intenta desde el navegador con POST /{imagen_id}/archivo."""
+    proy = _ensure_project(db, proyecto_id)
+    proj_dir: Path = settings.upload_path / proyecto_id
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    resultados = []
+    externas = [i for i in db.query(Imagen).filter(Imagen.proyecto_id == proyecto_id).all() if _es_externa(i)]
+    with httpx.Client(timeout=25, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 BigCapital"}) as cli:
+        for img in externas:
+            r = {"id": img.id, "url": img.url, "ok": False}
+            try:
+                if not _host_publico(img.url):
+                    r["motivo"] = "dirección no permitida"
+                else:
+                    resp = cli.get(img.url)
+                    body = resp.content
+                    tipo = _tipo_imagen(body[:16])
+                    if resp.status_code != 200:
+                        r["motivo"] = f"el sitio respondió {resp.status_code}"
+                    elif not tipo:
+                        r["motivo"] = "no es una imagen"
+                    elif len(body) > settings.max_upload_bytes:
+                        r["motivo"] = f"supera {settings.max_upload_mb} MB"
+                    else:
+                        ext = ALLOWED_MIMES[tipo]
+                        (proj_dir / f"{img.id}{ext}").write_bytes(body)
+                        anterior = img.url
+                        img.url = f"/uploads/{proyecto_id}/{img.id}{ext}"
+                        img.mime = tipo
+                        img.bytes = len(body)
+                        if proy.foto_principal_url == anterior or img.es_principal:
+                            proy.foto_principal_url = img.url
+                        r.update(ok=True, nueva_url=img.url)
+            except Exception as e:  # un sitio caído no detiene a los demás
+                r["motivo"] = "no se pudo descargar"
+            resultados.append(r)
+    db.commit()
+    return {"total": len(externas), "traidas": sum(1 for r in resultados if r["ok"]), "resultados": resultados}
 
 
 @router.post("/{imagen_id}/archivo", response_model=ImagenOut)
