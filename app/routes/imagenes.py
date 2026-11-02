@@ -154,6 +154,53 @@ def registrar_url(
     return img
 
 
+@router.post("/{imagen_id}/archivo", response_model=ImagenOut)
+async def reemplazar_archivo(
+    proyecto_id: str,
+    imagen_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(stock_access),
+):
+    """(02-nov-2026) Trae a nuestro disco una foto que hoy es un enlace externo (JetBrokers, sitios de
+    inmobiliarias): guarda el archivo subido y la foto pasa a apuntar a la copia propia. Conserva id,
+    categoría, orden y portada. Si la foto ya era propia, reemplaza su archivo (se borra el anterior)."""
+    proy = _ensure_project(db, proyecto_id)
+    img = db.get(Imagen, imagen_id)
+    if not img or img.proyecto_id != proyecto_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Imagen no encontrada")
+    if file.content_type not in ALLOWED_MIMES or file.content_type == "application/pdf":
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=f"Tipo no permitido: {file.content_type}")
+    body = await file.read()
+    if not body:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Archivo vacío")
+    if len(body) > settings.max_upload_bytes:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=f"Supera {settings.max_upload_mb} MB")
+    proj_dir: Path = settings.upload_path / proyecto_id
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    ext = ALLOWED_MIMES[file.content_type]
+    url_anterior = img.url or ""
+    fpath = proj_dir / f"{imagen_id}{ext}"
+    fpath.write_bytes(body)
+    nueva_url = f"/uploads/{proyecto_id}/{imagen_id}{ext}"
+    # Archivo propio anterior con otra extensión: se borra (best-effort).
+    if url_anterior.startswith("/uploads/") and url_anterior != nueva_url:
+        try:
+            viejo = settings.upload_path / url_anterior.lstrip("/").replace("uploads/", "", 1)
+            if viejo.exists():
+                viejo.unlink()
+        except Exception:
+            pass
+    img.url = nueva_url
+    img.mime = file.content_type
+    img.bytes = len(body)
+    if proy.foto_principal_url == url_anterior or img.es_principal:
+        proy.foto_principal_url = nueva_url
+    db.commit()
+    db.refresh(img)
+    return img
+
+
 @router.patch("/{imagen_id}", response_model=ImagenOut)
 def actualizar(
     proyecto_id: str,
