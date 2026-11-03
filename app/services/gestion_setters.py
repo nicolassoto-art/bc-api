@@ -138,8 +138,14 @@ def guardar_metas(nuevas: dict) -> dict:
     return actuales
 
 
+# Por día de la reunión: reuniones_del_dia, asistidas … sin_resultado (estado de Nova).
+# Por día de creación (las que agendó ese día): agendadas = ag_asistidas + ag_inasistencias +
+# ag_canceladas + ag_futuras + ag_sin_resultado; y de esas, las pasadas no canceladas según Google
+# Meet: meet_asistio + meet_no_asistio + meet_sin_prueba (ver scripts/extraer_reuniones_setters.py).
 REUNIONES_VACIAS = {"agendadas": 0, "reuniones_del_dia": 0, "asistidas": 0, "inasistencias": 0,
-                    "canceladas": 0, "pendientes": 0, "sin_resultado": 0}
+                    "canceladas": 0, "pendientes": 0, "sin_resultado": 0,
+                    "ag_asistidas": 0, "ag_inasistencias": 0, "ag_canceladas": 0, "ag_futuras": 0,
+                    "ag_sin_resultado": 0, "meet_asistio": 0, "meet_no_asistio": 0, "meet_sin_prueba": 0}
 
 
 def cargar_reuniones() -> dict:
@@ -185,6 +191,7 @@ def gestion_dia(db: Session, fecha: date, anexos: Optional[list[str]] = None) ->
         r["metas"] = {"llamadas": m["llamadas"], "agendadas": m["agendadas"]}
         r["reuniones"] = reuniones_de(reuniones, fecha, a)
         r["reuniones_actualizadas"] = reuniones.get("generado")
+        r["reuniones_fuente_asistencia"] = reuniones.get("asistencia_fuente")
         if r["reuniones"] is not None:
             r["semaforo"]["agendadas"] = _semaforo(r["reuniones"]["agendadas"], m["agendadas"])
         out.append(r)

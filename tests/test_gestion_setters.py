@@ -155,11 +155,11 @@ def test_extractor_reuniones():
     spec = importlib.util.spec_from_file_location("ext", pathlib.Path(__file__).parents[1] / "scripts/extraer_reuniones_setters.py")
     ext = importlib.util.module_from_spec(spec); spec.loader.exec_module(ext)
     foto = {"calendar_events": [
-        {"createdBy": {"userId": "U102"}, "dateAdded": "2026-10-21T15:00:00-03:00", "startTime": "2026-10-22T10:00:00-03:00", "appointmentStatus": "showed"},
-        {"createdBy": {"userId": "U102"}, "dateAdded": "2026-10-21T16:00:00-03:00", "startTime": "2026-10-22T11:00:00-03:00", "appointmentStatus": "noshow"},
-        {"createdBy": {"userId": "OTRO"}, "calendarId": "CAL103", "dateAdded": "2026-10-22T02:30:00Z", "startTime": "2030-01-01T10:00:00Z", "appointmentStatus": "confirmed"},
-        {"createdBy": {"userId": "U102"}, "title": "Prueba interna", "dateAdded": "2026-10-21T15:00:00-03:00"},
-        {"createdBy": {"userId": "NADIE"}, "dateAdded": "2026-10-21T15:00:00-03:00"},
+        {"contactId": "K0", "createdBy": {"userId": "U102"}, "dateAdded": "2026-10-21T15:00:00-03:00", "startTime": "2026-10-22T10:00:00-03:00", "appointmentStatus": "showed"},
+        {"contactId": "K1", "createdBy": {"userId": "U102"}, "dateAdded": "2026-10-21T16:00:00-03:00", "startTime": "2026-10-22T11:00:00-03:00", "appointmentStatus": "noshow"},
+        {"contactId": "K2", "createdBy": {"userId": "OTRO"}, "calendarId": "CAL103", "dateAdded": "2026-10-22T02:30:00Z", "startTime": "2030-01-01T10:00:00Z", "appointmentStatus": "confirmed"},
+        {"contactId": "K3", "createdBy": {"userId": "U102"}, "title": "Prueba interna", "dateAdded": "2026-10-21T15:00:00-03:00"},
+        {"contactId": "K4", "createdBy": {"userId": "NADIE"}, "dateAdded": "2026-10-21T15:00:00-03:00"},
     ]}
     d = ext.extraer(foto, {"U102": "102"}, {"CAL103": "103"})["por_dia"]
     assert d["2026-10-21"]["102"]["agendadas"] == 2
@@ -167,6 +167,67 @@ def test_extractor_reuniones():
     assert "agendadas" not in d["2026-10-21"].get("103", {})   # la creó otro en su calendario: no es agendada por ella
     assert d["2026-10-22"]["102"].get("agendadas", 0) == 0
     assert d["2030-01-01"]["103"]["pendientes"] == 1
+
+
+def _extractor():
+    import importlib.util, pathlib
+    spec = importlib.util.spec_from_file_location("ext", pathlib.Path(__file__).parents[1] / "scripts/extraer_reuniones_setters.py")
+    ext = importlib.util.module_from_spec(spec); spec.loader.exec_module(ext)
+    return ext
+
+
+def test_extractor_cohorte_meet_y_pruebas():
+    from datetime import datetime
+    ext = _extractor()
+    ahora = datetime.fromisoformat("2026-11-03T09:00:00-03:00")
+    base = {"createdBy": {"userId": "U102"}, "dateAdded": "2026-10-21T15:00:00-03:00"}
+    foto = {
+        "users": [{"id": "U102", "name": "Ana Setter"}, {"id": "UN", "name": "Nicolás Soto"}],
+        "conversations": [{"contactId": "CINT", "fullName": "Nicolas Soto", "email": "otro@gmail.com"},
+                          {"contactId": "CMAIL", "fullName": "Alguien", "email": "x@BigCapital.cl"},
+                          {"contactId": "CAV", "fullName": "Aviso Y."}],
+        "calendar_events": [
+            {**base, "id": "A1", "contactId": "C1", "startTime": "2026-10-22T10:00:00-03:00", "appointmentStatus": "showed"},
+            {**base, "id": "A2", "contactId": "C2", "startTime": "2026-10-23T10:00:00-03:00", "appointmentStatus": "noshow"},
+            {**base, "id": "A3", "contactId": "C3", "startTime": "2026-10-24T10:00:00-03:00", "appointmentStatus": "cancelled"},
+            {**base, "id": "A4", "contactId": "C4", "startTime": "2026-11-10T10:00:00-03:00", "appointmentStatus": "confirmed"},
+            {**base, "id": "A5", "contactId": "C5", "startTime": "2026-10-25T10:00:00-03:00", "appointmentStatus": "confirmed"},
+            # pruebas e internas: ninguna cuenta
+            {**base, "id": "P1", "contactId": "C6", "title": "Cita de PRUÉBA", "startTime": "2026-10-22T10:00:00-03:00"},
+            {**base, "id": "P2", "contactId": "CINT", "title": "Nicolas Soto → atiende Pamela", "startTime": "2026-10-22T10:00:00-03:00", "appointmentStatus": "noshow"},
+            {**base, "id": "P3", "contactId": "CMAIL", "startTime": "2026-10-22T10:00:00-03:00"},
+            {**base, "id": "P4", "contactId": "CAV", "title": "Ana Setter | Propuestas", "startTime": "2026-10-22T10:00:00-03:00", "appointmentStatus": "cancelled"},
+            {**base, "id": "P5", "contactId": "C7", "title": "NO AGENDAR", "startTime": "2026-10-22T10:00:00-03:00"},
+            {**base, "id": "P6", "title": "Bloqueo sin contacto", "startTime": "2026-10-22T10:00:00-03:00"},
+        ]}
+    # con Meet: A1 entraron los dos, A2 solo el asesor, A5 sin material
+    d = ext.extraer(foto, {"U102": "102"}, {}, {"A1": "ambos", "A2": "solo_asesor"}, ahora)
+    c = d["por_dia"]["2026-10-21"]["102"]
+    assert d["asistencia_fuente"] == "meet"
+    assert c["agendadas"] == 5
+    assert (c["ag_asistidas"], c["ag_inasistencias"], c["ag_canceladas"], c["ag_futuras"], c["ag_sin_resultado"]) == (1, 1, 1, 1, 1)
+    assert c["agendadas"] == sum(c[k] for k in ext.AG.values())
+    assert (c["meet_asistio"], c["meet_no_asistio"], c["meet_sin_prueba"]) == (1, 1, 1)
+    assert d["por_dia"]["2026-10-22"]["102"] == {"reuniones_del_dia": 1, "asistidas": 1}
+    # sin Meet: cae al estado de Nova sin romper
+    d = ext.extraer(foto, {"U102": "102"}, {}, None, ahora)
+    c = d["por_dia"]["2026-10-21"]["102"]
+    assert d["asistencia_fuente"] == "nova"
+    assert (c["meet_asistio"], c["meet_no_asistio"], c["meet_sin_prueba"]) == (1, 1, 1)
+    # si el subproceso de Meet no existe, devuelve None (no lanza)
+    assert ext.asistencia_meet(["A1"], "/no/existe") is None
+    assert ext.asistencia_meet([], "/no/existe") == {}
+
+
+def test_reuniones_claves_nuevas(db, monkeypatch, tmp_path):
+    import json as _json
+    monkeypatch.setattr(settings, "state_dir", str(tmp_path))
+    (tmp_path / "reuniones_setters.json").write_text(_json.dumps({"generado": "x", "asistencia_fuente": "meet", "por_dia": {
+        "2026-10-22": {"102": {"agendadas": 2, "ag_asistidas": 1, "ag_futuras": 1, "meet_asistio": 1}}}}))
+    r = gs.gestion_dia(db, DIA)[0]
+    assert r["reuniones"]["ag_asistidas"] == 1 and r["reuniones"]["ag_futuras"] == 1
+    assert r["reuniones"]["meet_asistio"] == 1 and r["reuniones"]["meet_no_asistio"] == 0
+    assert r["reuniones_fuente_asistencia"] == "meet"
 
 
 # ── Alertas, calidad y metas ────────────────────────────────────────────────
