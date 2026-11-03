@@ -138,6 +138,8 @@ _ETAPA = {
 }
 _ETAPA_TXT = {"blanco": "En blanco", "verde": "En verde", "construccion": "En construcción",
               "inmediata": "Entrega inmediata"}
+_MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
+          "noviembre", "diciembre")
 
 
 def _ejemplos(numeros: list, n: int = 5) -> str:
@@ -481,6 +483,47 @@ def fallas_de_proyecto(p: Any, hoy: Optional[datetime] = None) -> list:
         add(_it("arriendo.sin_moneda",
                 f"{len(sin_moneda)} depto(s) con arriendo garantizado sin moneda (¿UF o pesos?): {_ejemplos(sin_moneda)}",
                 AVISO, "arr", GRUPO_RESERVA))
+
+    # Arriendo Garantizado por la inmobiliaria (extra.garantia_arriendo, 2026-11-03): solo en
+    # los proyectos que lo tienen. Vigencia, tabla adjunta y montos de cada depto vs la tabla.
+    gar = extra.get("garantia_arriendo")
+    if isinstance(gar, dict):
+        canon = gar.get("canon") if isinstance(gar.get("canon"), dict) else {}
+        sin_monto = [u.numero for u in disp if not _pos(getattr(u, "arriendo_garantizado", None))]
+        if sin_monto:
+            add(_it("arriendo.garantia_sin_monto",
+                    f"{len(sin_monto)} depto(s) disponibles con Arriendo Garantizado sin monto: {_ejemplos(sin_monto)}",
+                    AVISO, "arr", GRUPO_RESERVA))
+        m = re.match(r"^(\d{4})-(0[1-9]|1[0-2])$", str(gar.get("hasta") or ""))
+        if not m:
+            add(_it("arriendo.garantia_vencida", "Arriendo Garantizado sin fecha de término válida (AAAA-MM)",
+                    AVISO, "arr", GRUPO_RESERVA))
+        elif (int(m.group(1)), int(m.group(2))) < (hoy.year, hoy.month):
+            texto = (f"El Arriendo Garantizado venció ({_MESES[int(m.group(2)) - 1]} {m.group(1)}) y la ficha lo "
+                     f"sigue ofreciendo")
+            add(_it("arriendo.garantia_vencida", texto, CRITICA if publicado else AVISO, "arr", GRUPO_RESERVA))
+        doc = (gar.get("documento_url") or "").strip()
+        urls = {(getattr(d, "url", None) or "").strip() for d in documentos}
+        if not doc:
+            add(_it("arriendo.garantia_documento", "Arriendo Garantizado sin la tabla de la inmobiliaria adjunta",
+                    AVISO, "documentos", GRUPO_RESERVA))
+        elif doc not in urls:
+            add(_it("arriendo.garantia_documento",
+                    "La tabla del Arriendo Garantizado apunta a un documento que ya no está en el proyecto",
+                    AVISO, "documentos", GRUPO_RESERVA))
+        distintos = []
+        for u in deptos:
+            esperado = _num(canon.get(str(getattr(u, "numero", None) or "").strip()))
+            actual = _num(getattr(u, "arriendo_garantizado", None))
+            if esperado is None or not actual:
+                continue
+            moneda_u = (getattr(u, "arriendo_moneda", None) or "").strip().upper()
+            if abs(actual - esperado) > 0.005 or (moneda_u and moneda_u != (gar.get("moneda") or "UF")):
+                distintos.append(u.numero)
+        if distintos:
+            add(_it("arriendo.canon_distinto",
+                    f"{len(distintos)} depto(s) con un arriendo distinto al de la tabla de la inmobiliaria: "
+                    f"{_ejemplos(distintos)}", AVISO, "arr", GRUPO_RESERVA))
 
     # ── Textos de venta (solo como línea de resumen en el correo)
     if not [x for x in (extra.get("puntos_interes") or []) if isinstance(x, str) and x.strip()]:

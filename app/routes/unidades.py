@@ -13,6 +13,7 @@ from ..deps.auth import stock_access
 from ..models import Proyecto, Unidad, Usuario
 from ..schemas import ReservaBcIn, RevisionStockIn, UnidadIn, UnidadOut
 from ..services import email_service
+from ..services.garantia_arriendo import canon_de
 from ..services.origen_stock import etiqueta_origen
 from ..services.timeline import recortar_timeline
 
@@ -490,6 +491,25 @@ def _precio_final(final, lista, descuento_pct):
     return round(lista * (1 - d / 100.0), 2)
 
 
+def _canon_de(proy, numero):
+    """(valor, moneda) del Arriendo Garantizado de ese depto según la tabla del proyecto
+    (extra.garantia_arriendo.canon), o None. Ver services/garantia_arriendo.py."""
+    return canon_de(proy, numero)
+
+
+def _rellenar_canon(proy, u: Unidad) -> bool:
+    """(3-nov-2026) Depto con el arriendo VACÍO en un proyecto con Arriendo Garantizado:
+    toma el monto de la tabla del proyecto. Nunca pisa un monto ya cargado. Así un depto
+    nuevo (Excel del robot, alta a mano) no queda sin el canon que la inmobiliaria ya dio."""
+    if u.arriendo_garantizado or not _is_depto(u):
+        return False
+    c = _canon_de(proy, u.numero)
+    if not c:
+        return False
+    u.arriendo_garantizado, u.arriendo_moneda = c
+    return True
+
+
 @router.get("", response_model=List[UnidadOut])
 def listar(proyecto_id: str, db: Session = Depends(get_db), _: Usuario = Depends(stock_access)):
     _ensure_project(db, proyecto_id)
@@ -563,10 +583,11 @@ def crear(
     db: Session = Depends(get_db),
     _: Usuario = Depends(stock_access),
 ):
-    _ensure_project(db, proyecto_id)
+    proy = _ensure_project(db, proyecto_id)
     if db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id, Unidad.numero == body.numero).first():
         raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Ya existe la unidad {body.numero}")
     u = Unidad(id="u-" + uuid.uuid4().hex[:10], proyecto_id=proyecto_id, **body.model_dump())
+    _rellenar_canon(proy, u)
     db.add(u)
     _touch_stock(db, proyecto_id)
     db.commit()
@@ -594,6 +615,18 @@ def actualizar(
     # a "ahora", indistinguible de un cambio real de stock (Excel/scraper). Fix: solo
     # tocar el timestamp si algo realmente cambió.
     cambios = body.model_dump()
+    # (3-nov-2026) Arriendo Garantizado del proyecto: si el PUT trae el arriendo vacío (el
+    # editor reenvía copias viejas de la unidad) y la tabla del proyecto tiene canon para
+    # este depto, el vacío no borra nada: se conserva el monto que ya tenía la unidad o,
+    # si no tenía, se toma el de la tabla. Sin tabla para este depto, todo igual que antes.
+    if not cambios.get("arriendo_garantizado"):
+        _c = _canon_de(db.get(Proyecto, proyecto_id), cambios.get("numero"))
+        if _c and _tipo_es_depto(cambios.get("tipo")):
+            if u.arriendo_garantizado:
+                cambios["arriendo_garantizado"] = u.arriendo_garantizado
+                cambios["arriendo_moneda"] = cambios.get("arriendo_moneda") or u.arriendo_moneda
+            else:
+                cambios["arriendo_garantizado"], cambios["arriendo_moneda"] = _c
     hubo_cambio = any(getattr(u, k) != v for k, v in cambios.items())
     for k, v in cambios.items():
         setattr(u, k, v)
@@ -733,8 +766,11 @@ JB_ESTAC_COLS = [("numero", "Número"), ("precio_uf", "ValorUF"), ("nivel", "Niv
 
 
 def _is_depto(u: Unidad) -> bool:
-    t = (u.tipo or "").lower()
-    return t in ("depto", "departamento", "apartment", "")
+    return _tipo_es_depto(u.tipo)
+
+
+def _tipo_es_depto(tipo) -> bool:
+    return (tipo or "").lower() in ("depto", "departamento", "apartment", "")
 
 
 def _valor_cambio(old, new) -> bool:
@@ -1291,6 +1327,8 @@ async def subir_excel(
                 if _valor_cambio(old, v):
                     cambios_campos.append((k, old, v))
                 setattr(u, k, v)
+            # (3-nov-2026) Arriendo vacío + tabla del proyecto: toma el canon (no pisa montos).
+            _rellenar_canon(proy, u)
             updated.append(num)
             # Paso a precio sin IVA (o vuelta al con IVA) de esta unidad: cambian a la vez
             # el precio, el precio final y el precio normal. No se detalla unidad por
@@ -1317,6 +1355,9 @@ async def subir_excel(
             # sin fuente de bono (Euro/Mobysuite) quedaba cotizando bono 0% aunque la
             # ficha dijera 5-15%. Un 0 que SÍ viene en el Excel se sigue guardando 0.
             u = Unidad(id="u-" + uuid.uuid4().hex[:10], proyecto_id=proyecto_id, **data)
+            # (3-nov-2026) Depto nuevo en un proyecto con Arriendo Garantizado: hereda el canon
+            # de la tabla del proyecto (el Excel de la inmobiliaria no trae el arriendo).
+            _rellenar_canon(proy, u)
             db.add(u)
             inserted.append(num)
             nuevos_info[num] = (data.get("modelo") or "", data.get("precio_lista_uf"))

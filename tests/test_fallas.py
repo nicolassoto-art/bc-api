@@ -196,6 +196,57 @@ def test_arriendo():
     assert "arriendo.sin_moneda" not in _codigos(p)
 
 
+def _con_garantia(**gar):
+    g = {"hasta": "2029-09", "condiciones": "", "documento_url": "/uploads/p1/canon.pdf", "moneda": "UF",
+         "canon": {"101": 11.1, "102": 11.48, "103": 12.0, "104": 12.0}}
+    g.update(gar)
+    p = _ficha(documentos=[_doc("Brochure"), SimpleNamespace(tipo="Otro", url="/uploads/p1/canon.pdf")])
+    p.extra["garantia_arriendo"] = g
+    for u in p.unidades:
+        valor = g["canon"].get(u.numero)
+        u.arriendo_garantizado, u.arriendo_moneda = (valor, "UF") if valor else (None, None)
+    return p
+
+
+def test_garantia_arriendo_completa_sin_fallas_y_sin_garantia_no_revisa():
+    c = _codigos(_con_garantia(canon={"101": 11.1, "102": 11.48, "103": 12.0, "104": 12.0, "105": 13.0}))
+    assert not [k for k in c if k.startswith("arriendo.")], c
+    assert not [k for k in _codigos(_ficha()) if k.startswith("arriendo.garantia")]
+
+
+def test_garantia_sin_monto():
+    p = _con_garantia()                                                    # 105 sin canon (como el 318)
+    it = _codigos(p)["arriendo.garantia_sin_monto"]
+    assert it["severidad"] == AVISO and "105" in it["texto"] and it["tab"] == "arr"
+    p.unidades[4].disponible = False                                       # vendido: ya no se avisa
+    assert "arriendo.garantia_sin_monto" not in _codigos(p)
+
+
+def test_garantia_vencida():
+    assert "arriendo.garantia_vencida" not in _codigos(_con_garantia(hasta="2026-10"))  # mes en curso: vigente
+    it = _codigos(_con_garantia(hasta="2026-09"))["arriendo.garantia_vencida"]
+    assert it["severidad"] == CRITICA and "septiembre 2026" in it["texto"]
+    p = _con_garantia(hasta="2026-09")
+    p.extra["publicar_en_catalogo"] = False
+    assert _codigos(p)["arriendo.garantia_vencida"]["severidad"] == AVISO
+    assert _codigos(_con_garantia(hasta="sep 2029"))["arriendo.garantia_vencida"]["severidad"] == AVISO
+
+
+def test_garantia_documento():
+    assert "arriendo.garantia_documento" not in _codigos(_con_garantia())
+    it = _codigos(_con_garantia(documento_url="/uploads/p1/otro.pdf"))["arriendo.garantia_documento"]
+    assert it["severidad"] == AVISO and "ya no está" in it["texto"]
+    assert "arriendo.garantia_documento" in _codigos(_con_garantia(documento_url=None))
+
+
+def test_canon_distinto():
+    p = _con_garantia()
+    p.unidades[1].arriendo_garantizado = 11.0                              # 102: tabla dice 11,48
+    p.unidades[2].arriendo_moneda = "CLP"                                  # 103: otra moneda
+    it = _codigos(p)["arriendo.canon_distinto"]
+    assert it["severidad"] == AVISO and "102" in it["texto"] and "103" in it["texto"] and "101" not in it["texto"]
+
+
 def test_textos_de_venta_son_solo_resumen():
     p = _ficha()
     p.extra["puntos_interes"] = []
@@ -218,6 +269,12 @@ def test_pestanas_validas():
             "notas", "timeline", "stock", "fotos"}
     p = _ficha(inmobiliaria="", comuna="", foto_principal_url=None, imagenes=[], documentos=[],
                unidades=[_u("101", precio_lista_uf=None, precio_final_uf=None, sup_total=None, modelo="X")])
-    p.extra.update({"gps_verificado": False, "cuenta_reserva": {}, "spa_proyecto": {}, "puntos_interes": []})
+    p.extra.update({"gps_verificado": False, "cuenta_reserva": {}, "spa_proyecto": {}, "puntos_interes": [],
+                    "garantia_arriendo": {"hasta": "2020-01", "documento_url": "/uploads/x.pdf",
+                                          "canon": {"101": 10.0}}})
+    p.unidades[0].arriendo_garantizado = 9.0
+    codigos = set()
     for it in fallas_de_proyecto(p, HOY):
+        codigos.add(it["codigo"])
         assert it["tab"] in tabs, it
+    assert {"arriendo.garantia_vencida", "arriendo.garantia_documento", "arriendo.canon_distinto"} <= codigos

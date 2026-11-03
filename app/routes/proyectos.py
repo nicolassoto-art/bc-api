@@ -4,7 +4,7 @@ import logging
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func, Integer, or_
 from sqlalchemy.exc import IntegrityError
@@ -17,6 +17,7 @@ from ..schemas import ProyectoIn, ProyectoOut, ProyectoSummary
 from ..services import email_service
 from ..services.timeline import fusionar_timeline
 from ..services.estado_stock import estado_stock
+from ..services import garantia_arriendo as garantia
 
 router = APIRouter(prefix="/proyectos", tags=["proyectos"])
 log = logging.getLogger(__name__)
@@ -67,6 +68,10 @@ _PUBLIC_EXTRA_KEYS = {
     # (19-oct-2026) Video del edificio (HLS). Lo escribe SOLO routes/video_proyecto.py. Como porque_si, el
     # worker lo reenvía solo en bcStockToCatalogoDetalle (corredor con sesión).
     "video_ubicacion",
+    # (3-nov-2026) Arriendo Garantizado por la inmobiliaria (services/garantia_arriendo.py). Sale SIN la
+    # tabla de canon (ver _public_extra): el monto de cada depto ya viaja en su unidad. El worker la reenvía
+    # solo en bcStockToCatalogoDetalle (asesor con sesión).
+    "garantia_arriendo",
 }
 # Subcampos de `comercial` que el catálogo necesita; el resto (promo_broker,
 # márgenes, etc.) NO sale.
@@ -138,6 +143,12 @@ def _public_extra(extra: dict) -> dict:
     com = src.get("comercial")
     if isinstance(com, dict):
         e["comercial"] = {k: v for k, v in com.items() if k in _PUBLIC_COMERCIAL_KEYS}
+    if "garantia_arriendo" in e:
+        g = garantia.publica(e["garantia_arriendo"])
+        if g is None:
+            e.pop("garantia_arriendo")
+        else:
+            e["garantia_arriendo"] = g
     return e
 
 
@@ -685,6 +696,12 @@ def actualizar(
         ex["video_ubicacion"] = extra_srv["video_ubicacion"]
     else:
         ex.pop("video_ubicacion", None)
+    # (3-nov-2026) Arriendo Garantizado: igual que el video, lo escribe solo PATCH /garantia-arriendo.
+    # Una pestaña vieja del editor (sin la clave) no la borra, y una con otro valor no la cambia.
+    if extra_srv.get(garantia.CLAVE) is not None:
+        ex[garantia.CLAVE] = extra_srv[garantia.CLAVE]
+    else:
+        ex.pop(garantia.CLAVE, None)
     # (29-oct-2026) Las listas crudas de estacionamientos y bodegas que deja la subida de
     # Excel JB (con su precio normal `PrecioConIvaUF` en MNK sin IVA) solo las escribe esa
     # subida: la copia del navegador puede ser de antes de la última lectura horaria y
@@ -812,3 +829,83 @@ def set_publicar(
         p.id,
     )
     return {"ok": True, "id": p.id, "publicar_en_catalogo": bool(body.publicar)}
+
+
+@router.patch("/{proyecto_id}/garantia-arriendo")
+async def set_garantia_arriendo(
+    proyecto_id: str,
+    request: Request,
+    aplicar: str = Query(default="vacios"),
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(stock_access),
+):
+    """Guarda (o quita, con cuerpo `null`) el Arriendo Garantizado del proyecto (3-nov-2026).
+
+    Cuerpo: {hasta: "AAAA-MM", condiciones, documento_url: "/uploads/<id>/…", moneda: "UF",
+    canon: {"<numero>": monto}}. Toca SOLO extra.garantia_arriendo (el resto de extra queda
+    igual) y aplica el canon a los deptos: por defecto solo a los que tienen el arriendo vacío
+    (`aplicar=vacios`); `aplicar=sobrescribir` también cambia los que ya tienen monto.
+    `aplicar` puede venir en la URL o dentro del cuerpo. Quitar la garantía NO borra los
+    montos de las unidades (son datos cargados; se limpian a mano si corresponde).
+
+    Responde {ok, aplicadas, sin_canon, garantia_arriendo}: `sin_canon` = deptos disponibles
+    sin monto en la tabla (ej. uno que la inmobiliaria dejó pendiente).
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+    from .unidades import _is_depto
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail="El cuerpo debe ser JSON: la garantía, o null para quitarla")
+    if isinstance(body, dict) and "aplicar" in body:
+        body = dict(body)
+        aplicar = body.pop("aplicar")
+    if aplicar not in garantia.APLICAR:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail="«aplicar» debe ser «vacios» o «sobrescribir»")
+    p = db.get(Proyecto, proyecto_id)
+    if not p or p.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
+
+    extra = dict(p.extra or {})
+    if body is None:
+        extra.pop(garantia.CLAVE, None)
+        p.extra = extra
+        flag_modified(p, "extra")
+        p.updated_at = datetime.utcnow()
+        db.commit()
+        return {"ok": True, "aplicadas": 0, "sin_canon": [], "garantia_arriendo": None}
+
+    try:
+        g = garantia.validar(proyecto_id, body)
+    except garantia.GarantiaInvalida as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    extra[garantia.CLAVE] = g
+    p.extra = extra
+    flag_modified(p, "extra")
+
+    aplicadas, sin_canon = 0, []
+    for u in db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).all():
+        if not _is_depto(u):
+            continue
+        valor = g["canon"].get(str(u.numero or "").strip())
+        if valor is None:
+            if u.disponible:
+                sin_canon.append(u.numero)
+            continue
+        if aplicar == "vacios" and u.arriendo_garantizado:
+            continue  # ya tiene monto: no se pisa sin «sobrescribir»
+        if u.arriendo_garantizado != valor or u.arriendo_moneda != g["moneda"]:
+            u.arriendo_garantizado = valor
+            u.arriendo_moneda = g["moneda"]
+            aplicadas += 1
+    p.updated_at = datetime.utcnow()
+    db.commit()
+    return {"ok": True, "aplicadas": aplicadas, "sin_canon": sorted(sin_canon, key=_orden_numero),
+            "garantia_arriendo": g}
+
+
+def _orden_numero(n) -> list:
+    """Orden natural de números de depto ("201" antes que "1001")."""
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", str(n or ""))]
