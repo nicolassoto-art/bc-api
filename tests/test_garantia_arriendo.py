@@ -134,6 +134,10 @@ def test_validaciones_rechazan_datos_malos(client, admin, db):
         r = _patch(client, h, pid, body)
         assert r.status_code == 422, (body, r.text)
     assert _patch(client, h, pid, _garantia(pid), aplicar="todo").status_code == 422
+    assert _patch(client, h, pid, {**_garantia(pid), "aplicar": ["vacios"]}).status_code == 422
+    assert _patch(client, h, pid, {**_garantia(pid), "aplicar": 1}).status_code == 422
+    demasiados = {str(n): 11.0 for n in range(2001)}
+    assert _patch(client, h, pid, _garantia(pid, canon=demasiados)).status_code == 422
     assert "garantia_arriendo" not in _extra(db, pid)
     # en el límite: se acepta
     ok = _garantia(pid, condiciones="x" * 600, canon={"201": 1000}, documento_url=None)
@@ -188,6 +192,25 @@ def test_put_viejo_no_la_borra_y_otro_valor_no_la_cambia(client, admin, db):
     assert _patch(client, h, pid, None).status_code == 200
     assert client.put(f"/proyectos/{pid}", headers=h, json=otra).status_code == 200
     assert "garantia_arriendo" not in _extra(db, pid)
+
+
+def test_post_proyecto_no_guarda_garantia_sin_validar(client, admin, db):
+    """Alta (o «duplicar proyecto») con la clave en extra: se descarta; solo el PATCH la crea."""
+    _, h = admin
+    pid = f"test-garantia-post-{uuid.uuid4().hex[:8]}"
+    r = client.post("/proyectos", headers=h, json={
+        "id": pid, "nombre": "Edificio Prueba Interna",
+        "extra": {"comercial": {"pie_pct": 10}, "garantia_arriendo": {"hasta": "basura", "canon": {"1": -3}}}})
+    assert r.status_code == 201, r.text
+    ex = _extra(db, pid)
+    assert "garantia_arriendo" not in ex and ex["comercial"] == {"pie_pct": 10}
+
+
+def test_canon_al_limite_de_claves_se_acepta(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-garantia-limite")
+    r = _patch(client, h, pid, _garantia(pid, canon={str(n): 11.0 for n in range(2000)}))
+    assert r.status_code == 200, r.text
 
 
 # ── Catálogo (Worker) ───────────────────────────────────────────────────────
@@ -258,6 +281,10 @@ def test_excel_depto_nuevo_hereda_canon_y_no_pisa_montos(client, admin, db):
     assert _unidad(db, pid, "508").arriendo_garantizado == 10.5              # monto existente: no se pisa
     assert _unidad(db, pid, "318").arriendo_garantizado is None              # sin canon: queda vacío
     assert _unidad(db, pid, "318").arriendo_moneda is None
+    # el relleno del 201 (existente) queda en el resumen del timeline
+    tl = _extra(db, pid)["timeline"][0]["detalles"]
+    assert "arriendo garantizado —→UF 11,10" in tl.split("201:")[1], tl
+    assert "arriendo" not in tl.split("201:")[0], tl            # 508 conserva su monto: no se anota
 
 
 def test_excel_sin_garantia_queda_igual(client, admin, db):

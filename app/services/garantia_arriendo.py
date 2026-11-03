@@ -28,6 +28,7 @@ MONEDAS = {"UF"}
 APLICAR = {"vacios", "sobrescribir"}
 MAX_CONDICIONES = 600
 MAX_CANON = 1000.0
+MAX_CLAVES_CANON = 2000  # muy por encima de cualquier edificio; evita cuerpos gigantes
 _HASTA_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _CAMPOS = {"hasta", "condiciones", "documento_url", "moneda", "canon"}
 # Lo único que sale al catálogo. La tabla de canon queda solo en la ficha privada.
@@ -88,6 +89,8 @@ def validar(proyecto_id: str, body: Any) -> dict:
         canon_in = {}
     if not isinstance(canon_in, dict):
         raise GarantiaInvalida("«canon» debe ser un objeto {número de depto: monto}")
+    if len(canon_in) > MAX_CLAVES_CANON:
+        raise GarantiaInvalida(f"«canon» admite hasta {MAX_CLAVES_CANON} deptos")
     canon: dict = {}
     for k, v in canon_in.items():
         num = k.strip() if isinstance(k, str) else ""

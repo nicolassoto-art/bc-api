@@ -500,7 +500,12 @@ def _canon_de(proy, numero):
 def _rellenar_canon(proy, u: Unidad) -> bool:
     """(3-nov-2026) Depto con el arriendo VACÍO en un proyecto con Arriendo Garantizado:
     toma el monto de la tabla del proyecto. Nunca pisa un monto ya cargado. Así un depto
-    nuevo (Excel del robot, alta a mano) no queda sin el canon que la inmobiliaria ya dio."""
+    nuevo (Excel del robot, alta a mano) no queda sin el canon que la inmobiliaria ya dio.
+
+    Consecuencia buscada: en un proyecto con garantía, un depto que tiene canon en la tabla
+    NO se puede vaciar por PUT de la unidad ni por Excel (protege del editor viejo, que
+    reenvía la unidad con el arriendo vacío). Para sacarle el monto hay que quitarlo de la
+    tabla con PATCH /proyectos/{id}/garantia-arriendo y luego limpiar la unidad."""
     if u.arriendo_garantizado or not _is_depto(u):
         return False
     c = _canon_de(proy, u.numero)
@@ -799,6 +804,8 @@ _CAMPO_LABEL = {
     "estac_flag": "cotiza estac", "bodega_flag": "cotiza bodega", "pack_flag": "cotiza pack",
     # Ext. MNK sin IVA (2026-10-29)
     "precio_con_iva_uf": "precio normal",
+    # Arriendo Garantizado tomado de la tabla del proyecto (2026-11-03)
+    "arriendo_garantizado": "arriendo garantizado",
     # Estacionamientos y bodegas (extra), misma idea
     "precio_uf": "precio",
 }
@@ -824,6 +831,11 @@ def _fmt_val(campo: str, val) -> str:
             return str(val)
     if campo == "disponible":
         return "disponible" if val else "no disponible"
+    if campo == "arriendo_garantizado":
+        try:
+            return f"UF {float(val):.2f}".replace(".", ",")
+        except (TypeError, ValueError):
+            return str(val)
     try:
         return f"{float(val):g}"
     except (TypeError, ValueError):
@@ -1328,7 +1340,10 @@ async def subir_excel(
                     cambios_campos.append((k, old, v))
                 setattr(u, k, v)
             # (3-nov-2026) Arriendo vacío + tabla del proyecto: toma el canon (no pisa montos).
-            _rellenar_canon(proy, u)
+            # Queda en el resumen del timeline como cualquier otra modificación.
+            _arr_antes = u.arriendo_garantizado
+            if _rellenar_canon(proy, u):
+                cambios_campos.append(("arriendo_garantizado", _arr_antes, u.arriendo_garantizado))
             updated.append(num)
             # Paso a precio sin IVA (o vuelta al con IVA) de esta unidad: cambian a la vez
             # el precio, el precio final y el precio normal. No se detalla unidad por

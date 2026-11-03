@@ -647,6 +647,10 @@ def crear(body: ProyectoIn, background_tasks: BackgroundTasks, db: Session = Dep
     if db.get(Proyecto, pid):
         raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Ya existe un proyecto con id '{pid}'")
     data = body.model_dump(exclude={"id"})
+    # (3-nov-2026) El Arriendo Garantizado lo crea SOLO PATCH /garantia-arriendo (que lo valida):
+    # ni un alta ni un "duplicar proyecto" lo copian sin validar.
+    if isinstance(data.get("extra"), dict) and garantia.CLAVE in data["extra"]:
+        data["extra"] = {k: v for k, v in data["extra"].items() if k != garantia.CLAVE}
     p = Proyecto(id=pid, codigo_corto=_next_codigo_corto(db), **data)
     db.add(p)
     try:
@@ -850,6 +854,11 @@ async def set_garantia_arriendo(
 
     Responde {ok, aplicadas, sin_canon, garantia_arriendo}: `sin_canon` = deptos disponibles
     sin monto en la tabla (ej. uno que la inmobiliaria dejó pendiente).
+
+    Ojo: mientras la garantía exista, un depto con canon en la tabla NO se puede vaciar por
+    PUT de la unidad ni por Excel (el vacío conserva el monto o toma el canon: protege del
+    editor viejo). Para sacarle el monto a un depto, quitarlo de `canon` con este PATCH
+    (y luego limpiar la unidad), o quitar la garantía completa con `null`.
     """
     from sqlalchemy.orm.attributes import flag_modified
     from .unidades import _is_depto
@@ -861,7 +870,7 @@ async def set_garantia_arriendo(
     if isinstance(body, dict) and "aplicar" in body:
         body = dict(body)
         aplicar = body.pop("aplicar")
-    if aplicar not in garantia.APLICAR:
+    if not isinstance(aplicar, str) or aplicar not in garantia.APLICAR:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
                             detail="«aplicar» debe ser «vacios» o «sobrescribir»")
     p = db.get(Proyecto, proyecto_id)
