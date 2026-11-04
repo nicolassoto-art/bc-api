@@ -2,8 +2,10 @@
 
 Corre como tarea programada del servidor (systemd, cada 10 min, como root porque la
 foto es solo del administrador). Deja en /opt/bc-api/estado/reuniones_setters.json
-SOLO conteos por anexo y día (sin nombres, teléfonos ni ids de contactos), legible
-por bc-api. Solo usa la biblioteca estándar de Python (Meet se consulta con el
+los conteos por anexo y día y, para las agendadas, la lista detrás de cada cifra
+(`agendadas_detalle`: nombre del cliente, hora de la reunión, asesor y resultado; sin
+teléfonos, correos ni ids de contactos; aprobado por Nicolás el 4-nov-2026), legible
+solo por bc-api (permiso 640). Solo usa la biblioteca estándar de Python (Meet se consulta con el
 entorno propio de ghl-ia, en un subproceso).
 
 Atribución: la cita es de la setter si la creó ella (createdBy.userId) o si está en
@@ -93,6 +95,23 @@ def _contactos(foto: dict) -> dict[str, tuple[str, str]]:
         if cid and (cid not in out or not all(out[cid])):
             nombre, correo = out.get(cid, ("", ""))
             out[cid] = (nombre or _norm(cv.get("fullName") or cv.get("contactName")), correo or _norm(cv.get("email")))
+    return out
+
+
+def _nombres(foto: dict) -> dict[str, str]:
+    """contactId → nombre tal como está en el CRM (para mostrar; sin correo ni teléfono)."""
+    out: dict[str, str] = {}
+    for op in foto.get("opportunities") or []:
+        c = op.get("contact") or {}
+        cid = op.get("contactId") or c.get("id")
+        nombre = " ".join(str(c.get("name") or op.get("name") or "").split())
+        if cid and nombre and cid not in out:
+            out[cid] = nombre
+    for cv in foto.get("conversations") or []:
+        cid = cv.get("contactId")
+        nombre = " ".join(str(cv.get("fullName") or cv.get("contactName") or "").split())
+        if cid and nombre and cid not in out:
+            out[cid] = nombre
     return out
 
 
@@ -189,18 +208,33 @@ def extraer(foto: dict, setters: dict[str, str], calendarios: dict[str, str],
     """`meet`: id de cita → clase de Meet (ver asistencia_meet); None = Meet no disponible."""
     ahora = ahora or datetime.now(CHILE)
     dias: dict = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+    # La lista detrás de cada cifra «agendadas» sale del MISMO recorrido que el conteo: una fila por
+    # cada suma a c["agendadas"], así el largo de la lista es siempre igual a la cifra.
+    detalle: dict = defaultdict(lambda: defaultdict(list))
+    nombres = _nombres(foto)
+    usuarios = {u.get("id"): " ".join(str(u.get("name") or "").split()) for u in foto.get("users") or [] if u.get("id")}
     for e, anexo, propia, estado, creada, inicio in citas(foto, setters, calendarios):
         res = _resultado(estado, inicio, ahora)
         if creada and propia:              # una cita que otro creó en su calendario (formulario, tercero) no es agendada por ella
             c = dias[creada.date().isoformat()][anexo]
             c["agendadas"] += 1
             c[AG[res]] += 1
+            clase = None
             if res != "canceladas" and inicio and inicio <= ahora:
                 if meet is None:           # sin Meet: el estado de Nova
                     clase = {"asistidas": "ambos", "inasistencias": "solo_asesor"}.get(res, "sin_prueba")
                 else:
                     clase = meet.get(e.get("id"), "sin_prueba")
                 c[MEET[clase]] += 1
+            titulo = str(e.get("title") or "").split("|")[0].strip()
+            detalle[creada.date().isoformat()][anexo].append({
+                "cliente": nombres.get(e.get("contactId")) or titulo or "Sin nombre",
+                "creada": creada.isoformat(timespec="minutes"),
+                "inicio": inicio.isoformat(timespec="minutes") if inicio else None,
+                "asesor": usuarios.get(e.get("assignedUserId")) or "Sin asignar",
+                "resultado": res,
+                "meet": clase,
+            })
         if inicio:
             d = dias[inicio.date().isoformat()][anexo]
             d["reuniones_del_dia"] += 1
@@ -210,6 +244,8 @@ def extraer(foto: dict, setters: dict[str, str], calendarios: dict[str, str],
         "foto_modificada": (foto.get("metadata") or {}).get("generated_at"),
         "asistencia_fuente": "nova" if meet is None else "meet",
         "por_dia": {dia: {a: dict(c) for a, c in por_anexo.items()} for dia, por_anexo in dias.items()},
+        "agendadas_detalle": {dia: {a: sorted(filas, key=lambda x: (x["inicio"] or "", x["cliente"]))
+                                    for a, filas in por_anexo.items()} for dia, por_anexo in detalle.items()},
     }
 
 

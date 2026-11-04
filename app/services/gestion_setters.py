@@ -209,17 +209,55 @@ def acotar_rango(desde: date, hasta: date) -> tuple[date, date]:
     return desde, hasta
 
 
+MAX_FILAS_RANGO = 62
+
+
+def dias_del_rango(desde: date, hasta: date, n_anexos: int) -> list[date]:
+    """Días que entran en gestion_rango: se corta al llegar a 62 filas (una por setter y día)."""
+    dias, d, filas = [], desde, 0
+    while d <= hasta and filas < MAX_FILAS_RANGO:
+        dias.append(d)
+        filas += n_anexos
+        d += timedelta(days=1)
+    return dias
+
+
 def gestion_rango(db: Session, desde: date, hasta: date, anexos: Optional[list[str]] = None) -> list[dict]:
-    dias, d = [], desde
-    while d <= hasta and len(dias) < 62:
+    dias = []
+    for d in dias_del_rango(desde, hasta, len(anexos or settings.zadarma_anexos_map)):
         for r in gestion_dia(db, d, anexos):
             r["tiene_actividad"] = bool(r["llamadas"] or (r.get("reuniones") or {}).get("agendadas")
                                         or (r.get("reuniones") or {}).get("reuniones_del_dia"))
             r.pop("linea_tiempo", None)
             r["detenciones_n"] = len(r.pop("detenciones", []) or [])
             dias.append({"fecha": d.isoformat(), **r})
-        d += timedelta(days=1)
     return dias
+
+
+CAMPOS_CITA = ("cliente", "creada", "inicio", "asesor", "resultado", "meet")
+
+
+def reuniones_lista(desde: date, hasta: date, anexos: Optional[list[str]] = None) -> list[dict]:
+    """Las citas detrás de la cifra «agendadas» (y de sus columnas: resultado = asistidas,
+    inasistencias, canceladas, pendientes o sin_resultado). Mismo archivo, mismos días
+    (dias_del_rango) y misma atribución por anexo que gestion_rango → el largo de la lista de
+    cada setter y día es igual a su cifra. Sin teléfonos ni correos."""
+    setters = settings.zadarma_anexos_map
+    anexos = anexos or list(setters)
+    detalle = cargar_reuniones().get("agendadas_detalle")
+    detalle = detalle if isinstance(detalle, dict) else {}
+    out = []
+    for d in dias_del_rango(desde, hasta, len(anexos)):
+        del_dia = detalle.get(d.isoformat())
+        if not isinstance(del_dia, dict):
+            continue
+        for a in anexos:
+            filas = del_dia.get(a)
+            for f in filas if isinstance(filas, list) else []:
+                if isinstance(f, dict):
+                    out.append({"fecha": d.isoformat(), "setter": setters.get(a, a), "anexo": a,
+                                **{k: f.get(k) for k in CAMPOS_CITA}})
+    return out
 
 
 def mejor_horario(db: Session, desde: date, hasta: date, anexos: Optional[list[str]] = None) -> list[dict]:

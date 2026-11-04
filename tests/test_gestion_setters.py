@@ -219,6 +219,67 @@ def test_extractor_cohorte_meet_y_pruebas():
     assert ext.asistencia_meet([], "/no/existe") == {}
 
 
+def test_lista_de_agendadas_cuadra_con_la_cifra():
+    from datetime import datetime
+    ext = _extractor()
+    ahora = datetime.fromisoformat("2026-11-03T09:00:00-03:00")
+    base = {"createdBy": {"userId": "U102"}, "dateAdded": "2026-10-21T15:00:00-03:00", "assignedUserId": "UA"}
+    foto = {
+        "users": [{"id": "U102", "name": "Ana Setter"}, {"id": "UA", "name": "Asesor Uno"}],
+        "opportunities": [{"contactId": "C1", "contact": {"id": "C1", "name": "Cliente  Uno", "phone": "+56900000000", "email": "c1@x.cl"}}],
+        "calendar_events": [
+            {**base, "id": "A1", "contactId": "C1", "startTime": "2026-10-22T10:00:00-03:00", "appointmentStatus": "showed"},
+            {**base, "id": "A2", "contactId": "C2", "title": "Cliente Dos | Propuestas", "startTime": "2026-10-23T10:00:00-03:00",
+             "appointmentStatus": "noshow", "assignedUserId": None},
+            {**base, "id": "A3", "contactId": "C3", "startTime": "2026-11-10T10:00:00-03:00", "appointmentStatus": "confirmed",
+             "dateAdded": "2026-10-22T02:30:00Z"},   # 21-oct 23:30 en Chile: cuenta el 21
+            {**base, "id": "P1", "contactId": "C6", "title": "Prueba", "startTime": "2026-10-22T10:00:00-03:00"},
+        ]}
+    d = ext.extraer(foto, {"U102": "102"}, {}, {"A1": "ambos"}, ahora)
+    c, filas = d["por_dia"]["2026-10-21"]["102"], d["agendadas_detalle"]["2026-10-21"]["102"]
+    assert c["agendadas"] == len(filas) == 3
+    assert c["ag_asistidas"] == sum(f["resultado"] == "asistidas" for f in filas) == 1
+    a1 = next(f for f in filas if f["resultado"] == "asistidas")
+    assert a1 == {"cliente": "Cliente Uno", "creada": "2026-10-21T15:00-03:00", "inicio": "2026-10-22T10:00-03:00",
+                  "asesor": "Asesor Uno", "resultado": "asistidas", "meet": "ambos"}
+    a2 = next(f for f in filas if f["resultado"] == "inasistencias")
+    assert a2["cliente"] == "Cliente Dos" and a2["asesor"] == "Sin asignar"
+    assert all("+569" not in str(f) and "@" not in str(f) for f in filas)   # sin teléfono ni correo
+
+
+def test_endpoint_reuniones_mismo_filtro(client, db, config, monkeypatch, tmp_path, admin):
+    import json as _json
+    monkeypatch.setattr(settings, "state_dir", str(tmp_path))
+    fila = {"cliente": "Cliente Uno", "creada": "2026-10-22T10:00-03:00", "inicio": "2026-10-23T10:00-03:00",
+            "asesor": "Asesor Uno", "resultado": "asistidas", "meet": "ambos"}
+    (tmp_path / "reuniones_setters.json").write_text(_json.dumps({"generado": "x", "por_dia": {
+        "2026-10-22": {"102": {"agendadas": 2, "ag_asistidas": 1}, "103": {"agendadas": 1, "ag_asistidas": 1}},
+        "2026-10-25": {"102": {"agendadas": 1}}},
+        "agendadas_detalle": {
+            "2026-10-22": {"102": [fila, {**fila, "resultado": "pendientes", "meet": None}], "103": [fila], "101": [fila]},
+            "2026-10-25": {"102": [fila]}}}))
+    _, h = admin
+    lista = client.get("/llamadas/reuniones?desde=2026-10-22&hasta=2026-10-24", headers=h).json()
+    rango = client.get("/llamadas/gestion/rango?desde=2026-10-22&hasta=2026-10-24", headers=h).json()
+    for r in rango:   # la cifra de cada setter y día es el largo de su lista
+        propias = [x for x in lista if x["fecha"] == r["fecha"] and x["setter"] == r["setter"]]
+        assert len(propias) == r["reuniones"]["agendadas"]
+        assert sum(x["resultado"] == "asistidas" for x in propias) == r["reuniones"]["ag_asistidas"]
+    assert {x["anexo"] for x in lista} == {"102", "103"}           # el 101 no es setter configurada
+    assert set(lista[0]) == {"fecha", "setter", "anexo", "cliente", "creada", "inicio", "asesor", "resultado", "meet"}
+    h2 = _token_para(db, "setter.qa@test.local")
+    mias = client.get("/mis-llamadas/reuniones?desde=2026-10-22&hasta=2026-10-31", headers=h2).json()
+    assert {x["anexo"] for x in mias} == {"102"} and len(mias) == 3
+    assert client.get("/llamadas/reuniones?desde=2026-10-22&hasta=2026-10-24", headers=h2).status_code == 403
+    assert client.get("/llamadas/reuniones?desde=2026-01-01&hasta=2026-10-24", headers=h).status_code == 422
+
+
+def test_dias_del_rango_igual_que_antes():
+    assert len(gs.dias_del_rango(date(2026, 10, 1), date(2026, 12, 31), 2)) == 31   # 62 filas con 2 setters
+    assert len(gs.dias_del_rango(date(2026, 10, 1), date(2026, 10, 3), 2)) == 3
+    assert len(gs.dias_del_rango(date(2026, 10, 1), date(2026, 10, 3), 0)) == 3
+
+
 def test_reuniones_claves_nuevas(db, monkeypatch, tmp_path):
     import json as _json
     monkeypatch.setattr(settings, "state_dir", str(tmp_path))

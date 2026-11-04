@@ -130,6 +130,12 @@ def horarios(desde: date, hasta: date, db: Session = Depends(get_db)):
     return gestion_setters.mejor_horario(db, *_rango(desde, hasta))
 
 
+@consulta.get("/reuniones")
+def reuniones(desde: date, hasta: date):
+    """Citas detrás de las cifras «Agendadas» y «Asistieron» (mismo filtro que /gestion/rango)."""
+    return gestion_setters.reuniones_lista(*_rango(desde, hasta))
+
+
 @consulta.get("/{llamada_id}")
 def detalle_llamada(llamada_id: int, db: Session = Depends(get_db), user: Usuario = Depends(lector_informes)):
     log.info("llamadas: detalle id=%s por %s", llamada_id, user.email)
@@ -228,6 +234,11 @@ def mi_calidad(desde: date, hasta: date, anexo: str = Depends(_anexo_propio), db
 @mias.get("/gestion/rango")
 def mi_gestion_rango(desde: date, hasta: date, anexo: str = Depends(_anexo_propio), db: Session = Depends(get_db)):
     return gestion_setters.gestion_rango(db, *_rango(desde, hasta), [anexo])
+
+
+@mias.get("/reuniones")
+def mis_reuniones(desde: date, hasta: date, anexo: str = Depends(_anexo_propio)):
+    return gestion_setters.reuniones_lista(*_rango(desde, hasta), [anexo])
 
 
 @mias.get("")
