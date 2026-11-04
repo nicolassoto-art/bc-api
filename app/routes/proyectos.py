@@ -15,7 +15,7 @@ from ..deps.auth import service_token, stock_access, current_user
 from ..models import Proyecto, Unidad, Usuario
 from ..schemas import ProyectoIn, ProyectoOut, ProyectoSummary
 from ..services import email_service
-from ..services.timeline import fusionar_timeline
+from ..services.timeline import fusionar_timeline, recortar_timeline
 from ..services.estado_stock import estado_stock
 from ..services import garantia_arriendo as garantia
 
@@ -841,7 +841,7 @@ async def set_garantia_arriendo(
     request: Request,
     aplicar: str = Query(default="vacios"),
     db: Session = Depends(get_db),
-    _: Usuario = Depends(stock_access),
+    usuario: Usuario = Depends(stock_access),
 ):
     """Guarda (o quita, con cuerpo `null`) el Arriendo Garantizado del proyecto (3-nov-2026).
 
@@ -854,6 +854,9 @@ async def set_garantia_arriendo(
 
     Responde {ok, aplicadas, sin_canon, garantia_arriendo}: `sin_canon` = deptos disponibles
     sin monto en la tabla (ej. uno que la inmobiliaria dejó pendiente).
+
+    Cada guardado o quitado deja un evento «Garantía de arriendo» en extra.timeline (mismo
+    formato que los demás eventos del servidor).
 
     Ojo: mientras la garantía exista, un depto con canon en la tabla NO se puede vaciar por
     PUT de la unidad ni por Excel (el vacío conserva el monto o toma el canon: protege del
@@ -880,6 +883,7 @@ async def set_garantia_arriendo(
     extra = dict(p.extra or {})
     if body is None:
         extra.pop(garantia.CLAVE, None)
+        _evento_garantia(extra, "Arriendo Garantizado quitado", usuario)
         p.extra = extra
         flag_modified(p, "extra")
         p.updated_at = datetime.utcnow()
@@ -909,10 +913,50 @@ async def set_garantia_arriendo(
             u.arriendo_garantizado = valor
             u.arriendo_moneda = g["moneda"]
             aplicadas += 1
+    sin_canon = sorted(sin_canon, key=_orden_numero)
+    _evento_garantia(extra, _detalle_garantia(g, aplicadas, sin_canon), usuario)
+    p.extra = extra
+    flag_modified(p, "extra")
     p.updated_at = datetime.utcnow()
     db.commit()
-    return {"ok": True, "aplicadas": aplicadas, "sin_canon": sorted(sin_canon, key=_orden_numero),
+    return {"ok": True, "aplicadas": aplicadas, "sin_canon": sin_canon,
             "garantia_arriendo": g}
+
+
+_MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+          "septiembre", "octubre", "noviembre", "diciembre")
+_MAX_SIN_CANON_EVENTO = 10
+
+
+def _detalle_garantia(g: dict, aplicadas: int, sin_canon: list) -> str:
+    """«Arriendo Garantizado hasta septiembre 2029 · 56 cánones · aplicadas 3 · sin canon: 318»."""
+    anio, mes = g["hasta"].split("-")
+    n = len(g.get("canon") or {})
+    partes = [f"Arriendo Garantizado hasta {_MESES[int(mes) - 1]} {anio}",
+              f"{n} canon" if n == 1 else f"{n} cánones",
+              f"aplicadas {aplicadas}"]
+    if sin_canon:
+        lista = ", ".join(str(x) for x in sin_canon[:_MAX_SIN_CANON_EVENTO])
+        resto = len(sin_canon) - _MAX_SIN_CANON_EVENTO
+        if resto > 0:
+            lista += f" y {resto} más"
+        partes.append(f"sin canon: {lista}")
+    return " · ".join(partes)
+
+
+def _evento_garantia(extra: dict, detalles: str, usuario) -> None:
+    """Agrega al timeline (en la copia `extra`) el evento del PATCH de garantía."""
+    tl = list(extra.get("timeline") or [])
+    tl.insert(0, {
+        "id": "tl-" + uuid.uuid4().hex[:10],
+        "fecha": datetime.utcnow().isoformat() + "Z",
+        "tipo": "Garantía de arriendo",
+        "detalles": detalles,
+        "usuario": getattr(usuario, "email", None) or "sistema",
+        "origen_auto": False,
+        "archivo_url": None,
+    })
+    extra["timeline"] = recortar_timeline(tl)
 
 
 def _orden_numero(n) -> list:

@@ -70,7 +70,9 @@ def test_guardar_leer_y_quitar_sin_tocar_el_resto_de_extra(client, admin, db):
     ex = _extra(db, pid)
     assert ex["garantia_arriendo"]["hasta"] == "2029-09"
     for k, v in otros.items():
-        assert ex[k] == v
+        if k != "timeline":
+            assert ex[k] == v
+    assert ex["timeline"][1:] == otros["timeline"]                      # evento nuevo arriba
     # GET /proyectos/{id} (ficha privada) la trae completa, con la tabla
     g = client.get(f"/proyectos/{pid}", headers=h).json()["extra"]["garantia_arriendo"]
     assert g["canon"]["508"] == 11.48
@@ -85,8 +87,65 @@ def test_guardar_leer_y_quitar_sin_tocar_el_resto_de_extra(client, admin, db):
     ex = _extra(db, pid)
     assert "garantia_arriendo" not in ex
     for k, v in otros.items():
-        assert ex[k] == v
+        if k != "timeline":
+            assert ex[k] == v
+    assert ex["timeline"][2:] == otros["timeline"]
     assert _unidad(db, pid, "508").arriendo_garantizado == 11.48         # quitar no borra montos
+
+
+# ── Evento en la historia (timeline) ───────────────────────────────────────
+
+def _assert_evento(ev, detalles, email):
+    assert ev["tipo"] == "Garantía de arriendo"
+    assert ev["detalles"] == detalles
+    assert ev["usuario"] == email
+    assert ev["id"].startswith("tl-") and ev["fecha"].endswith("Z")
+    assert ev["origen_auto"] is False and ev["archivo_url"] is None
+
+
+def test_guardar_y_quitar_dejan_evento_en_timeline(client, admin, db):
+    u, h = admin
+    otros = {"comercial": {"pie_pct": 20}, "timeline": [{"id": "tl-viejo", "tipo": "Excel Stock"}]}
+    pid = _proy(db, "test-garantia-evento", extra=dict(otros),
+                unidades=[("201", {}), ("508", {}), ("318", {}), ("E-1", {"tipo": "Estacionamiento"})])
+    r = _patch(client, h, pid, _garantia(pid))
+    assert r.status_code == 200, r.text
+    ex = _extra(db, pid)
+    assert len(ex["timeline"]) == 2 and ex["timeline"][1] == otros["timeline"][0]
+    _assert_evento(ex["timeline"][0],
+                   "Arriendo Garantizado hasta septiembre 2029 · 3 cánones · aplicadas 2 · sin canon: 318",
+                   u.email)
+    assert ex["comercial"] == otros["comercial"]
+
+    r = _patch(client, h, pid, None)
+    assert r.status_code == 200, r.text
+    ex = _extra(db, pid)
+    assert len(ex["timeline"]) == 3
+    _assert_evento(ex["timeline"][0], "Arriendo Garantizado quitado", u.email)
+    assert ex["timeline"][2] == otros["timeline"][0]
+    assert ex["comercial"] == otros["comercial"]
+
+
+def test_evento_resume_sin_canon_largo(client, admin, db):
+    u, h = admin
+    nums = [str(100 + i) for i in range(13)]
+    pid = _proy(db, "test-garantia-evento-largo", unidades=[(n, {}) for n in nums])
+    r = _patch(client, h, pid, _garantia(pid, hasta="2030-01", canon={"999": 10.0}))
+    assert r.status_code == 200, r.text
+    ev = _extra(db, pid)["timeline"][0]
+    _assert_evento(ev, "Arriendo Garantizado hasta enero 2030 · 1 canon · aplicadas 0 · sin canon: "
+                       + ", ".join(nums[:10]) + " y 3 más", u.email)
+
+
+def test_put_del_editor_no_borra_el_evento_de_garantia(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-garantia-evento-put", unidades=[("201", {})])
+    _patch(client, h, pid, _garantia(pid))
+    ficha = {"nombre": "Edificio Prueba Interna", "extra": {"comercial": {"pie_pct": 15}}}  # sin timeline
+    r = client.put(f"/proyectos/{pid}", headers=h, json=ficha)
+    assert r.status_code == 200, r.text
+    tl = _extra(db, pid)["timeline"]
+    assert tl and tl[0]["tipo"] == "Garantía de arriendo"
 
 
 def test_aplicar_vacios_no_pisa_y_sobrescribir_si(client, admin, db):
