@@ -221,3 +221,54 @@ def test_timeline_registra_evento(client, admin, db):
     assert _patch(client, h, pid, {"planes_pago": [], "seriedad_promesa_uf": None}).status_code == 200
     tl = _extra(db, pid)["timeline"]
     assert tl[0]["tipo"] == "Planes de pago" and tl[0]["detalles"] == "Planes de pago quitados"
+
+
+def test_error_de_forma_422_en_espanol(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-forma")
+    r = _patch(client, h, pid, {"planes_pago": [_plan("Estandar-MAYUS")]})
+    assert r.status_code == 422
+    d = r.json()["detail"]
+    assert isinstance(d, str)
+    assert d.startswith("Los datos del plan no son válidos")
+    assert "planes_pago[0].id" in d
+
+
+def test_infinito_y_nan_dan_422_no_500(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-inf")
+    ct = {**h, "content-type": "application/json"}
+    for malo in ("Infinity", "NaN"):
+        cuerpos = [
+            '{"planes_pago": [], "seriedad_promesa_uf": %s}' % malo,
+            json.dumps({"planes_pago": [_plan(cuota_pre_entrega_uf=0)]}).replace(
+                '"cuota_pre_entrega_uf": 0', '"cuota_pre_entrega_uf": ' + malo),
+            json.dumps({"planes_pago": [_plan(descuentos_adicionales=[
+                {"id": "d", "nombre": "D", "monto": 0}])]}).replace('"monto": 0', '"monto": ' + malo),
+        ]
+        for c in cuerpos:
+            r = client.patch(f"/proyectos/{pid}/planes-pago", headers=ct, content=c)
+            assert r.status_code == 422, (malo, c, r.status_code)
+            assert isinstance(r.json()["detail"], str)
+
+
+def test_maximo_10_planes_422(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-max")
+    plan = lambda i: _plan(f"plan-{i}", nombre=f"Plan {i}", orden=i, predeterminado=False)
+    assert _patch(client, h, pid, {"planes_pago": [plan(i) for i in range(10)]}).status_code == 200
+    r = _patch(client, h, pid, {"planes_pago": [plan(i) for i in range(11)]})
+    assert r.status_code == 422
+    assert isinstance(r.json()["detail"], str)
+    assert "planes_pago" in r.json()["detail"]
+
+
+def test_patch_sin_seriedad_la_conserva(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-conserva")
+    assert _patch(client, h, pid, {"planes_pago": [_plan()], "seriedad_promesa_uf": 7}).status_code == 200
+    r = _patch(client, h, pid, {"planes_pago": [_plan(nombre="Otro nombre")]})
+    assert r.status_code == 200, r.text
+    com = _extra(db, pid)["comercial"]
+    assert com["seriedad_promesa_uf"] == 7
+    assert com["planes_pago"][0]["nombre"] == "Otro nombre"

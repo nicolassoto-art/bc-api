@@ -208,8 +208,8 @@ class ProyectoSummary(BaseModel):
 class DescuentoPlan(BaseModel):
     id: constr(max_length=40)
     nombre: constr(min_length=1, max_length=60)
-    pct: confloat(ge=0, le=100) | None = None
-    monto: confloat(ge=0) | None = None
+    pct: confloat(ge=0, le=100, allow_inf_nan=False) | None = None
+    monto: confloat(ge=0, allow_inf_nan=False) | None = None
     tipo: constr(max_length=20) = ''
     alcance: constr(max_length=20) = ''
 
@@ -220,19 +220,19 @@ class PlanPago(BaseModel):
     orden: int = 0
     predeterminado: bool = False
     activo: bool = True
-    pie_pct: confloat(ge=0, le=100)
-    cuoton_inicial_pct: confloat(ge=0, le=100) = 0
+    pie_pct: confloat(ge=0, le=100, allow_inf_nan=False)
+    cuoton_inicial_pct: confloat(ge=0, le=100, allow_inf_nan=False) = 0
     cuotas_pago_inicial: conint(ge=0, le=120) = 0
-    pago_construccion_pct: confloat(ge=0, le=100) = 0
+    pago_construccion_pct: confloat(ge=0, le=100, allow_inf_nan=False) = 0
     cuotas_pre_entrega: conint(ge=0, le=120) = 0
-    cuota_pre_entrega_uf: confloat(ge=0) | None = None      # mínimo por cuota, fuera del 100%
+    cuota_pre_entrega_uf: confloat(ge=0, allow_inf_nan=False) | None = None      # mínimo por cuota, fuera del 100%
     cuotas_auto_decremento: bool = False
     cuotas_inicio_mes: conint(ge=0, le=120) | None = None
-    cuoton_final_pct: confloat(ge=0, le=100) = 0
+    cuoton_final_pct: confloat(ge=0, le=100, allow_inf_nan=False) = 0
     cuotas_post_entrega: conint(ge=0, le=120) = 0
     cuotas_post_auto_decremento: bool = False
     cuotas_post_inicio_mes: conint(ge=0, le=120) | None = None
-    bono_pie_pct: confloat(ge=0, le=100) = 0
+    bono_pie_pct: confloat(ge=0, le=100, allow_inf_nan=False) = 0
     seriedad_abona_pie: bool = False
     descuentos_adicionales: conlist(DescuentoPlan, max_length=10) = []
     promocion: constr(max_length=500) = ''
@@ -242,8 +242,8 @@ class PlanPago(BaseModel):
 class PlanesPagoIn(BaseModel):
     """Cuerpo de PATCH /proyectos/{id}/planes-pago. `planes_pago: []` borra la clave;
     `seriedad_promesa_uf: null` la borra; si no viene, queda como está."""
-    planes_pago: conlist(PlanPago, max_length=20)
-    seriedad_promesa_uf: float | None = None
+    planes_pago: conlist(PlanPago, max_length=10)
+    seriedad_promesa_uf: confloat(allow_inf_nan=False) | None = None
 
 
 SERIEDAD_MAX_UF = 1000

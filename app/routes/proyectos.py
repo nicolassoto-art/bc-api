@@ -4,8 +4,8 @@ import logging
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request, status, Query
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select, func, Integer, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -955,7 +955,7 @@ async def set_garantia_arriendo(
 @router.patch("/{proyecto_id}/planes-pago")
 def set_planes_pago(
     proyecto_id: str,
-    body: PlanesPagoIn,
+    raw: dict = Body(...),
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(stock_access),
 ):
@@ -971,6 +971,14 @@ def set_planes_pago(
     Responde {ok, comercial} y deja un evento «Planes de pago» en extra.timeline.
     """
     from sqlalchemy.orm.attributes import flag_modified
+    try:
+        body = PlanesPagoIn.model_validate(raw)
+    except ValidationError as e:
+        loc = ""
+        for part in e.errors()[0].get("loc", ()):
+            loc += f"[{part}]" if isinstance(part, int) else (f".{part}" if loc else str(part))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail="Los datos del plan no son válidos" + (f": revisa {loc}" if loc else ""))
     msg = validar_planes(body)
     if msg:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=msg)
