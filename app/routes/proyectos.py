@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import get_db
 from ..deps.auth import service_token, stock_access, current_user
 from ..models import Proyecto, Unidad, Usuario
-from ..schemas import ProyectoIn, ProyectoOut, ProyectoSummary
+from ..schemas import ProyectoIn, ProyectoOut, ProyectoSummary, PlanPago, PlanesPagoIn, validar_planes
 from ..services import email_service
 from ..services.timeline import fusionar_timeline, recortar_timeline
 from ..services.estado_stock import estado_stock
@@ -133,7 +133,12 @@ _BROKER_COMERCIAL_KEYS = _PUBLIC_COMERCIAL_KEYS | {
     "cuoton_inicial_uf", "cuoton_final_uf",
     "pago_cuoton_inicial", "pago_pre_entrega", "pago_post_entrega",
     "valor_cuota_clp", "nota_pago_pie", "cuota_pre_entrega_uf",
+    # (2026-11-05) Planes de pago con nombre + seriedad de la promesa. Los escribe SOLO
+    # PATCH /{id}/planes-pago. Solo para asesor con sesión: NO van a _PUBLIC_COMERCIAL_KEYS.
+    "cuotas_pago_inicial", "planes_pago", "seriedad_promesa_uf",
 }
+# Claves de extra.comercial que escribe SOLO PATCH /{id}/planes-pago (PUT y POST no las tocan).
+_PLANES_KEYS = ("planes_pago", "seriedad_promesa_uf")
 
 
 def _public_extra(extra: dict) -> dict:
@@ -627,6 +632,11 @@ def comercial_broker(
     com = (p.extra or {}).get("comercial")
     com = com if isinstance(com, dict) else {}
     out = {k: v for k, v in com.items() if k in _BROKER_COMERCIAL_KEYS}
+    if "planes_pago" in out:
+        # Cada plan sale solo con los campos conocidos del esquema (nada que se haya colado en la BD).
+        planes = out["planes_pago"] if isinstance(out["planes_pago"], list) else []
+        out["planes_pago"] = [{k: v for k, v in pl.items() if k in PlanPago.model_fields}
+                              for pl in planes if isinstance(pl, dict)]
     # (2026-06-17) NO exponer arriendo garantizado por unidad acá: el usuario lo
     # marcó como información SENSIBLE → no debe verse en el catálogo (ningún broker).
     # Se quitó el mapa `arriendos`. El dato sigue en el editor de stock (privado).
@@ -651,6 +661,12 @@ def crear(body: ProyectoIn, background_tasks: BackgroundTasks, db: Session = Dep
     # ni un alta ni un "duplicar proyecto" lo copian sin validar.
     if isinstance(data.get("extra"), dict) and garantia.CLAVE in data["extra"]:
         data["extra"] = {k: v for k, v in data["extra"].items() if k != garantia.CLAVE}
+    # (2026-11-05) Igual los planes de pago: solo los crea PATCH /planes-pago (que valida la cuadratura).
+    if isinstance(data.get("extra"), dict) and isinstance(data["extra"].get("comercial"), dict):
+        com = data["extra"]["comercial"]
+        if any(k in com for k in _PLANES_KEYS):
+            data["extra"] = {**data["extra"],
+                             "comercial": {k: v for k, v in com.items() if k not in _PLANES_KEYS}}
     p = Proyecto(id=pid, codigo_corto=_next_codigo_corto(db), **data)
     db.add(p)
     try:
@@ -706,6 +722,19 @@ def actualizar(
         ex[garantia.CLAVE] = extra_srv[garantia.CLAVE]
     else:
         ex.pop(garantia.CLAVE, None)
+    # (2026-11-05) Planes de pago y seriedad: igual que la garantía, los escribe solo PATCH /planes-pago.
+    # Se conserva la copia del servidor aunque el navegador (o el wipe del importador) no mande comercial,
+    # y se descarta lo que mande el navegador si el servidor no la tiene.
+    com_srv = extra_srv.get("comercial") if isinstance(extra_srv.get("comercial"), dict) else {}
+    com_in = ex.get("comercial")
+    if isinstance(com_in, dict) or any(com_srv.get(k) is not None for k in _PLANES_KEYS):
+        com = dict(com_in) if isinstance(com_in, dict) else {}
+        for k in _PLANES_KEYS:
+            if com_srv.get(k) is not None:
+                com[k] = com_srv[k]
+            else:
+                com.pop(k, None)
+        ex["comercial"] = com
     # (29-oct-2026) Las listas crudas de estacionamientos y bodegas que deja la subida de
     # Excel JB (con su precio normal `PrecioConIvaUF` en MNK sin IVA) solo las escribe esa
     # subida: la copia del navegador puede ser de antes de la última lectura horaria y
@@ -883,7 +912,7 @@ async def set_garantia_arriendo(
     extra = dict(p.extra or {})
     if body is None:
         extra.pop(garantia.CLAVE, None)
-        _evento_garantia(extra, "Arriendo Garantizado quitado", usuario)
+        _evento(extra, _TIPO_GARANTIA, "Arriendo Garantizado quitado", usuario)
         p.extra = extra
         flag_modified(p, "extra")
         p.updated_at = datetime.utcnow()
@@ -914,13 +943,76 @@ async def set_garantia_arriendo(
             u.arriendo_moneda = g["moneda"]
             aplicadas += 1
     sin_canon = sorted(sin_canon, key=_orden_numero)
-    _evento_garantia(extra, _detalle_garantia(g, aplicadas, sin_canon), usuario)
+    _evento(extra, _TIPO_GARANTIA, _detalle_garantia(g, aplicadas, sin_canon), usuario)
     p.extra = extra
     flag_modified(p, "extra")
     p.updated_at = datetime.utcnow()
     db.commit()
     return {"ok": True, "aplicadas": aplicadas, "sin_canon": sin_canon,
             "garantia_arriendo": g}
+
+
+@router.patch("/{proyecto_id}/planes-pago")
+def set_planes_pago(
+    proyecto_id: str,
+    body: PlanesPagoIn,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(stock_access),
+):
+    """Guarda los planes de pago con nombre del proyecto y la seriedad de la promesa (2026-11-05).
+
+    Cuerpo: {planes_pago: [PlanPago…], seriedad_promesa_uf: UF | null}. Toca SOLO
+    extra.comercial.planes_pago y extra.comercial.seriedad_promesa_uf (el resto de extra
+    queda igual). `planes_pago: []` borra la clave; `seriedad_promesa_uf: null` borra la
+    suya y, si no viene, queda como estaba. Cada plan debe cuadrar en centésimas:
+    pie = cuotón inicial + construcción + cuotón final + bono pie. Ids únicos, a lo más un
+    plan predeterminado y debe estar activo. Error → 422 con `detail` en español.
+
+    Responde {ok, comercial} y deja un evento «Planes de pago» en extra.timeline.
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+    msg = validar_planes(body)
+    if msg:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=msg)
+    p = db.get(Proyecto, proyecto_id)
+    if not p or p.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
+
+    extra = dict(p.extra or {})
+    com = dict(extra["comercial"]) if isinstance(extra.get("comercial"), dict) else {}
+    planes = [pl.model_dump() for pl in body.planes_pago]
+    if planes:
+        com["planes_pago"] = planes
+    else:
+        com.pop("planes_pago", None)
+    if "seriedad_promesa_uf" in body.model_fields_set:
+        if body.seriedad_promesa_uf is None:
+            com.pop("seriedad_promesa_uf", None)
+        else:
+            com["seriedad_promesa_uf"] = body.seriedad_promesa_uf
+    extra["comercial"] = com
+    _evento(extra, _TIPO_PLANES, _detalle_planes(planes, com.get("seriedad_promesa_uf")), usuario)
+    p.extra = extra
+    flag_modified(p, "extra")
+    p.updated_at = datetime.utcnow()
+    db.commit()
+    return {"ok": True, "comercial": com}
+
+
+def _detalle_planes(planes: list, seriedad) -> str:
+    """«2 planes: Estándar (predeterminado), Pie en cuotas · seriedad 10 UF»."""
+    if not planes:
+        partes = ["Planes de pago quitados"]
+    else:
+        nombres = ", ".join(
+            pl["nombre"] + (" (predeterminado)" if pl["predeterminado"] else "")
+            + ("" if pl["activo"] else " (inactivo)")
+            for pl in sorted(planes, key=lambda x: x["orden"]))
+        n = len(planes)
+        partes = [f"{n} plan: {nombres}" if n == 1 else f"{n} planes: {nombres}"]
+    if seriedad is not None:
+        partes.append(f"seriedad {seriedad:g} UF".replace(".", ","))
+    return " · ".join(partes)
 
 
 _MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
@@ -944,13 +1036,17 @@ def _detalle_garantia(g: dict, aplicadas: int, sin_canon: list) -> str:
     return " · ".join(partes)
 
 
-def _evento_garantia(extra: dict, detalles: str, usuario) -> None:
-    """Agrega al timeline (en la copia `extra`) el evento del PATCH de garantía."""
+_TIPO_GARANTIA = "Garantía de arriendo"
+_TIPO_PLANES = "Planes de pago"
+
+
+def _evento(extra: dict, tipo: str, detalles: str, usuario) -> None:
+    """Agrega al timeline (en la copia `extra`) un evento de un PATCH (garantía, planes de pago)."""
     tl = list(extra.get("timeline") or [])
     tl.insert(0, {
         "id": "tl-" + uuid.uuid4().hex[:10],
         "fecha": datetime.utcnow().isoformat() + "Z",
-        "tipo": "Garantía de arriendo",
+        "tipo": tipo,
         "detalles": detalles,
         "usuario": getattr(usuario, "email", None) or "sistema",
         "origen_auto": False,

@@ -2,7 +2,7 @@
 from typing import Dict, List, Optional
 from datetime import datetime
 from typing import Any
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, confloat, conint, conlist, constr
 
 
 # ── Unidad ────────────────────────────────────────────────────
@@ -198,3 +198,86 @@ class ProyectoSummary(BaseModel):
     # (2026-10-05) Estado del stock con el mismo cálculo del correo "proyectos sin
     # revisar" (app/services/estado_stock.py). Sin declararlo, la respuesta lo descarta.
     estado_stock: Optional[Dict[str, Any]] = None
+
+
+# ── Planes de pago (extra.comercial.planes_pago) ──────────────
+# (2026-11-05) Varios planes con nombre por proyecto. Los escribe SOLO
+# PATCH /proyectos/{id}/planes-pago, que además valida la cuadratura con validar_planes().
+
+
+class DescuentoPlan(BaseModel):
+    id: constr(max_length=40)
+    nombre: constr(min_length=1, max_length=60)
+    pct: confloat(ge=0, le=100) | None = None
+    monto: confloat(ge=0) | None = None
+    tipo: constr(max_length=20) = ''
+    alcance: constr(max_length=20) = ''
+
+
+class PlanPago(BaseModel):
+    id: constr(pattern=r'^[a-z0-9_-]{1,40}$')
+    nombre: constr(strip_whitespace=True, min_length=1, max_length=60)
+    orden: int = 0
+    predeterminado: bool = False
+    activo: bool = True
+    pie_pct: confloat(ge=0, le=100)
+    cuoton_inicial_pct: confloat(ge=0, le=100) = 0
+    cuotas_pago_inicial: conint(ge=0, le=120) = 0
+    pago_construccion_pct: confloat(ge=0, le=100) = 0
+    cuotas_pre_entrega: conint(ge=0, le=120) = 0
+    cuota_pre_entrega_uf: confloat(ge=0) | None = None      # mínimo por cuota, fuera del 100%
+    cuotas_auto_decremento: bool = False
+    cuotas_inicio_mes: conint(ge=0, le=120) | None = None
+    cuoton_final_pct: confloat(ge=0, le=100) = 0
+    cuotas_post_entrega: conint(ge=0, le=120) = 0
+    cuotas_post_auto_decremento: bool = False
+    cuotas_post_inicio_mes: conint(ge=0, le=120) | None = None
+    bono_pie_pct: confloat(ge=0, le=100) = 0
+    seriedad_abona_pie: bool = False
+    descuentos_adicionales: conlist(DescuentoPlan, max_length=10) = []
+    promocion: constr(max_length=500) = ''
+    nota_pago_pie: constr(max_length=1000) = ''
+
+
+class PlanesPagoIn(BaseModel):
+    """Cuerpo de PATCH /proyectos/{id}/planes-pago. `planes_pago: []` borra la clave;
+    `seriedad_promesa_uf: null` la borra; si no viene, queda como está."""
+    planes_pago: conlist(PlanPago, max_length=20)
+    seriedad_promesa_uf: float | None = None
+
+
+SERIEDAD_MAX_UF = 1000
+
+
+def _c(x) -> int:
+    """Centésimas, igual que el navegador: la cuadratura se compara en enteros."""
+    return round(float(x or 0) * 100)
+
+
+def _pct(centesimas: int) -> str:
+    """0,5 · 1 · 12,25 (coma decimal, sin ceros de más)."""
+    return f"{centesimas / 100:g}".replace(".", ",")
+
+
+def validar_planes(body: PlanesPagoIn) -> str | None:
+    """Devuelve el mensaje de error (en español) o None si los planes están bien."""
+    for p in body.planes_pago:
+        pie = _c(p.pie_pct)
+        suma = (_c(p.cuoton_inicial_pct) + _c(p.pago_construccion_pct)
+                + _c(p.cuoton_final_pct) + _c(p.bono_pie_pct))
+        if pie != suma:
+            falta = pie - suma
+            palabra = "faltan" if falta > 0 else "sobran"
+            return f'El plan "{p.nombre}" no cuadra: {palabra} {_pct(abs(falta))}%'
+    ids = [p.id for p in body.planes_pago]
+    if len(ids) != len(set(ids)):
+        return "Hay dos planes con el mismo id"
+    pred = [p for p in body.planes_pago if p.predeterminado]
+    if len(pred) > 1:
+        return "Solo puede haber un plan predeterminado"
+    if pred and not pred[0].activo:
+        return "El plan predeterminado debe estar activo"
+    s = body.seriedad_promesa_uf
+    if s is not None and not (0 <= s <= SERIEDAD_MAX_UF):
+        return f"La seriedad de la promesa debe estar entre 0 y {SERIEDAD_MAX_UF} UF"
+    return None
