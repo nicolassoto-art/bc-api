@@ -210,6 +210,7 @@ class DescuentoPlan(BaseModel):
     nombre: constr(min_length=1, max_length=60)
     pct: confloat(ge=0, le=100, allow_inf_nan=False) | None = None
     monto: confloat(ge=0, allow_inf_nan=False) | None = None
+    unidad: constr(max_length=10) = ''
     tipo: constr(max_length=20) = ''
     alcance: constr(max_length=20) = ''
 

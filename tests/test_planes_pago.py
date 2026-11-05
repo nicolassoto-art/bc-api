@@ -272,3 +272,15 @@ def test_patch_sin_seriedad_la_conserva(client, admin, db):
     com = _extra(db, pid)["comercial"]
     assert com["seriedad_promesa_uf"] == 7
     assert com["planes_pago"][0]["nombre"] == "Otro nombre"
+
+
+def test_descuento_del_plan_conserva_unidad(client, admin, db):
+    """El editor envía {id, nombre, monto, unidad, tipo, alcance}: la unidad no se pierde al guardar."""
+    _, h = admin
+    pid = _proy(db, "test-planes-desc-unidad")
+    desc = {"id": "d1", "nombre": "Descuento lanzamiento", "monto": 50, "unidad": "UF",
+            "tipo": "propiedad", "alcance": "todo"}
+    r = _patch(client, h, pid, {"planes_pago": [_plan(descuentos_adicionales=[desc])]})
+    assert r.status_code == 200, r.text
+    guardado = _extra(db, pid)["comercial"]["planes_pago"][0]["descuentos_adicionales"][0]
+    assert guardado["unidad"] == "UF" and guardado["monto"] == 50
