@@ -2,7 +2,7 @@
 from typing import Dict, List, Optional
 from datetime import datetime
 from typing import Any
-from pydantic import BaseModel, ConfigDict, Field, confloat, conint, conlist, constr
+from pydantic import BaseModel, ConfigDict, Field, confloat, conint, conlist, constr, field_validator
 
 
 # ── Unidad ────────────────────────────────────────────────────
@@ -215,6 +215,9 @@ class DescuentoPlan(BaseModel):
     alcance: constr(max_length=20) = ''
 
 
+MES_YYYY_MM = constr(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')   # <input type=month> del editor
+
+
 class PlanPago(BaseModel):
     id: constr(pattern=r'^[a-z0-9_-]{1,40}$')
     nombre: constr(strip_whitespace=True, min_length=1, max_length=60)
@@ -228,16 +231,21 @@ class PlanPago(BaseModel):
     cuotas_pre_entrega: conint(ge=0, le=120) = 0
     cuota_pre_entrega_uf: confloat(ge=0, allow_inf_nan=False) | None = None      # mínimo por cuota, fuera del 100%
     cuotas_auto_decremento: bool = False
-    cuotas_inicio_mes: conint(ge=0, le=120) | None = None
+    cuotas_inicio_mes: MES_YYYY_MM | None = None
     cuoton_final_pct: confloat(ge=0, le=100, allow_inf_nan=False) = 0
     cuotas_post_entrega: conint(ge=0, le=120) = 0
     cuotas_post_auto_decremento: bool = False
-    cuotas_post_inicio_mes: conint(ge=0, le=120) | None = None
+    cuotas_post_inicio_mes: MES_YYYY_MM | None = None
     bono_pie_pct: confloat(ge=0, le=100, allow_inf_nan=False) = 0
     seriedad_abona_pie: bool = False
     descuentos_adicionales: conlist(DescuentoPlan, max_length=10) = []
     promocion: constr(max_length=500) = ''
     nota_pago_pie: constr(max_length=1000) = ''
+
+    @field_validator('cuotas_inicio_mes', 'cuotas_post_inicio_mes', mode='before')
+    @classmethod
+    def _mes_vacio_es_none(cls, v):
+        return None if v == '' else v
 
 
 class PlanesPagoIn(BaseModel):

@@ -284,3 +284,27 @@ def test_descuento_del_plan_conserva_unidad(client, admin, db):
     assert r.status_code == 200, r.text
     guardado = _extra(db, pid)["comercial"]["planes_pago"][0]["descuentos_adicionales"][0]
     assert guardado["unidad"] == "UF" and guardado["monto"] == 50
+
+
+def test_mes_de_inicio_de_cuotas_como_yyyy_mm(client, admin, db):
+    """El editor usa <input type=month>: el mes de inicio viaja como texto «YYYY-MM»."""
+    _, h = admin
+    pid = _proy(db, "test-planes-mes-inicio")
+    plan = _plan(cuotas_auto_decremento=True, cuotas_inicio_mes="2026-11",
+                 cuotas_post_auto_decremento=True, cuotas_post_inicio_mes="2027-03")
+    r = _patch(client, h, pid, {"planes_pago": [plan]})
+    assert r.status_code == 200, r.text
+    c = client.get(f"/proyectos/{pid}/comercial", headers=h).json()["comercial"]
+    assert c["planes_pago"][0]["cuotas_inicio_mes"] == "2026-11"
+    assert c["planes_pago"][0]["cuotas_post_inicio_mes"] == "2027-03"
+    # vacío = sin mes
+    r = _patch(client, h, pid, {"planes_pago": [_plan(cuotas_inicio_mes="", cuotas_post_inicio_mes=None)]})
+    assert r.status_code == 200, r.text
+    assert _extra(db, pid)["comercial"]["planes_pago"][0]["cuotas_inicio_mes"] is None
+    # mes inválido → 422 en español
+    for malo in ("2026-13", "2026-1", "11", 11):
+        r = _patch(client, h, pid, {"planes_pago": [_plan(cuotas_inicio_mes=malo)]})
+        assert r.status_code == 422, (malo, r.text)
+        d = r.json()["detail"]
+        assert isinstance(d, str) and d.startswith("Los datos del plan no son válidos")
+        assert "cuotas_inicio_mes" in d
