@@ -288,6 +288,17 @@ def _build_jb_extras(jb_estac: list[dict], jb_bodegas: list[dict], jb_packs: lis
     def _str(v):
         return str(v).strip() if v not in (None, "") else ""
 
+    def _primero(src: dict, *claves):
+        """Primer valor no vacío entre nombres de columna equivalentes. «PrecioUF» y
+        «Superficie» mandan; el Excel de Ingevec trae «ValorUF» y «Sup Total» (los nombres
+        de la hoja UNIDAD) y antes quedaba precio_uf=None: el asesor veía «—» y la
+        cotización sumaba 0 UF (2026-11-06)."""
+        for k in claves:
+            v = src.get(k)
+            if v not in (None, ""):
+                return v
+        return None
+
     # Ext. MNK sin IVA (2026-10-29): «PrecioConIvaUF» (precio normal) se agrega al item
     # SOLO si la hoja trae ese encabezado, para que la salida de cualquier Excel sin
     # esa columna quede idéntica a la de siempre.
@@ -321,7 +332,7 @@ def _build_jb_extras(jb_estac: list[dict], jb_bodegas: list[dict], jb_packs: lis
         item = {
             "id": f"jb-est-{i}",
             "numero": numero,
-            "precio_uf": _num(e.get("PrecioUF")),
+            "precio_uf": _num(_primero(e, "PrecioUF", "ValorUF")),
             "nivel": _str(e.get("Nivel")),
             "tipo": _str(e.get("Tipo")),
             "tenencia": _str(e.get("Tenencia")),
@@ -349,8 +360,8 @@ def _build_jb_extras(jb_estac: list[dict], jb_bodegas: list[dict], jb_packs: lis
         item = {
             "id": f"jb-bod-{i}",
             "numero": numero,
-            "precio_uf": _num(b.get("PrecioUF")),
-            "superficie": _num(b.get("Superficie")),
+            "precio_uf": _num(_primero(b, "PrecioUF", "ValorUF")),
+            "superficie": _num(_primero(b, "Superficie", "Sup Total")),
             "tipo": tipo_v,
             "tenencia": _str(b.get("Tenencia")),  # compat retro
             "disponible": not bool(pack_num),
