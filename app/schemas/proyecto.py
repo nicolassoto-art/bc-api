@@ -48,6 +48,10 @@ class UnidadOut(UnidadIn):
     # copias viejas y, si el PUT normal la aceptara, borraría una reserva recién hecha.
     reserva_bc: Optional[str] = None
     reserva_bc_at: Optional[datetime] = None
+    # provisoria | confirmada | no_tomada | caida (ver models.Unidad). Solo lectura:
+    # lo mueve la subida del Excel («PlanOk manda», 2026-11-06).
+    reserva_bc_estado: Optional[str] = None
+    reserva_bc_vista_disponible_at: Optional[datetime] = None
     # Solo salida (2026-10-29, MNK sin IVA): precio normal (con IVA). Lo escribe solo
     # la subida de Excel; UnidadIn no lo trae a propósito (el PUT del editor reenvía
     # copias viejas y lo borraría).
