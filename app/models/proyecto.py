@@ -128,10 +128,22 @@ class Unidad(Base):
     # PlanOk hasta que la inmobiliaria la registra, y la lectura horaria ("aparece en el
     # Excel = disponible") la volvía a abrir. Mientras exista la marca la unidad NO
     # puede quedar disponible (lo fuerza _respetar_reserva_bc en cada flush, venga del
-    # camino que venga). Solo la ponen y la quitan PUT /unidades/{id}/reserva-bc; el PUT
+    # camino que venga), salvo que PlanOk ya la haya liberado (reserva_bc_estado
+    # no_tomada/caida, ver abajo). Solo la ponen y la quitan PUT /unidades/{id}/reserva-bc; el PUT
     # normal no la toca, porque el editor reenvía copias viejas de la unidad.
     reserva_bc: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
     reserva_bc_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # «PlanOk manda» (2026-11-06): la marca es PROVISORIA. Estado frente a la lectura
+    # horaria de la inmobiliaria (lo mueve la subida del Excel, ver
+    # services/reserva_planok.py): provisoria (recién puesta, oculta ≤ 24 h) ·
+    # confirmada (PlanOk ya no la ofrece) · no_tomada (24 h y PlanOk la sigue
+    # ofreciendo: reaparece) · caida (estaba tomada y PlanOk la soltó: reaparece).
+    # null = marca anterior a este cambio. La marca misma nunca se borra sola: solo
+    # la quita la anulación en la intranet.
+    reserva_bc_estado: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # Primera subida en que una reserva confirmada volvió a aparecer disponible; una
+    # 2ª subida seguida (≥ 30 min después) la declara caída.
+    reserva_bc_vista_disponible_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     # Precio normal y sin IVA (2026-10-29, solo MNK con el interruptor del scraper
     # activo). En esos proyectos `precio_lista_uf` es el SIN IVA (precio del negocio:
@@ -147,7 +159,8 @@ class Unidad(Base):
 
 @event.listens_for(Session, "before_flush")
 def _respetar_reserva_bc(session, flush_context, instances):
-    """Red final: una unidad con marca de reserva nunca se guarda disponible.
+    """Red final: una unidad con marca de reserva nunca se guarda disponible, salvo
+    que PlanOk ya la haya liberado (estado no_tomada o caida: «PlanOk manda»).
 
     Cubre todos los caminos que escriben `disponible` (subida de Excel, importador de
     JetBrokers, packs, PUT del editor) sin tener que acordarse de cada uno. Los que
@@ -155,8 +168,13 @@ def _respetar_reserva_bc(session, flush_context, instances):
     comparar, para no anotar un "volvió a disponible" que no ocurre.
     """
     for obj in list(session.new) + list(session.dirty):
-        if isinstance(obj, Unidad) and obj.reserva_bc and obj.disponible:
+        if (isinstance(obj, Unidad) and obj.reserva_bc and obj.disponible
+                and obj.reserva_bc_estado not in RESERVA_BC_LIBERADA):
             obj.disponible = False
+
+
+# Estados en que la marca ya NO oculta la unidad: PlanOk la ofrece y manda.
+RESERVA_BC_LIBERADA = frozenset({"no_tomada", "caida"})
 
 
 class Imagen(Base):

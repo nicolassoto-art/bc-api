@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps.auth import super_admin
 from ..models import Proyecto, Unidad
+from ..models.proyecto import RESERVA_BC_LIBERADA
 from ..models.usuario import Usuario
 
 router = APIRouter(prefix="/importador", tags=["importador"])
@@ -300,7 +301,8 @@ def batch_import(
             marcas_reserva = {}
             if existing and body.overwrite:
                 marcas_reserva = {
-                    u.numero: (u.reserva_bc, u.reserva_bc_at)
+                    u.numero: (u.reserva_bc, u.reserva_bc_at, u.reserva_bc_estado,
+                               u.reserva_bc_vista_disponible_at)
                     for u in db.query(Unidad).filter(Unidad.proyecto_id == pid,
                                                       Unidad.reserva_bc.isnot(None)).all()
                 }
@@ -312,8 +314,11 @@ def batch_import(
                          if u.numero not in existing_nums]
             for u in new_units:
                 if u.numero in marcas_reserva:
-                    u.reserva_bc, u.reserva_bc_at = marcas_reserva[u.numero]
-                    u.disponible = False
+                    (u.reserva_bc, u.reserva_bc_at, u.reserva_bc_estado,
+                     u.reserva_bc_vista_disponible_at) = marcas_reserva[u.numero]
+                    # «PlanOk manda»: una marca ya liberada (no_tomada/caida) no oculta.
+                    if u.reserva_bc_estado not in RESERVA_BC_LIBERADA:
+                        u.disponible = False
                 db.add(u)
 
             details.append(ImportDetail(

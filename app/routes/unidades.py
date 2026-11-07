@@ -11,11 +11,13 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps.auth import stock_access
 from ..models import Proyecto, Unidad, Usuario
+from ..models.proyecto import RESERVA_BC_LIBERADA
 from ..schemas import ReservaBcIn, RevisionStockIn, UnidadIn, UnidadOut
 from ..services import email_service
 from ..services.garantia_arriendo import canon_de
 from ..services.origen_stock import etiqueta_origen
 from ..services.timeline import recortar_timeline
+from ..services.reserva_planok import ESTADO_PROVISORIA, aplicar_lectura
 
 router = APIRouter(prefix="/proyectos/{proyecto_id}/unidades", tags=["unidades"])
 
@@ -670,7 +672,14 @@ def marcar_reserva_bc(
         if u.reserva_bc != nueva:
             u.reserva_bc = nueva
             u.reserva_bc_at = datetime.utcnow()
-        u.disponible = False
+            # Marca nueva = provisoria: oculta hasta que PlanOk la muestre tomada o
+            # 24 h como máximo (services/reserva_planok.py).
+            u.reserva_bc_estado = ESTADO_PROVISORIA
+            u.reserva_bc_vista_disponible_at = None
+        # Repetir la misma marca es idempotente: no vuelve a ocultar una reserva que
+        # PlanOk ya liberó (no_tomada/caida); eso lo decide una persona anulándola.
+        if u.reserva_bc_estado not in RESERVA_BC_LIBERADA:
+            u.disponible = False
     else:
         esperado = (body.esperado or "").strip() or None
         if u.reserva_bc and u.reserva_bc != esperado:
@@ -678,6 +687,8 @@ def marcar_reserva_bc(
                                 detail=f"La marca es de otra reserva ({u.reserva_bc})")
         u.reserva_bc = None
         u.reserva_bc_at = None
+        u.reserva_bc_estado = None
+        u.reserva_bc_vista_disponible_at = None
         if body.reabrir:
             u.disponible = True
     if bool(u.disponible) != estaba_disponible:
@@ -1245,6 +1256,20 @@ async def subir_excel(
     for k in _ambiguos:
         _by_db.pop(k, None)
 
+    # ── «PlanOk manda» (2026-11-06): marcas de reserva provisorias ──
+    # Cada subida COMPLETA mueve el estado de las marcas (services/reserva_planok.py).
+    # Una subida parcial no cambia nada (sin dato no se libera ni se confirma): sin
+    # deptos a propósito, o una que daría de baja ≥ 8 y ≥ 40 % de los deptos
+    # disponibles (mismo umbral que la guarda anti-baja-masiva del scraper MNK).
+    _upload_sin_deptos = is_jb and permitir_sin_unidades and not unidad_rows
+    _nums_excel = {str(d.get("numero_depto") or "").strip() for _i, d in rows_iter}
+    _disp_antes = [x for x in by_num.values() if _is_depto(x) and x.disponible]
+    _bajas_previstas = sum(1 for x in _disp_antes if x.numero not in _nums_excel)
+    _subida_parcial = _upload_sin_deptos or (
+        _bajas_previstas >= 8 and _bajas_previstas >= 0.4 * len(_disp_antes))
+    _ahora_reserva = datetime.utcnow()
+    eventos_reserva: list[str] = []
+
     # ── Procesar filas (mismo loop para JB o legacy) ──
     auto_asignados = 0
     # Ext. MNK sin IVA: unidades que pasan a precio sin IVA / vuelven al con IVA en esta
@@ -1309,12 +1334,17 @@ async def subir_excel(
         if num in by_num:
             u = by_num[num]
             _civa_antes = u.precio_con_iva_uf
-            # Reservada en la intranet (marca reserva_bc, 2026-09-24): el Excel es el
-            # stock de la inmobiliaria, que todavía no la registra, y no debe volver a
-            # abrirla. Se ajusta ANTES de comparar para que el timeline no anote un
-            # "volvió a disponible" que no ocurre (el flush lo forzaría igual).
+            # Reservada en la intranet (marca reserva_bc, 2026-09-24). Desde el
+            # 2026-11-06 la marca es provisoria: PlanOk manda (ver arriba). Se ajusta
+            # ANTES de comparar para que el timeline anote solo lo que de verdad cambia.
             if u.reserva_bc:
-                data["disponible"] = False
+                if _subida_parcial:
+                    data["disponible"] = bool(u.disponible)
+                else:
+                    _disp_r, _ev_r = aplicar_lectura(u, bool(data["disponible"]), _ahora_reserva)
+                    data["disponible"] = _disp_r
+                    if _ev_r:
+                        eventos_reserva.append(_ev_r)
             # Upsert parcial: campos manuales que el origen (PlanOk/MNK) NO provee
             # se preservan si vienen vacíos, para no pisar datos cargados a mano.
             # Ej: orientación — PlanOk no la expone, es manual en BC.
@@ -1390,12 +1420,21 @@ async def subir_excel(
     # ej. proyecto agotado de deptos que solo sincroniza estac/bodega), se OMITE
     # por completo la baja de deptos. Un Excel sin deptos NO debe borrar deptos
     # existentes — solo actualiza estac/bodega/packs vía extra.
-    _upload_sin_deptos = is_jb and permitir_sin_unidades and not unidad_rows
     dados_de_baja = []
     if not _upload_sin_deptos:
-        seen_nums = {str(d.get("numero_depto") or "").strip() for _i, d in rows_iter}
+        seen_nums = _nums_excel
         for u in db.query(Unidad).filter(Unidad.proyecto_id == proyecto_id).all():
-            if _is_depto(u) and u.numero not in seen_nums and u.disponible:
+            if not (_is_depto(u) and u.numero not in seen_nums):
+                continue
+            if u.reserva_bc:
+                # PlanOk ya no la ofrece: la reserva queda confirmada (subida parcial:
+                # no se toca la marca ni la disponibilidad).
+                if _subida_parcial:
+                    continue
+                _disp_r, _ev_r = aplicar_lectura(u, False, _ahora_reserva)
+                if _ev_r:
+                    eventos_reserva.append(_ev_r)
+            if u.disponible:
                 u.disponible = False
                 dados_de_baja.append(u.numero)
 
@@ -1548,6 +1587,18 @@ async def subir_excel(
             "archivo_url": None,
         }
         _tl.insert(0, _warn_evt)
+    # «PlanOk manda»: un evento por cada cambio de estado de una marca de reserva,
+    # también en corridas automáticas (es justo lo que hay que ver).
+    for _det_r in eventos_reserva:
+        _tl.insert(0, {
+            "id": "tl-" + uuid.uuid4().hex[:10],
+            "fecha": datetime.utcnow().isoformat() + "Z",
+            "tipo": "Reserva PlanOk",
+            "detalles": _det_r,
+            "usuario": getattr(usuario, "email", None) or "sistema",
+            "origen_auto": _es_auto,
+            "archivo_url": None,
+        })
     _extra["timeline"] = recortar_timeline(_tl)
     proy.extra = _extra
 
@@ -1573,6 +1624,7 @@ async def subir_excel(
         "bodegas_count": len(jb_extras.get("_bodegas_dom", [])),
         "warnings_count": len(deptos_con_warning) if is_jb else 0,
         "stock_last_upload": proy.stock_last_upload,
+        "reservas_planok": eventos_reserva,
     }
 
 
