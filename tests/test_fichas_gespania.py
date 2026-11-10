@@ -3,6 +3,7 @@ import httpx
 from scripts.fichas_gespania import (
     PROYECTOS,
     categoria_foto,
+    completar_fisicos,
     fotos_y_documentos,
     ficha_desde_catalogo,
     subir_documento,
@@ -101,7 +102,6 @@ def test_toma_originales_y_descarta_imagenes_del_sitio():
 
 def test_los_cuatro_proyectos_estan_definidos():
     assert set(PROYECTOS) == {"RsQcvZc9", "xMqukaTC", "aj3VE334", "JFLW8myr"}
-    assert PROYECTOS["aj3VE334"]["pagina"] is None
     assert httpx.URL("https://gespania.cl").host == "gespania.cl"
 
 
@@ -127,3 +127,24 @@ def test_toma_brochure_de_subdominio_de_gespania():
     url = "https://sic.gespania.cl/sic/storage/brochure-distrito-parque.pdf"
     _, documentos = fotos_y_documentos(f'<a href="{url}">x</a><a href="https://otro.cl/a.pdf">y</a>')
     assert documentos == [url]
+
+
+def test_torre_del_sol_usa_su_pagina():
+    assert PROYECTOS["aj3VE334"]["pagina"] == "departamento-en-hualpen"
+
+
+def test_completa_solo_fisicos_faltantes_sin_tocar_lo_demas():
+    ficha = ficha_desde_catalogo(CATALOGO, "RsQcvZc9", [])
+    actual = {"nombre": "Prueba Interna", "notas": "manual", "extra": {"fisicos": {"pisos": 9}, "propio": 1}}
+    cuerpo = completar_fisicos(actual, ficha)
+    assert cuerpo["nombre"] == "Prueba Interna"
+    assert cuerpo["notas"] == "manual"
+    assert cuerpo["extra"]["propio"] == 1
+    assert cuerpo["extra"]["fisicos"]["pisos"] == 9
+    assert cuerpo["extra"]["fisicos"]["unidades_totales"] == 96
+
+
+def test_no_escribe_si_fisicos_estan_completos():
+    ficha = ficha_desde_catalogo(CATALOGO, "RsQcvZc9", [])
+    actual = {"nombre": "x", "extra": {"fisicos": dict(ficha["extra"]["fisicos"])}}
+    assert completar_fisicos(actual, ficha) is None

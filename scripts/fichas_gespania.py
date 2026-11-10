@@ -21,7 +21,7 @@ PROYECTOS = {
     "RsQcvZc9": {"pagina": "departamentos-en-maipu-5", "etiquetas": ["Credito Interno"]},
     "xMqukaTC": {"pagina": "departamentos-en-venta-concepcion", "etiquetas": ["Credito Interno", "Airbnb"]},
     "JFLW8myr": {"pagina": "departamentos-para-inversion", "etiquetas": ["Credito Interno", "Airbnb"]},
-    "aj3VE334": {"pagina": None, "etiquetas": ["Credito Interno", "Airbnb"]},
+    "aj3VE334": {"pagina": "departamento-en-hualpen", "etiquetas": ["Credito Interno", "Airbnb"]},
 }
 
 FASES = {"green": "En verde", "deliveryReady": "Entrega inmediata", "white": "En blanco", "privateSale": "Venta privada"}
@@ -113,6 +113,23 @@ def ficha_desde_catalogo(d: dict, jb_id: str, etiquetas: list[str]) -> dict:
     }
 
 
+CAMPOS_PUT = (
+    "nombre", "inmobiliaria", "comuna", "region", "direccion", "gps_lat", "gps_lon", "fase", "modalidad",
+    "activo", "disponible", "fecha_entrega", "ano_entrega", "foto_principal_url", "external_url", "notas",
+)
+
+
+def completar_fisicos(actual: dict, ficha: dict) -> dict | None:
+    """Cuerpo del PUT que rellena solo los datos físicos vacíos; None si no falta nada."""
+    extra = actual.get("extra") or {}
+    fisicos = extra.get("fisicos") or {}
+    nuevos = ficha["extra"]["fisicos"]
+    if all(fisicos.get(k) is not None for k, v in nuevos.items() if v is not None):
+        return None
+    mezcla = {**nuevos, **{k: v for k, v in fisicos.items() if v is not None}}
+    return {**{k: actual.get(k) for k in CAMPOS_PUT}, "extra": {**extra, "fisicos": mezcla}}
+
+
 def categoria_foto(nombre: str) -> str:
     if FACHADA.search(nombre):
         return "Fachada"
@@ -190,7 +207,12 @@ def main(jb_id: str) -> int:
             if existente.json().get("deleted_at"):
                 print(f"{pid}: DETENIDO, está en la papelera")
                 return 1
-            print(f"{pid}: ya existe, no se modifican sus datos")
+            cuerpo = completar_fisicos(existente.json(), ficha_desde_catalogo(catalogo.json(), jb_id, fuente["etiquetas"]))
+            if cuerpo:
+                cli.put(f"/proyectos/{pid}", json=cuerpo).raise_for_status()
+                print(f"{pid}: datos físicos completados")
+            else:
+                print(f"{pid}: ya existe, no se modifican sus datos")
         elif existente.status_code == 404:
             ficha = ficha_desde_catalogo(catalogo.json(), jb_id, fuente["etiquetas"])
             cli.post("/proyectos", json=ficha).raise_for_status()
