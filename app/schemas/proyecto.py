@@ -1,4 +1,6 @@
 """Pydantic schemas: input/output shapes para los endpoints REST."""
+import math
+from decimal import Decimal
 from typing import Dict, List, Optional
 from datetime import datetime
 from typing import Any
@@ -204,15 +206,40 @@ class ProyectoSummary(BaseModel):
 # (2026-11-05) Varios planes con nombre por proyecto. Los escribe SOLO
 # PATCH /proyectos/{id}/planes-pago, que además valida la cuadratura con validar_planes().
 
+# Claves de extra.comercial que escribe SOLO ese PATCH: el PUT, el POST y la subida de Excel las respetan.
+PLANES_KEYS = ("planes_pago", "seriedad_promesa_uf", "planes_rev")
+MONTO_MAX_UF = 100000
+# Porcentajes que entran en la cuadratura: estrictos, un booleano o un texto no son un porcentaje.
+PctPlan = confloat(strict=True, ge=0, le=100, allow_inf_nan=False)
+
+
+def _sin_nul(v: str) -> str:
+    """Postgres no guarda el carácter NUL en JSONB: se rechaza acá para responder 422 y no 500."""
+    if "\x00" in v:
+        raise ValueError("Contiene un carácter no permitido")
+    return v
+
 
 class DescuentoPlan(BaseModel):
     id: constr(max_length=40)
     nombre: constr(min_length=1, max_length=60)
     pct: confloat(ge=0, le=100, allow_inf_nan=False) | None = None
-    monto: confloat(ge=0, allow_inf_nan=False) | None = None
+    monto: confloat(ge=0, le=MONTO_MAX_UF, allow_inf_nan=False) | None = None
     unidad: constr(max_length=10) = ''
     tipo: constr(max_length=20) = ''
     alcance: constr(max_length=20) = ''
+
+    @field_validator('id', 'nombre', 'unidad', 'tipo', 'alcance')
+    @classmethod
+    def _textos_sin_nul(cls, v):
+        return _sin_nul(v)
+
+    @field_validator('pct', mode='before')
+    @classmethod
+    def _pct_no_booleano(cls, v):
+        if isinstance(v, bool):
+            raise ValueError("Debe ser un número")
+        return v
 
 
 MES_YYYY_MM = constr(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')   # <input type=month> del editor
@@ -221,22 +248,22 @@ MES_YYYY_MM = constr(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')   # <input type=month> 
 class PlanPago(BaseModel):
     id: constr(pattern=r'^[a-z0-9_-]{1,40}$')
     nombre: constr(strip_whitespace=True, min_length=1, max_length=60)
-    orden: int = 0
+    orden: conint(ge=0, le=1000) = 0
     predeterminado: bool = False
     activo: bool = True
-    pie_pct: confloat(ge=0, le=100, allow_inf_nan=False)
-    cuoton_inicial_pct: confloat(ge=0, le=100, allow_inf_nan=False) = 0
+    pie_pct: PctPlan
+    cuoton_inicial_pct: PctPlan = 0
     cuotas_pago_inicial: conint(ge=0, le=120) = 0
-    pago_construccion_pct: confloat(ge=0, le=100, allow_inf_nan=False) = 0
+    pago_construccion_pct: PctPlan = 0
     cuotas_pre_entrega: conint(ge=0, le=120) = 0
-    cuota_pre_entrega_uf: confloat(ge=0, allow_inf_nan=False) | None = None      # mínimo por cuota, fuera del 100%
+    cuota_pre_entrega_uf: confloat(ge=0, le=MONTO_MAX_UF, allow_inf_nan=False) | None = None      # mínimo por cuota, fuera del 100%
     cuotas_auto_decremento: bool = False
     cuotas_inicio_mes: MES_YYYY_MM | None = None
-    cuoton_final_pct: confloat(ge=0, le=100, allow_inf_nan=False) = 0
+    cuoton_final_pct: PctPlan = 0
     cuotas_post_entrega: conint(ge=0, le=120) = 0
     cuotas_post_auto_decremento: bool = False
     cuotas_post_inicio_mes: MES_YYYY_MM | None = None
-    bono_pie_pct: confloat(ge=0, le=100, allow_inf_nan=False) = 0
+    bono_pie_pct: PctPlan = 0
     seriedad_abona_pie: bool = False
     descuentos_adicionales: conlist(DescuentoPlan, max_length=10) = []
     promocion: constr(max_length=500) = ''
@@ -247,12 +274,19 @@ class PlanPago(BaseModel):
     def _mes_vacio_es_none(cls, v):
         return None if v == '' else v
 
+    @field_validator('nombre', 'promocion', 'nota_pago_pie')
+    @classmethod
+    def _textos_sin_nul(cls, v):
+        return _sin_nul(v)
+
 
 class PlanesPagoIn(BaseModel):
     """Cuerpo de PATCH /proyectos/{id}/planes-pago. `planes_pago: []` borra la clave;
-    `seriedad_promesa_uf: null` la borra; si no viene, queda como está."""
+    `seriedad_promesa_uf: null` la borra; si no viene, queda como está. `planes_rev` es la
+    versión que el navegador leyó: si viene y no es la guardada, 409 (null = no viene)."""
     planes_pago: conlist(PlanPago, max_length=10)
     seriedad_promesa_uf: confloat(allow_inf_nan=False) | None = None
+    planes_rev: conint(strict=True) | None = None
 
 
 SERIEDAD_MAX_UF = 1000
@@ -260,7 +294,13 @@ SERIEDAD_MAX_UF = 1000
 
 def _c(x) -> int:
     """Centésimas, igual que el navegador: la cuadratura se compara en enteros."""
-    return round(float(x or 0) * 100)
+    y = float(x or 0) * 100
+    piso = math.floor(y)
+    return piso + 1 if y - piso >= 0.5 else piso   # Math.round: los empates suben (round() de Python no)
+
+
+def _mas_de_dos_decimales(x) -> bool:
+    return Decimal(repr(float(x))).as_tuple().exponent < -2
 
 
 def _pct(centesimas: int) -> str:
@@ -271,6 +311,9 @@ def _pct(centesimas: int) -> str:
 def validar_planes(body: PlanesPagoIn) -> str | None:
     """Devuelve el mensaje de error (en español) o None si los planes están bien."""
     for p in body.planes_pago:
+        if any(_mas_de_dos_decimales(x) for x in (p.pie_pct, p.cuoton_inicial_pct, p.pago_construccion_pct,
+                                                  p.cuoton_final_pct, p.bono_pie_pct)):
+            return f'El plan "{p.nombre}": cada porcentaje puede tener como máximo 2 decimales'
         pie = _c(p.pie_pct)
         suma = (_c(p.cuoton_inicial_pct) + _c(p.pago_construccion_pct)
                 + _c(p.cuoton_final_pct) + _c(p.bono_pie_pct))

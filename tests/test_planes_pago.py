@@ -6,10 +6,24 @@ SOLO PATCH /proyectos/{id}/planes-pago (que valida la cuadratura de cada plan); 
 editor no los pisa, el alta no los copia y el catálogo público no los ve (solo /comercial,
 asesor con sesión).
 """
+import io
 import json
+import threading
+import time
 import uuid
 
+import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+from openpyxl import Workbook
+from sqlalchemy import select
+
+from app.db import SessionLocal
+from app.main import app
 from app.models import Proyecto, Usuario
+from app.routes import unidades as rutas_unidades
+from app.routes.proyectos import set_planes_pago
+from app.schemas.proyecto import _c
 from app.services.auth import create_token, hash_password
 from app.settings import settings
 
@@ -308,3 +322,100 @@ def test_mes_de_inicio_de_cuotas_como_yyyy_mm(client, admin, db):
         d = r.json()["detail"]
         assert isinstance(d, str) and d.startswith("Los datos del plan no son válidos")
         assert "cuotas_inicio_mes" in d
+
+
+# ── Validaciones ─────────────────────────────────────────────────────────────────────
+
+_NUL = "Prueba\u0000Interna"
+_DESC = {"id": "d1", "nombre": "Descuento"}
+
+
+@pytest.mark.parametrize("over,campo", [
+    ({"nombre": _NUL}, "nombre"),
+    ({"promocion": _NUL}, "promocion"),
+    ({"nota_pago_pie": _NUL}, "nota_pago_pie"),
+    ({"descuentos_adicionales": [{**_DESC, "id": _NUL}]}, "descuentos_adicionales[0].id"),
+    ({"descuentos_adicionales": [{**_DESC, "nombre": _NUL}]}, "descuentos_adicionales[0].nombre"),
+    ({"descuentos_adicionales": [{**_DESC, "unidad": "\u0000"}]}, "descuentos_adicionales[0].unidad"),
+    ({"descuentos_adicionales": [{**_DESC, "tipo": "\u0000"}]}, "descuentos_adicionales[0].tipo"),
+    ({"descuentos_adicionales": [{**_DESC, "alcance": "\u0000"}]}, "descuentos_adicionales[0].alcance"),
+])
+def test_caracter_nul_da_422_en_espanol(client, admin, db, over, campo):
+    _, h = admin
+    pid = _proy(db, "test-planes-nul")
+    r = _patch(client, h, pid, {"planes_pago": [_plan(**over)]})
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"] == f"Los datos del plan no son válidos: revisa planes_pago[0].{campo}"
+
+
+@pytest.mark.parametrize("x,esperado", [
+    (0.125, 13), (0.135, 14), (0.025, 3), (1.005, 100), (4.35, 435), (1.1, 110), (0, 0), (None, 0), (100, 10000),
+    (-0.125, -12),
+])
+def test_centesimas_igual_que_math_round(x, esperado):
+    assert _c(x) == esperado
+
+
+_PCTS = ("pie_pct", "cuoton_inicial_pct", "pago_construccion_pct", "cuoton_final_pct", "bono_pie_pct")
+
+
+@pytest.mark.parametrize("campo", _PCTS)
+def test_mas_de_dos_decimales_422(client, admin, db, campo):
+    _, h = admin
+    pid = _proy(db, "test-planes-decimales")
+    r = _patch(client, h, pid, {"planes_pago": [_plan(**{campo: 1.125})]})
+    assert r.status_code == 422
+    assert r.json()["detail"] == 'El plan "Estándar": cada porcentaje puede tener como máximo 2 decimales'
+
+
+def test_dos_decimales_que_en_binario_no_son_exactos_pasan(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-dos-dec")
+    ok = _plan(pie_pct=16.45, cuoton_inicial_pct=4.35, pago_construccion_pct=1.1,
+               cuoton_final_pct=0.07, bono_pie_pct=10.93)
+    r = _patch(client, h, pid, {"planes_pago": [ok]})
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.parametrize("over,campo", [
+    ({"orden": -1}, "orden"),
+    ({"orden": 1001}, "orden"),
+    ({"cuota_pre_entrega_uf": 100000.5}, "cuota_pre_entrega_uf"),
+    ({"descuentos_adicionales": [{**_DESC, "monto": 100001}]}, "descuentos_adicionales[0].monto"),
+    ({"pie_pct": True}, "pie_pct"),
+    ({"cuoton_inicial_pct": True}, "cuoton_inicial_pct"),
+    ({"pago_construccion_pct": False}, "pago_construccion_pct"),
+    ({"cuoton_final_pct": False}, "cuoton_final_pct"),
+    ({"bono_pie_pct": True}, "bono_pie_pct"),
+    ({"pie_pct": "20"}, "pie_pct"),
+    ({"descuentos_adicionales": [{**_DESC, "pct": True}]}, "descuentos_adicionales[0].pct"),
+])
+def test_topes_y_booleanos_422(client, admin, db, over, campo):
+    _, h = admin
+    pid = _proy(db, "test-planes-topes")
+    r = _patch(client, h, pid, {"planes_pago": [_plan(**over)]})
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"] == f"Los datos del plan no son válidos: revisa planes_pago[0].{campo}"
+
+
+def test_topes_en_el_borde_pasan(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-borde")
+    plan = _plan(orden=1000, cuota_pre_entrega_uf=100000,
+                 descuentos_adicionales=[{**_DESC, "monto": 100000, "pct": 2.5}])
+    r = _patch(client, h, pid, {"planes_pago": [plan]})
+    assert r.status_code == 200, r.text
+
+
+def test_numero_gigante_y_sustituto_suelto_no_dan_500(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-raros")
+    ct = {**h, "content-type": "application/json"}
+    grande = "1" + "0" * 400
+    base = json.dumps({"planes_pago": [_plan(cuota_pre_entrega_uf=0, promocion="x")]})
+    for c in (base.replace('"pie_pct": 20', '"pie_pct": ' + grande),
+              base.replace('"cuota_pre_entrega_uf": 0', '"cuota_pre_entrega_uf": ' + grande),
+              base.replace('"promocion": "x"', '"promocion": "\\ud800"')):
+        r = TestClient(app, raise_server_exceptions=False).patch(
+            f"/proyectos/{pid}/planes-pago", headers=ct, content=c)
+        assert r.status_code == 422, (c[:80], r.status_code, r.text[:200])
