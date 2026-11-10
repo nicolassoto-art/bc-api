@@ -121,3 +121,9 @@ def test_documento_pesado_queda_como_enlace_a_gespania():
     subir_documento(cli, web, "p", url, fallas)
     assert fallas == []
     assert llamadas == [("POST", "/proyectos/p/documentos"), ("POST", "/proyectos/p/documentos/url")]
+
+
+def test_toma_brochure_de_subdominio_de_gespania():
+    url = "https://sic.gespania.cl/sic/storage/brochure-distrito-parque.pdf"
+    _, documentos = fotos_y_documentos(f'<a href="{url}">x</a><a href="https://otro.cl/a.pdf">y</a>')
+    assert documentos == [url]

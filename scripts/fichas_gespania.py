@@ -128,7 +128,7 @@ def categoria_foto(nombre: str) -> str:
 def fotos_y_documentos(html: str) -> tuple[list[str], list[str]]:
     imagenes = set(re.findall(PATRON_ARCHIVO + r"(?:jpe?g|png|webp)", html, re.I))
     fotos = sorted(u for u in imagenes if not re.search(r"-\d+x\d+\.", u) and not DEL_SITIO.search(u))
-    documentos = sorted(set(re.findall(PATRON_ARCHIVO + r"pdf", html, re.I)))
+    documentos = sorted(set(re.findall(r"https://(?:[a-z0-9-]+\.)?gespania\.cl/[^\"' )]+\.pdf", html, re.I)))
     return fotos, documentos
 
 
