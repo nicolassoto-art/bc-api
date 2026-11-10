@@ -80,8 +80,8 @@
     "semantic_hash": "9b981a728f3b5da6c820c95ff135b8f3"
   },
   "app/routes/proyectos.py": {
-    "mtime": 1794016022.7810519,
-    "ast_hash": "75c06c193f9e90358264189c7f43f167",
+    "mtime": 1794313363.4301236,
+    "ast_hash": "05947a2b1af6f5672cb249351f12bbb5",
     "semantic_hash": ""
   },
   "app/routes/tickets.py": {
@@ -90,13 +90,13 @@
     "semantic_hash": ""
   },
   "app/routes/unidades.py": {
-    "mtime": 1794016998.5749524,
-    "ast_hash": "4fa3470295bde0ed518965eb41c70732",
+    "mtime": 1794313363.4387028,
+    "ast_hash": "2cd773423e098b59278b51402441a617",
     "semantic_hash": ""
   },
   "app/schemas/__init__.py": {
-    "mtime": 1794016022.743428,
-    "ast_hash": "7e621e2c31dae2c79c6fa89cf34bfa27",
+    "mtime": 1794313363.420881,
+    "ast_hash": "a67f2d5fdc5b751d5f2802ffac6cd6f3",
     "semantic_hash": ""
   },
   "app/schemas/auth.py": {
@@ -110,8 +110,8 @@
     "semantic_hash": "879d2703c2a23c14addd9d2c245447e6"
   },
   "app/schemas/proyecto.py": {
-    "mtime": 1794016022.8399556,
-    "ast_hash": "37d1c1914c3feeccb7ff06df4f740ea7",
+    "mtime": 1794313363.4212244,
+    "ast_hash": "8587515f65d166c7c6692c1d0d507b27",
     "semantic_hash": ""
   },
   "app/schemas/ticket.py": {
@@ -145,8 +145,8 @@
     "semantic_hash": "886ba0e07b8fe8d0f2c2ff2ffa0e87cc"
   },
   "app/services/jb_importer.py": {
-    "mtime": 1793897238.433885,
-    "ast_hash": "b644ee6b8f0e8c9dc7f37c657fa56551",
+    "mtime": 1794311999.5183728,
+    "ast_hash": "607ab795051439f632193baca30bbd42",
     "semantic_hash": ""
   },
   "app/settings.py": {
@@ -1205,8 +1205,8 @@
     "semantic_hash": "27c0cef1e4022e2b49ae4650bce05c1c"
   },
   "EVENTOS.md": {
-    "mtime": 1794016022.680106,
-    "ast_hash": "f28657149efb8a3911a35c925551da6f",
+    "mtime": 1794311999.4942381,
+    "ast_hash": "483c4d3c9de1477c1db0c53e9e033287",
     "semantic_hash": ""
   },
   "IMPORT_LOG.md": {
@@ -1355,7 +1355,7 @@
     "semantic_hash": ""
   },
   ".github/workflows/import-marketplace-workview.yml": {
-    "mtime": 1793897238.4168713,
+    "mtime": 1794311999.4937248,
     "ast_hash": "8d31ed87caf83e7a611f2b61207871dc",
     "semantic_hash": ""
   },
@@ -1690,8 +1690,8 @@
     "semantic_hash": ""
   },
   "tests/test_planes_pago.py": {
-    "mtime": 1794016022.8436267,
-    "ast_hash": "968145e47d1e1311dbedb4d59a45e946",
+    "mtime": 1794313363.4391305,
+    "ast_hash": "ca228d7bb737027adaf1d2c95090668a",
     "semantic_hash": ""
   },
   "tests/test_reserva_planok.py": {
@@ -1717,6 +1717,21 @@
   ".superpowers/sdd/task-1-report.md": {
     "mtime": 1793897611.3349261,
     "ast_hash": "774c23bdf411d34964534c2c810d27b6",
+    "semantic_hash": ""
+  },
+  "scripts/fichas_gespania.py": {
+    "mtime": 1794313363.4074664,
+    "ast_hash": "f26833ce5f46bf9480c85104ce89276f",
+    "semantic_hash": ""
+  },
+  "tests/test_fichas_gespania.py": {
+    "mtime": 1794313363.4078772,
+    "ast_hash": "68e0430fa72866f1b08a9262ff46771a",
+    "semantic_hash": ""
+  },
+  ".github/workflows/fichas-gespania.yml": {
+    "mtime": 1794311999.4932613,
+    "ast_hash": "5aac2e4a194e1824e5093806e7977997",
     "semantic_hash": ""
   }
 }
