@@ -1,6 +1,6 @@
 # Eventos anómalos — registro automático
 
-Última actualización: Tue 10/11/2026 06:59 Chile · 864 eventos totales
+Última actualización: Tue 10/11/2026 15:38 Chile · 867 eventos totales
 
 Este archivo se regenera automáticamente desde `eventos_anomalos.jsonl`.
 Los eventos están deduplicados en ventanas de 24h.
@@ -40,10 +40,13 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-10-14 11:41:14 | `monitor-health.yml#38142276077` | created=Sun 11/10 09:12 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/38142276077) |
 | 2026-10-14 11:41:14 | `monitor-health.yml#38116975504` | created=Sun 11/10 02:06 Chile · trigger=schedule · [run](https://github.com/nicolassoto-art/bc-api/actions/runs/38116975504) |
 
-## ⚠ Proyectos con modelos pero sin unidades (206 en total, mostrando últimos 30)
+## ⚠ Proyectos con modelos pero sin unidades (209 en total, mostrando últimos 30)
 
 | Fecha (UTC) | Subject | Detalle |
 |---|---|---|
+| 2026-11-10 19:37:57 | `jb-jflw8myr · _Distrito Bustamante_` | 43 modelos pero 0 unidades — Excel JB vacío |
+| 2026-11-10 19:37:56 | `jb-xmqukatc · _Distrito Parque_` | 28 modelos pero 0 unidades — Excel JB vacío |
+| 2026-11-10 19:37:56 | `jb-aj3ve334 · _Torres del Sol_` | 10 modelos pero 0 unidades — Excel JB vacío |
 | 2026-11-10 10:59:21 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
 | 2026-11-10 10:59:12 | `jb-rsqcvzc9 · _Ciudad del Rosal 2_` | 63 modelos pero 0 unidades — Excel JB vacío |
 | 2026-11-08 21:57:09 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
@@ -71,9 +74,6 @@ Los eventos están deduplicados en ventanas de 24h.
 | 2026-10-14 11:40:49 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
 | 2026-10-13 06:39:45 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
 | 2026-10-11 23:44:47 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
-| 2026-10-10 08:23:19 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
-| 2026-10-09 01:59:31 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
-| 2026-10-08 01:47:39 | `vicu-a-mackenna-1194 · _Vicuña Mackenna 1194_` | 13 modelos pero 0 unidades — Excel JB vacío |
 
 ## ⚠ Proyectos huérfanos (JB sin data) (30 en total, mostrando últimos 30)
 
