@@ -206,7 +206,8 @@ def test_patch_lista_vacia_borra_clave(client, admin, db):
     assert _patch(client, h, pid, {"planes_pago": [_plan()], "seriedad_promesa_uf": 5}).status_code == 200
     r = _patch(client, h, pid, {"planes_pago": [], "seriedad_promesa_uf": None})
     assert r.status_code == 200, r.text
-    assert _extra(db, pid)["comercial"] == {"pie_pct": 10}
+    # la versión sobrevive al borrado: si volviera a 0, una pestaña vieja podría coincidir con ella
+    assert _extra(db, pid)["comercial"] == {"pie_pct": 10, "planes_rev": 2}
     assert "planes_pago" not in r.json()["comercial"]
 
 
@@ -322,6 +323,225 @@ def test_mes_de_inicio_de_cuotas_como_yyyy_mm(client, admin, db):
         d = r.json()["detail"]
         assert isinstance(d, str) and d.startswith("Los datos del plan no son válidos")
         assert "cuotas_inicio_mes" in d
+
+
+# ── Control de versión (extra.comercial.planes_rev) ───────────────────────────────────
+
+MSG_CONFLICTO = "Otra persona cambió los planes de este proyecto. Recarga la página para ver la última versión."
+
+
+def test_rev_sube_con_cada_cambio_y_se_entrega(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-rev")
+    r = _patch(client, h, pid, {"planes_pago": [_plan()]})
+    assert r.status_code == 200 and r.json()["comercial"]["planes_rev"] == 1
+    r = _patch(client, h, pid, {"planes_pago": [_plan(nombre="Otro")]})
+    assert r.json()["comercial"]["planes_rev"] == 2
+    assert client.get(f"/proyectos/{pid}/comercial", headers=h).json()["comercial"]["planes_rev"] == 2
+    assert client.get(f"/proyectos/{pid}", headers=h).json()["extra"]["comercial"]["planes_rev"] == 2
+
+
+def test_rev_vieja_da_409_y_no_toca_nada(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-409")
+    assert _patch(client, h, pid, {"planes_pago": [_plan()], "planes_rev": 0}).status_code == 200
+    assert _patch(client, h, pid, {"planes_pago": [_plan(nombre="Dos")], "planes_rev": 1}).status_code == 200
+    antes = _extra(db, pid)
+    r = _patch(client, h, pid, {"planes_pago": [], "planes_rev": 1})      # pestaña vieja
+    assert r.status_code == 409 and r.json()["detail"] == MSG_CONFLICTO
+    assert _extra(db, pid) == antes
+
+
+def test_rev_contra_proyecto_sin_rev_se_compara_con_cero(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-rev-cero")
+    r = _patch(client, h, pid, {"planes_pago": [_plan()], "planes_rev": 3})
+    assert r.status_code == 409 and r.json()["detail"] == MSG_CONFLICTO
+    assert _patch(client, h, pid, {"planes_pago": [_plan()], "planes_rev": 0}).status_code == 200
+
+
+def test_sin_rev_o_null_se_comporta_como_hoy(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-sin-rev")
+    assert _patch(client, h, pid, {"planes_pago": [_plan()]}).status_code == 200
+    assert _patch(client, h, pid, {"planes_pago": [_plan(nombre="B")]}).status_code == 200
+    assert _patch(client, h, pid, {"planes_pago": [_plan(nombre="C")], "planes_rev": None}).status_code == 200
+    assert _extra(db, pid)["comercial"]["planes_rev"] == 3
+
+
+@pytest.mark.parametrize("malo", [True, "1", 1.5])
+def test_rev_de_tipo_invalido_422(client, admin, db, malo):
+    _, h = admin
+    pid = _proy(db, "test-planes-rev-tipo")
+    r = _patch(client, h, pid, {"planes_pago": [_plan()], "planes_rev": malo})
+    assert r.status_code == 422 and "planes_rev" in r.json()["detail"]
+
+
+def test_rev_no_sale_en_publico(client, admin, db, monkeypatch):
+    _, h = admin
+    pid = _proy(db, "test-planes-rev-pub", extra={"publicar_en_catalogo": True, "comercial": {"pie_pct": 20}})
+    assert _patch(client, h, pid, {"planes_pago": [_plan()]}).status_code == 200
+    monkeypatch.setattr(settings, "bc_api_service_token", "sk_test_planes")
+    r = client.get(f"/proyectos/public/{pid}", headers={"Authorization": "Bearer sk_test_planes"})
+    assert r.status_code == 200 and "planes_rev" not in r.text
+    r = client.get("/proyectos/public", headers={"Authorization": "Bearer sk_test_planes"})
+    assert r.status_code == 200 and "planes_rev" not in r.text
+
+
+def test_put_y_post_protegen_rev(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-rev-put")
+    assert _patch(client, h, pid, {"planes_pago": [_plan()]}).status_code == 200
+    base = {"nombre": "Edificio Prueba Interna"}
+    assert client.put(f"/proyectos/{pid}", headers=h, json={
+        **base, "extra": {"comercial": {"planes_rev": 99}}}).status_code == 200
+    assert _extra(db, pid)["comercial"]["planes_rev"] == 1
+    assert client.put(f"/proyectos/{pid}", headers=h, json={**base, "extra": {}}).status_code == 200
+    assert _extra(db, pid)["comercial"]["planes_rev"] == 1
+    sin = _proy(db, "test-planes-rev-put-sin")
+    assert client.put(f"/proyectos/{sin}", headers=h, json={
+        **base, "extra": {"comercial": {"pie_pct": 1, "planes_rev": 9}}}).status_code == 200
+    assert _extra(db, sin)["comercial"] == {"pie_pct": 1}
+    nuevo = f"test-planes-rev-post-{uuid.uuid4().hex[:8]}"
+    assert client.post("/proyectos", headers=h, json={
+        "id": nuevo, **base, "extra": {"comercial": {"pie_pct": 1, "planes_rev": 9}}}).status_code == 201
+    assert _extra(db, nuevo)["comercial"] == {"pie_pct": 1}
+
+
+# ── Sin cambios: no crece el timeline ni sube la versión ─────────────────────────────
+
+def test_patch_identico_no_agrega_evento_ni_sube_rev(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-igual")
+    body = {"planes_pago": [_plan(), _otro_plan()], "seriedad_promesa_uf": 10}
+    assert _patch(client, h, pid, body).status_code == 200
+    db.expire_all()
+    antes = db.get(Proyecto, pid)
+    extra_antes, updated_antes = antes.extra, antes.updated_at
+    db.rollback()
+    r = _patch(client, h, pid, {**body, "planes_rev": 1})
+    assert r.status_code == 200 and r.json() == {"ok": True, "comercial": extra_antes["comercial"]}
+    assert _patch(client, h, pid, {"planes_pago": body["planes_pago"]}).status_code == 200   # seriedad no viene
+    db.expire_all()
+    despues = db.get(Proyecto, pid)
+    assert despues.extra == extra_antes and despues.updated_at == updated_antes
+    assert len(despues.extra["timeline"]) == 1
+
+
+def test_lista_vacia_sin_planes_no_es_cambio(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-vacia-igual", extra={"otro": 1})
+    r = _patch(client, h, pid, {"planes_pago": [], "seriedad_promesa_uf": None})
+    assert r.status_code == 200
+    assert _extra(db, pid) == {"otro": 1}
+
+
+def test_solo_seriedad_cuenta_como_cambio(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-seriedad")
+    assert _patch(client, h, pid, {"planes_pago": [_plan()], "seriedad_promesa_uf": 10}).status_code == 200
+    assert _patch(client, h, pid, {"planes_pago": [_plan()], "seriedad_promesa_uf": 11}).status_code == 200
+    ex = _extra(db, pid)
+    assert ex["comercial"]["planes_rev"] == 2 and len(ex["timeline"]) == 2
+
+
+def test_rev_vieja_gana_aunque_no_haya_cambio(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-igual-409")
+    assert _patch(client, h, pid, {"planes_pago": [_plan()]}).status_code == 200
+    r = _patch(client, h, pid, {"planes_pago": [_plan()], "planes_rev": 0})
+    assert r.status_code == 409
+
+
+# ── Bloqueo de fila: PATCH y PUT se serializan ───────────────────────────────────────
+
+def _en_hilo(fn):
+    out = {}
+    t = threading.Thread(target=lambda: out.update(r=fn()), daemon=True)
+    t.start()
+    return t, out
+
+
+def _bloquear_y_escribir(db, pid, hilo, comercial):
+    """La fila ya está bloqueada por `db`: confirma que el hilo espera, escribe y suelta."""
+    time.sleep(0.4)
+    assert hilo.is_alive(), "la petición no esperó el bloqueo de fila"
+    fila = db.execute(select(Proyecto).where(Proyecto.id == pid)).scalars().one()
+    fila.extra = {**(fila.extra or {}), "comercial": comercial}
+    db.commit()
+    hilo.join(15)
+    assert not hilo.is_alive()
+
+
+def _bloquear(db, pid):
+    db.expire_all()
+    db.execute(select(Proyecto).where(Proyecto.id == pid).with_for_update()).scalars().one()
+
+
+def test_patch_espera_y_parte_de_la_ultima_version(admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-lock-patch")
+    _bloquear(db, pid)
+    hilo, out = _en_hilo(lambda: _patch(TestClient(app), h, pid, {"planes_pago": [_plan()]}))
+    _bloquear_y_escribir(db, pid, hilo, {"planes_rev": 7, "pie_pct": 33})
+    assert out["r"].status_code == 200, out["r"].text
+    com = _extra(db, pid)["comercial"]
+    assert com["planes_rev"] == 8 and com["pie_pct"] == 33
+
+
+def test_patch_que_espero_detecta_conflicto(admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-lock-409")
+    _bloquear(db, pid)
+    hilo, out = _en_hilo(lambda: _patch(TestClient(app), h, pid, {"planes_pago": [_plan()], "planes_rev": 0}))
+    _bloquear_y_escribir(db, pid, hilo, {"planes_rev": 1, "planes_pago": [_otro_plan()]})
+    assert out["r"].status_code == 409
+    assert _extra(db, pid)["comercial"]["planes_pago"][0]["id"] == "pie-en-cuotas"
+
+
+def test_put_espera_y_repone_desde_la_lectura_bloqueada(admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-lock-put", extra={"comercial": {"pie_pct": 1}})
+    _bloquear(db, pid)
+    cuerpo = {"nombre": "Edificio Prueba Interna", "extra": {"comercial": {"pie_pct": 15}}}
+    hilo, out = _en_hilo(lambda: TestClient(app).put(f"/proyectos/{pid}", headers=h, json=cuerpo))
+    _bloquear_y_escribir(db, pid, hilo, {"pie_pct": 1, "planes_pago": [_plan()],
+                                         "seriedad_promesa_uf": 4, "planes_rev": 5})
+    assert out["r"].status_code == 200, out["r"].text
+    com = _extra(db, pid)["comercial"]
+    assert com["pie_pct"] == 15 and com["planes_pago"][0]["id"] == "estandar"
+    assert com["seriedad_promesa_uf"] == 4 and com["planes_rev"] == 5
+
+
+def _fila_libre(pid) -> bool:
+    otra = SessionLocal()
+    try:
+        otra.execute(select(Proyecto.id).where(Proyecto.id == pid).with_for_update(nowait=True)).all()
+        return True
+    except Exception:
+        return False
+    finally:
+        otra.rollback()
+        otra.close()
+
+
+@pytest.mark.parametrize("rev,codigo", [(99, 409), (1, None)])
+def test_patch_suelta_el_bloqueo_antes_de_responder(admin, db, rev, codigo):
+    """Respuestas sin escritura (409 y «sin cambios»): la fila no queda bloqueada hasta cerrar la sesión."""
+    usuario, h = admin
+    pid = _proy(db, "test-planes-suelta")
+    _patch(TestClient(app), h, pid, {"planes_pago": [_plan()]})
+    sesion = SessionLocal()
+    try:
+        try:
+            set_planes_pago(proyecto_id=pid, raw={"planes_pago": [_plan()], "planes_rev": rev},
+                            db=sesion, usuario=usuario)
+            assert codigo is None
+        except HTTPException as e:
+            assert e.status_code == codigo
+        assert _fila_libre(pid)
+    finally:
+        sesion.close()
 
 
 # ── Validaciones ─────────────────────────────────────────────────────────────────────

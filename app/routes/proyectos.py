@@ -4,6 +4,7 @@ import logging
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request, status, Query
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select, func, Integer, or_
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..db import get_db
 from ..deps.auth import service_token, stock_access, current_user
 from ..models import Proyecto, Unidad, Usuario
-from ..schemas import ProyectoIn, ProyectoOut, ProyectoSummary, PlanPago, PlanesPagoIn, validar_planes
+from ..schemas import ProyectoIn, ProyectoOut, ProyectoSummary, PlanPago, PlanesPagoIn, PLANES_KEYS, validar_planes
 from ..services import email_service
 from ..services.timeline import fusionar_timeline, recortar_timeline
 from ..services.estado_stock import estado_stock
@@ -135,10 +136,28 @@ _BROKER_COMERCIAL_KEYS = _PUBLIC_COMERCIAL_KEYS | {
     "valor_cuota_clp", "nota_pago_pie", "cuota_pre_entrega_uf",
     # (2026-11-05) Planes de pago con nombre + seriedad de la promesa. Los escribe SOLO
     # PATCH /{id}/planes-pago. Solo para asesor con sesión: NO van a _PUBLIC_COMERCIAL_KEYS.
-    "cuotas_pago_inicial", "planes_pago", "seriedad_promesa_uf",
+    "cuotas_pago_inicial", "planes_pago", "seriedad_promesa_uf", "planes_rev",
 }
-# Claves de extra.comercial que escribe SOLO PATCH /{id}/planes-pago (PUT y POST no las tocan).
-_PLANES_KEYS = ("planes_pago", "seriedad_promesa_uf")
+
+
+def _proyecto_bloqueado(db: Session, proyecto_id: str) -> Proyecto | None:
+    """Lee el proyecto bloqueando su fila hasta el commit: quien escribe `extra` a partir de lo
+    leído espera al anterior y parte de la última versión (si no, se pierden escrituras)."""
+    return db.execute(select(Proyecto).where(Proyecto.id == proyecto_id).with_for_update()).scalars().first()
+
+
+def _suelta_bloqueo_al_fallar(endpoint):
+    """Toda salida con excepción (404, 409, error inesperado) devuelve la fila de inmediato. Sin esto
+    el bloqueo duraría hasta cerrar la sesión, y eso pasa en el bucle de eventos, que la subida de
+    Excel (async, con SQL síncrono) puede tener ocupado esperando esa misma fila: se trabarían."""
+    @wraps(endpoint)
+    def envoltura(*args, **kwargs):
+        try:
+            return endpoint(*args, **kwargs)
+        except Exception:
+            kwargs["db"].rollback()
+            raise
+    return envoltura
 
 
 def _public_extra(extra: dict) -> dict:
@@ -664,9 +683,9 @@ def crear(body: ProyectoIn, background_tasks: BackgroundTasks, db: Session = Dep
     # (2026-11-05) Igual los planes de pago: solo los crea PATCH /planes-pago (que valida la cuadratura).
     if isinstance(data.get("extra"), dict) and isinstance(data["extra"].get("comercial"), dict):
         com = data["extra"]["comercial"]
-        if any(k in com for k in _PLANES_KEYS):
+        if any(k in com for k in PLANES_KEYS):
             data["extra"] = {**data["extra"],
-                             "comercial": {k: v for k, v in com.items() if k not in _PLANES_KEYS}}
+                             "comercial": {k: v for k, v in com.items() if k not in PLANES_KEYS}}
     p = Proyecto(id=pid, codigo_corto=_next_codigo_corto(db), **data)
     db.add(p)
     try:
@@ -688,13 +707,14 @@ def crear(body: ProyectoIn, background_tasks: BackgroundTasks, db: Session = Dep
 
 
 @router.put("/{proyecto_id}", response_model=ProyectoOut)
+@_suelta_bloqueo_al_fallar
 def actualizar(
     proyecto_id: str,
     body: ProyectoIn,
     db: Session = Depends(get_db),
     _: Usuario = Depends(stock_access),
 ):
-    p = db.get(Proyecto, proyecto_id)
+    p = _proyecto_bloqueado(db, proyecto_id)
     if not p:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
     datos = body.model_dump(exclude={"id"})
@@ -722,14 +742,14 @@ def actualizar(
         ex[garantia.CLAVE] = extra_srv[garantia.CLAVE]
     else:
         ex.pop(garantia.CLAVE, None)
-    # (2026-11-05) Planes de pago y seriedad: igual que la garantía, los escribe solo PATCH /planes-pago.
+    # (2026-11-05) Planes de pago, seriedad y su versión: igual que la garantía, los escribe solo PATCH /planes-pago.
     # Se conserva la copia del servidor aunque el navegador (o el wipe del importador) no mande comercial,
     # y se descarta lo que mande el navegador si el servidor no la tiene.
     com_srv = extra_srv.get("comercial") if isinstance(extra_srv.get("comercial"), dict) else {}
     com_in = ex.get("comercial")
-    if isinstance(com_in, dict) or any(com_srv.get(k) is not None for k in _PLANES_KEYS):
+    if isinstance(com_in, dict) or any(com_srv.get(k) is not None for k in PLANES_KEYS):
         com = dict(com_in) if isinstance(com_in, dict) else {}
-        for k in _PLANES_KEYS:
+        for k in PLANES_KEYS:
             if com_srv.get(k) is not None:
                 com[k] = com_srv[k]
             else:
@@ -953,6 +973,7 @@ async def set_garantia_arriendo(
 
 
 @router.patch("/{proyecto_id}/planes-pago")
+@_suelta_bloqueo_al_fallar
 def set_planes_pago(
     proyecto_id: str,
     raw: dict = Body(...),
@@ -961,14 +982,18 @@ def set_planes_pago(
 ):
     """Guarda los planes de pago con nombre del proyecto y la seriedad de la promesa (2026-11-05).
 
-    Cuerpo: {planes_pago: [PlanPago…], seriedad_promesa_uf: UF | null}. Toca SOLO
-    extra.comercial.planes_pago y extra.comercial.seriedad_promesa_uf (el resto de extra
+    Cuerpo: {planes_pago: [PlanPago…], seriedad_promesa_uf: UF | null, planes_rev: entero}. Toca
+    SOLO extra.comercial.planes_pago, .seriedad_promesa_uf y .planes_rev (el resto de extra
     queda igual). `planes_pago: []` borra la clave; `seriedad_promesa_uf: null` borra la
     suya y, si no viene, queda como estaba. Cada plan debe cuadrar en centésimas:
     pie = cuotón inicial + construcción + cuotón final + bono pie. Ids únicos, a lo más un
     plan predeterminado y debe estar activo. Error → 422 con `detail` en español.
 
-    Responde {ok, comercial} y deja un evento «Planes de pago» en extra.timeline.
+    `planes_rev` (opcional) es la versión que leyó el navegador; un proyecto sin la clave vale 0.
+    Si viene y no es la guardada → 409: otra persona cambió los planes. Si no viene, no se compara.
+
+    Responde {ok, comercial}. Si hubo cambio real sube planes_rev en 1 y deja un evento «Planes de
+    pago» en extra.timeline; si la lista y la seriedad son las guardadas, no escribe nada.
     """
     from sqlalchemy.orm.attributes import flag_modified
     try:
@@ -982,12 +1007,16 @@ def set_planes_pago(
     msg = validar_planes(body)
     if msg:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=msg)
-    p = db.get(Proyecto, proyecto_id)
+    p = _proyecto_bloqueado(db, proyecto_id)
     if not p or p.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proyecto no encontrado")
 
     extra = dict(p.extra or {})
-    com = dict(extra["comercial"]) if isinstance(extra.get("comercial"), dict) else {}
+    com_srv = extra["comercial"] if isinstance(extra.get("comercial"), dict) else {}
+    rev = int(com_srv.get("planes_rev") or 0)
+    if body.planes_rev is not None and body.planes_rev != rev:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=_MSG_PLANES_CONFLICTO)
+    com = dict(com_srv)
     planes = [pl.model_dump() for pl in body.planes_pago]
     if planes:
         com["planes_pago"] = planes
@@ -998,6 +1027,10 @@ def set_planes_pago(
             com.pop("seriedad_promesa_uf", None)
         else:
             com["seriedad_promesa_uf"] = body.seriedad_promesa_uf
+    if com == com_srv:      # un clic en guardar sin cambios no ensucia la historia ni invalida otras pestañas
+        db.rollback()       # suelta la fila
+        return {"ok": True, "comercial": com}
+    com["planes_rev"] = rev + 1
     extra["comercial"] = com
     _evento(extra, _TIPO_PLANES, _detalle_planes(planes, com.get("seriedad_promesa_uf")), usuario)
     p.extra = extra
@@ -1046,6 +1079,7 @@ def _detalle_garantia(g: dict, aplicadas: int, sin_canon: list) -> str:
 
 _TIPO_GARANTIA = "Garantía de arriendo"
 _TIPO_PLANES = "Planes de pago"
+_MSG_PLANES_CONFLICTO = "Otra persona cambió los planes de este proyecto. Recarga la página para ver la última versión."
 
 
 def _evento(extra: dict, tipo: str, detalles: str, usuario) -> None:
