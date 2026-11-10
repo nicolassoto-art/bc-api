@@ -155,6 +155,23 @@ def _subir(cli, web, ruta: str, url: str, datos: dict, fallas: list[str]) -> Non
         fallas.append(f"{nombre}: {e}")
 
 
+def subir_documento(cli, web, pid: str, url: str, fallas: list[str]) -> None:
+    """Un PDF sobre el límite de bc-api queda como enlace al sitio público de Gespania."""
+    nombre = url.rsplit("/", 1)[1]
+    try:
+        resp = web.get(url)
+        resp.raise_for_status()
+        archivos = [("files", (nombre, resp.content, _tipo(resp.content, url)))]
+        subida = cli.post(f"/proyectos/{pid}/documentos", files=archivos, data={"tipo": "Brochure"})
+        if subida.status_code == 413:
+            enlace = {"url": url, "nombre": nombre, "tipo": "Brochure"}
+            cli.post(f"/proyectos/{pid}/documentos/url", json=enlace).raise_for_status()
+        else:
+            subida.raise_for_status()
+    except (httpx.HTTPError, ValueError) as e:
+        fallas.append(f"{nombre}: {e}")
+
+
 def main(jb_id: str) -> int:
     fuente = PROYECTOS[jb_id]
     pid = f"jb-{jb_id.lower()}"
@@ -194,9 +211,10 @@ def main(jb_id: str) -> int:
                         "es_principal": str(url == portada).lower(),
                     }
                     _subir(cli, web, f"/proyectos/{pid}/imagenes", url, datos, fallas)
-            if not cli.get(f"/proyectos/{pid}/documentos").raise_for_status().json():
-                for url in documentos:
-                    _subir(cli, web, f"/proyectos/{pid}/documentos", url, {"tipo": "Brochure"}, fallas)
+            ya_subidos = {d.get("nombre") for d in cli.get(f"/proyectos/{pid}/documentos").raise_for_status().json()}
+            for url in documentos:
+                if url.rsplit("/", 1)[1] not in ya_subidos:
+                    subir_documento(cli, web, pid, url, fallas)
             print(f"{pid}: encontrados {len(fotos)} fotos y {len(documentos)} documentos en gespania.cl")
         else:
             print(f"{pid}: sin página en gespania.cl; fotos y documentos quedan pendientes")

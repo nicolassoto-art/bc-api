@@ -5,6 +5,7 @@ from scripts.fichas_gespania import (
     categoria_foto,
     fotos_y_documentos,
     ficha_desde_catalogo,
+    subir_documento,
 )
 
 CATALOGO = {
@@ -102,3 +103,21 @@ def test_los_cuatro_proyectos_estan_definidos():
     assert set(PROYECTOS) == {"RsQcvZc9", "xMqukaTC", "aj3VE334", "JFLW8myr"}
     assert PROYECTOS["aj3VE334"]["pagina"] is None
     assert httpx.URL("https://gespania.cl").host == "gespania.cl"
+
+
+def test_documento_pesado_queda_como_enlace_a_gespania():
+    llamadas = []
+
+    def api(req):
+        llamadas.append((req.method, req.url.path))
+        if req.url.path.endswith("/documentos"):
+            return httpx.Response(413)
+        return httpx.Response(201, json={"id": "doc-1"})
+
+    cli = httpx.Client(transport=httpx.MockTransport(api), base_url="http://bc")
+    web = httpx.Client(transport=httpx.MockTransport(lambda _r: httpx.Response(200, content=b"%PDF-1.7")))
+    url = "https://gespania.cl/wp-content/uploads/2025/12/Folleto.pdf"
+    fallas = []
+    subir_documento(cli, web, "p", url, fallas)
+    assert fallas == []
+    assert llamadas == [("POST", "/proyectos/p/documentos"), ("POST", "/proyectos/p/documentos/url")]
