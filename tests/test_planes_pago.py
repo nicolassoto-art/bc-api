@@ -544,6 +544,69 @@ def test_patch_suelta_el_bloqueo_antes_de_responder(admin, db, rev, codigo):
         sesion.close()
 
 
+# ── Subida de Excel durante un cambio de planes ──────────────────────────────────────
+
+def _excel_simple():
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["numero_depto", "modelo", "tipo", "precio_lista_uf"])
+    ws.append(["101", "2D1B", "Depto", 2500])
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    return bio
+
+
+def _subir_con_patch_en_medio(client, h, pid, monkeypatch, cuerpo_patch):
+    """Mientras el Excel se procesa, otra persona guarda planes. La fila debe estar libre en ese momento."""
+    original = rutas_unidades._is_jb_excel
+    visto = {}
+
+    def en_medio(wb):
+        visto["libre"] = _fila_libre(pid)
+        visto["patch"] = _patch(TestClient(app), h, pid, cuerpo_patch).status_code
+        return original(wb)
+
+    monkeypatch.setattr(rutas_unidades, "_is_jb_excel", en_medio)
+    r = client.post(f"/proyectos/{pid}/unidades/excel/upload", headers=h, files={
+        "file": ("stock.xlsx", _excel_simple(),
+                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert r.status_code == 200, r.text
+    assert visto == {"libre": True, "patch": 200}
+
+
+def test_excel_conserva_planes_guardados_durante_la_subida(client, admin, db, monkeypatch):
+    _, h = admin
+    pid = _proy(db, "test-planes-excel", extra={"comercial": {"pie_pct": 20}})
+    assert _patch(client, h, pid, {"planes_pago": [_plan()], "seriedad_promesa_uf": 5}).status_code == 200
+    _subir_con_patch_en_medio(client, h, pid, monkeypatch,
+                              {"planes_pago": [_otro_plan()], "seriedad_promesa_uf": 9})
+    ex = _extra(db, pid)
+    assert ex["comercial"]["planes_pago"][0]["id"] == "pie-en-cuotas"
+    assert ex["comercial"]["seriedad_promesa_uf"] == 9
+    assert ex["comercial"]["planes_rev"] == 2 and ex["comercial"]["pie_pct"] == 20
+    assert ex["timeline"][0]["tipo"] == "Excel Stock"
+
+
+def test_excel_no_revive_planes_borrados_durante_la_subida(client, admin, db, monkeypatch):
+    _, h = admin
+    pid = _proy(db, "test-planes-excel-borra")
+    assert _patch(client, h, pid, {"planes_pago": [_plan()], "seriedad_promesa_uf": 5}).status_code == 200
+    _subir_con_patch_en_medio(client, h, pid, monkeypatch, {"planes_pago": [], "seriedad_promesa_uf": None})
+    com = _extra(db, pid)["comercial"]
+    assert "planes_pago" not in com and "seriedad_promesa_uf" not in com and com["planes_rev"] == 2
+
+
+def test_excel_en_proyecto_sin_comercial_no_lo_crea(client, admin, db):
+    _, h = admin
+    pid = _proy(db, "test-planes-excel-sin")
+    r = client.post(f"/proyectos/{pid}/unidades/excel/upload", headers=h, files={
+        "file": ("stock.xlsx", _excel_simple(),
+                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert r.status_code == 200, r.text
+    assert "comercial" not in _extra(db, pid)
+
+
 # ── Validaciones ─────────────────────────────────────────────────────────────────────
 
 _NUL = "Prueba\u0000Interna"

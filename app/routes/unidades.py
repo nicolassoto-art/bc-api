@@ -6,13 +6,14 @@ from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, UploadFile, File, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from openpyxl import Workbook, load_workbook
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps.auth import stock_access
 from ..models import Proyecto, Unidad, Usuario
 from ..models.proyecto import RESERVA_BC_LIBERADA
-from ..schemas import ReservaBcIn, RevisionStockIn, UnidadIn, UnidadOut
+from ..schemas import PLANES_KEYS, ReservaBcIn, RevisionStockIn, UnidadIn, UnidadOut
 from ..services import email_service
 from ..services.garantia_arriendo import canon_de
 from ..services.origen_stock import etiqueta_origen
@@ -1611,6 +1612,22 @@ async def subir_excel(
             "archivo_url": None,
         })
     _extra["timeline"] = recortar_timeline(_tl)
+    # Planes de pago: `_extra` parte de lo leído al inicio de la subida, y mientras se procesaba alguien
+    # pudo guardar planes. Se releen acá con la fila bloqueada, que se suelta en el commit de abajo. Se
+    # lee solo la columna: recargar el objeto `proy` descartaría stock_last_upload y sus otros cambios.
+    _actual = db.execute(
+        select(Proyecto.extra).where(Proyecto.id == proyecto_id).with_for_update()
+    ).scalar_one_or_none() or {}
+    _com_actual = _actual["comercial"] if isinstance(_actual.get("comercial"), dict) else {}
+    _com_leido = _extra.get("comercial")
+    if isinstance(_com_leido, dict) or any(_k in _com_actual for _k in PLANES_KEYS):
+        _com = dict(_com_leido) if isinstance(_com_leido, dict) else {}
+        for _k in PLANES_KEYS:
+            if _k in _com_actual:
+                _com[_k] = _com_actual[_k]
+            else:
+                _com.pop(_k, None)
+        _extra["comercial"] = _com
     proy.extra = _extra
 
     db.commit()
