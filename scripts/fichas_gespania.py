@@ -24,6 +24,17 @@ PROYECTOS = {
     "aj3VE334": {"pagina": "departamento-en-hualpen", "etiquetas": ["Credito Interno", "Airbnb"]},
 }
 
+# Valores tomados del catálogo en la auditoría del 10-nov-2026: la ficha quedó sin ellos.
+FISICOS_CONOCIDOS = {
+    "aj3VE334": {
+        "pisos": 6,
+        "ascensores": 1,
+        "unidades_totales": 90,
+        "estacionamientos_totales": 65,
+        "bodegas_totales": 0,
+    },
+}
+
 FASES = {"green": "En verde", "deliveryReady": "Entrega inmediata", "white": "En blanco", "privateSale": "Venta privada"}
 PATRON_ARCHIVO = r"https://gespania\.cl/wp-content/uploads/[^\"' )]+\."
 DEL_SITIO = re.compile(r"LOGO|Pop-up|Black-Inmobiliario|sello-energetico|_mobile|Video-Aereo", re.I)
@@ -173,15 +184,19 @@ def _subir(cli, web, ruta: str, url: str, datos: dict, fallas: list[str]) -> Non
 
 
 def subir_documento(cli, web, pid: str, url: str, fallas: list[str]) -> None:
-    """Un PDF sobre el límite de bc-api queda como enlace al sitio público de Gespania."""
+    """Un PDF que no se puede traer o supera el límite de bc-api queda como enlace a Gespania."""
     nombre = url.rsplit("/", 1)[1]
+    enlace = {"url": url, "nombre": nombre, "tipo": "Brochure"}
     try:
-        resp = web.get(url)
-        resp.raise_for_status()
+        try:
+            resp = web.get(url)
+            resp.raise_for_status()
+        except httpx.TimeoutException:
+            cli.post(f"/proyectos/{pid}/documentos/url", json=enlace).raise_for_status()
+            return
         archivos = [("files", (nombre, resp.content, _tipo(resp.content, url)))]
         subida = cli.post(f"/proyectos/{pid}/documentos", files=archivos, data={"tipo": "Brochure"})
         if subida.status_code == 413:
-            enlace = {"url": url, "nombre": nombre, "tipo": "Brochure"}
             cli.post(f"/proyectos/{pid}/documentos/url", json=enlace).raise_for_status()
         else:
             subida.raise_for_status()
@@ -196,24 +211,24 @@ def main(jb_id: str) -> int:
     with httpx.Client(base_url=BC_API, headers=auth, timeout=120) as cli, httpx.Client(
         headers=NAVEGADOR, timeout=90, follow_redirects=True
     ) as web:
-        catalogo = web.get(CATALOGO, params={"id": jb_id})
-        catalogo.raise_for_status()
-        if catalogo.headers.get("x-cache") != "HIT":
-            print(f"{pid}: DETENIDO, el catálogo no respondió desde su copia")
-            return 1
-
         existente = cli.get(f"/proyectos/{pid}")
         if existente.status_code == 200:
             if existente.json().get("deleted_at"):
                 print(f"{pid}: DETENIDO, está en la papelera")
                 return 1
-            cuerpo = completar_fisicos(existente.json(), ficha_desde_catalogo(catalogo.json(), jb_id, fuente["etiquetas"]))
+            conocidos = FISICOS_CONOCIDOS.get(jb_id)
+            cuerpo = completar_fisicos(existente.json(), {"extra": {"fisicos": conocidos}}) if conocidos else None
             if cuerpo:
                 cli.put(f"/proyectos/{pid}", json=cuerpo).raise_for_status()
                 print(f"{pid}: datos físicos completados")
             else:
                 print(f"{pid}: ya existe, no se modifican sus datos")
         elif existente.status_code == 404:
+            catalogo = web.get(CATALOGO, params={"id": jb_id})
+            catalogo.raise_for_status()
+            if catalogo.headers.get("x-cache") != "HIT":
+                print(f"{pid}: DETENIDO, el catálogo no respondió desde su copia")
+                return 1
             ficha = ficha_desde_catalogo(catalogo.json(), jb_id, fuente["etiquetas"])
             cli.post("/proyectos", json=ficha).raise_for_status()
             print(f"{pid}: ficha creada sin publicar")

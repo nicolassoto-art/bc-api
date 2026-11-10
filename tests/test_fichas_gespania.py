@@ -1,6 +1,8 @@
 import httpx
 
+from scripts import fichas_gespania as fichas
 from scripts.fichas_gespania import (
+    FISICOS_CONOCIDOS,
     PROYECTOS,
     categoria_foto,
     completar_fisicos,
@@ -148,3 +150,42 @@ def test_no_escribe_si_fisicos_estan_completos():
     ficha = ficha_desde_catalogo(CATALOGO, "RsQcvZc9", [])
     actual = {"nombre": "x", "extra": {"fisicos": dict(ficha["extra"]["fisicos"])}}
     assert completar_fisicos(actual, ficha) is None
+
+
+def test_ficha_existente_no_consulta_el_catalogo(monkeypatch):
+    llamadas = []
+
+    def manejador(req):
+        llamadas.append(str(req.url))
+        if req.url.path == "/proyectos/jb-aj3ve334" and req.method == "GET":
+            return httpx.Response(200, json={"nombre": "x", "extra": {"fisicos": {}}})
+        if req.method == "PUT":
+            return httpx.Response(200, json={})
+        if req.url.path.endswith(("/imagenes", "/documentos")):
+            return httpx.Response(200, json=[{"id": "1", "nombre": "a"}])
+        return httpx.Response(200, text="")
+
+    real = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **k: real(transport=httpx.MockTransport(manejador), **k))
+    monkeypatch.setenv("BC_API_JWT", "prueba")
+    assert fichas.main("aj3VE334") == 0
+    assert not any("workers.dev" in u for u in llamadas)
+    assert FISICOS_CONOCIDOS["aj3VE334"]["unidades_totales"] == 90
+
+
+def test_documento_que_no_descarga_queda_como_enlace():
+    llamadas = []
+
+    def api(req):
+        llamadas.append(req.url.path)
+        return httpx.Response(201, json={"id": "doc-1"})
+
+    def bajada(_req):
+        raise httpx.ReadTimeout("lento")
+
+    cli = httpx.Client(transport=httpx.MockTransport(api), base_url="http://bc")
+    web = httpx.Client(transport=httpx.MockTransport(bajada))
+    fallas = []
+    subir_documento(cli, web, "p", "https://sic.gespania.cl/sic/storage/a.pdf", fallas)
+    assert fallas == []
+    assert llamadas == ["/proyectos/p/documentos/url"]
