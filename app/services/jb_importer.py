@@ -131,6 +131,11 @@ PROYECTOS_PROTEGIDOS = {
     # Marketplace migrado a SBC, mantención manual
     "jb-1zvx7adn",  # Edificio Aviador Acevedo (INSIGNE) — migrado 2026-08-12
     "jb-tvfylemz",  # PORTAL DEL PINAR — migrado a SBC, faltaba protegerlo (2026-08-25)
+    # Gespania: marketplace migrado a SBC, mantención manual (2026-11-09)
+    "jb-rsqcvzc9",  # Ciudad del Rosal 2
+    "jb-xmqukatc",  # Distrito Parque
+    "jb-aj3ve334",  # Torres del Sol
+    "jb-jflw8myr",  # Distrito Bustamante
     # Stock propio con sync no-JB: el scraper de MNK mantiene las unidades
     "condominio-la-rioja",  # MNK · publicado en catálogo 2026-09-09; su stock lo
                             # actualiza mnk-scraper (Excel semanal), NO JetBrokers.
