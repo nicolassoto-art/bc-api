@@ -1,0 +1,97 @@
+name: Auditar fichas Gespania (solo lectura)
+
+# Solo GET. Compara bc-api con la copia del catálogo y prueba cada archivo.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  auditar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install "httpx>=0.27,<1"
+      - name: Auditar
+        env:
+          BC_API_EMAIL: nicolas.soto@bigcapital.cl
+          BC_API_PASSWORD: ${{ secrets.BC_API_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import collections, hashlib, json, os, re
+          import httpx
+          BC = "https://bc-api.178-105-91-29.nip.io"
+          W = "https://bigcapital-worker.nsotofchile.workers.dev/api/proyecto"
+          FASES = {"green": "En verde", "deliveryReady": "Entrega inmediata", "white": "En blanco"}
+          print("correo_configurado", bool(os.environ.get("BC_API_EMAIL")))
+          r = httpx.post(f"{BC}/auth/login", json={"email": os.environ["BC_API_EMAIL"], "password": os.environ["BC_API_PASSWORD"]}, timeout=20)
+          r.raise_for_status()
+          cli = httpx.Client(base_url=BC, headers={"Authorization": "Bearer " + r.json()["access_token"]}, timeout=60)
+          web = httpx.Client(timeout=60, follow_redirects=True)
+          def n(v):
+              try: return float(v)
+              except (TypeError, ValueError): return None
+          for jb in ["RsQcvZc9", "xMqukaTC", "JFLW8myr", "aj3VE334"]:
+              pid = "jb-" + jb.lower()
+              c = web.get(W, params={"id": jb})
+              d = c.json()
+              p = cli.get(f"/proyectos/{pid}").raise_for_status().json()
+              e = p.get("extra") or {}
+              print(f"\n##### {p['nombre']} {pid} catalogo={c.headers.get('x-cache')}")
+              dif = []
+              def cmp(campo, a, b):
+                  if a != b: dif.append(f"{campo}: ficha={a!r} catalogo={b!r}")
+              cmp("nombre", p["nombre"], d["name"])
+              cmp("inmobiliaria", p["inmobiliaria"], d["developerName"])
+              cmp("comuna", p["comuna"], d["locality"])
+              cmp("direccion", p["direccion"], d["address"])
+              cmp("gps_lat", p["gps_lat"], n(d["gpsLat"]))
+              cmp("gps_lon", p["gps_lon"], n(d["gpsLon"]))
+              cmp("fase", p["fase"], FASES.get(d["stage"], d["stage"]))
+              cmp("entrega", p["fecha_entrega"], (d["dateOfDelivery"] or "").strip() or None)
+              cmp("ano", p["ano_entrega"], d["yearOfDelivery"])
+              cmp("descripcion", e.get("descripcion"), d["description"])
+              cmp("equipamiento", e.get("equipamiento"), d["perks"])
+              cmp("areas", e.get("areas_comunes"), d["perksCommonAreas"])
+              cmp("entorno", e.get("entorno"), d["perksNearby"])
+              f = e.get("fisicos") or {}
+              for a, b in [("pisos","floors"),("ascensores","elevatorsCount"),("unidades_totales","apartmentCount"),("estacionamientos_totales","parkingCount"),("bodegas_totales","storeCount")]:
+                  cmp(a, f.get(a), d[b])
+              g = e.get("formas_pago_pie") or {}
+              for a, b in [("cuotas_pre_entrega","installmentsPreEntrega"),("pago_pre_entrega","payMethodPreEntrega"),("cuotas_post_entrega","installmentsPostEntrega"),("pago_post_entrega","payMethodPostEntrega")]:
+                  cmp(a, g.get(a), d[b])
+              cr = e.get("cuenta_reserva") or {}
+              for a, b in [("titular_nombre","reserveName"),("titular_rut","reserveTaxId"),("banco","reserveBank"),("tipo_cuenta","reserveAccountType"),("numero_cuenta","reserveAccountNumber")]:
+                  if cr.get(a) != d[b]: dif.append(f"cuenta_reserva.{a} distinto")
+              mo = e.get("modelos") or []
+              cmp("n_modelos", len(mo), len(d["models"]))
+              nombres = collections.Counter(m["nombre"] for m in mo)
+              rep = [k for k, v in nombres.items() if v > 1]
+              for x, y in zip(mo, d["models"]):
+                  sup = y.get("surfaceTotal") or []
+                  if x["nombre"] != y["name"] or x["dormitorios"] != int(n(y.get("rooms")) or 0) or x["banos"] != int(n(y.get("bathrooms")) or 0) or x["superficie"] != (n(sup[0]) if sup else None) or x["precio_base"] != y.get("priceBase"):
+                      dif.append("modelo distinto: " + x["nombre"])
+              print("DIFERENCIAS", dif if dif else "ninguna")
+              print("modelos", len(mo), "repetidos", rep[:12], "sin_superficie", sum(1 for m in mo if m["superficie"] is None), "sin_precio_base", sum(1 for m in mo if m["precio_base"] is None), "con_disponibles_catalogo", sum(1 for m in d["models"] if (m.get("apartmentsAvailable") or 0) > 0))
+              print("catalogo desde/hasta", d.get("apartmentFrom"), d.get("apartmentTo"), "fotos_catalogo", len(d.get("files") or []), "plantas_catalogo", sum(1 for m in d["models"] if m.get("blueprintId")), "reserva", d.get("reserveCLP"), "video", bool(d.get("videoPresentationUrl")))
+              print("publicado", bool(e.get("publicar_en_catalogo")), "activo", p["activo"], "disponible", p["disponible"], "jb_id", e.get("jb_id"), "external_id", e.get("external_id"), "etiquetas", e.get("etiquetas"), "unidades", len(p.get("unidades") or []), "portada", p.get("foto_principal_url"))
+              print("enlaces_jb", len(re.findall(r"jetbrokers\.io", json.dumps(p))))
+              im = cli.get(f"/proyectos/{pid}/imagenes").raise_for_status().json()
+              print("fotos", len(im), "principal", sum(1 for i in im if i.get("es_principal")), "categorias", dict(collections.Counter(i.get("categoria") for i in im)))
+              hs = collections.defaultdict(list); malas = []
+              for i in im:
+                  u = i["url"]; a = BC + u if u.startswith("/") else u
+                  print("IMG", i.get("categoria"), a)
+                  rr = web.get(a)
+                  if rr.status_code != 200 or not rr.content: malas.append((a, rr.status_code))
+                  else: hs[hashlib.sha1(rr.content).hexdigest()].append(a.rsplit("/", 1)[1])
+              print("fotos_malas", malas, "duplicadas", [v for v in hs.values() if len(v) > 1])
+              for x in cli.get(f"/proyectos/{pid}/documentos").raise_for_status().json():
+                  u = x["url"]; a = BC + u if u.startswith("/") else u
+                  rr = web.get(a)
+                  print("DOC", x.get("tipo"), x["nombre"], rr.status_code, len(rr.content), rr.content[:5], "enlace" if not u.startswith("/") else "propio")
+          PY
