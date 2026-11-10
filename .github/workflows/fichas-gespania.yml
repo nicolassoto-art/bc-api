@@ -1,0 +1,49 @@
+name: Crear ficha Gespania sin publicar
+
+# No usa credenciales ni servicios de JetBrokers. Ver scripts/fichas_gespania.py.
+
+on:
+  workflow_dispatch:
+    inputs:
+      jb_id:
+        description: 'Id del proyecto (RsQcvZc9, xMqukaTC, JFLW8myr o aj3VE334)'
+        required: true
+
+concurrency:
+  group: import-jb-serial
+  cancel-in-progress: false
+
+jobs:
+  crear:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install "httpx>=0.27,<1"
+
+      - name: Login bc-api → JWT
+        env:
+          BC_API_EMAIL: nicolas.soto@bigcapital.cl
+          BC_API_PASSWORD: ${{ secrets.BC_API_PASSWORD }}
+        run: |
+          set -euo pipefail
+          JWT=$(python3 -c "
+          import os, httpx, sys
+          r = httpx.post('https://bc-api.178-105-91-29.nip.io/auth/login',
+              json={'email': os.environ['BC_API_EMAIL'], 'password': os.environ['BC_API_PASSWORD']},
+              timeout=15.0)
+          if r.status_code != 200: sys.exit(1)
+          print(r.json()['access_token'])
+          ")
+          echo "::add-mask::$JWT"
+          echo "BC_API_JWT=$JWT" >> "$GITHUB_ENV"
+
+      - name: Crear ficha
+        env:
+          JB_ID: ${{ github.event.inputs.jb_id }}
+        run: python3 scripts/fichas_gespania.py "$JB_ID"
