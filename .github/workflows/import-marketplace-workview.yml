@@ -75,7 +75,6 @@ jobs:
           JETBROKERS_EMAIL: ${{ secrets.JETBROKERS_EMAIL }}
           JETBROKERS_PASS:  ${{ secrets.JETBROKERS_PASS }}
           HEADLESS:         '1'
-          JB_STOCK_IMPORT:  '1'
         run: |
           set -euo pipefail
           ARGS="${{ github.event.inputs.jb_id }}"
