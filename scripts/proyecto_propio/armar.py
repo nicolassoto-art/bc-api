@@ -15,7 +15,14 @@ from urllib.parse import quote, urlparse
 
 import openpyxl
 
-from app.routes.unidades import HEADERS
+# Copia de app.routes.unidades.HEADERS (la prueba exige que sean iguales). No se importa
+# la app para que el script corra en el workflow sin base de datos ni secretos.
+HEADERS = [
+    "numero_depto", "modelo", "tipologia", "tipo", "orientacion",
+    "sup_total", "sup_interior", "sup_terraza", "sup_logia", "sup_jardin",
+    "precio_lista_uf", "descuento_pct", "bono_pie_pct", "precio_final_uf",
+    "estac_flag", "bodega_flag", "pack_flag", "disponible",
+]
 
 WORKER_HOST = "bigcapital-worker.nsotofchile.workers.dev"
 # Misma dirección de origen que arma nuestro catálogo (catalogo-proyecto.html imgUrl);

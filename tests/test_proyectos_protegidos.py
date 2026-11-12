@@ -22,8 +22,13 @@ def _sin_forzado(monkeypatch):
 
 
 def test_proyecto_normal_no_esta_protegido():
-    assert _es_protegido("jb-iquforoo") is False
+    assert _es_protegido("jb-ztestnorm") is False
     assert _es_protegido("cordillera-oriente-etapa-1") is False
+
+
+def test_laguna_centro_torre_h_protegida():
+    # Stock propio desde 12-nov-2026, cargado sin pedir nada a JetBrokers.
+    assert _es_protegido("jb-iquforoo") is True
 
 
 def test_aj_urbana_protegida():
