@@ -340,11 +340,22 @@ def listar_publicos(db: Session = Depends(get_db), _: bool = Depends(service_tok
 @router.get("/public/{external_id}")
 def detalle_publico(external_id: str, db: Session = Depends(get_db), _: bool = Depends(service_token)):
     """Detalle de UN proyecto publicado, por external_id (o id propio como fallback)."""
+    # (12-nov-2026) La búsqueda va en la base, no en Python: antes se cargaban los ~150
+    # proyectos activos con TODAS sus unidades, imágenes y documentos para devolver uno.
+    # Tardaba ~1,5 s con el servidor tranquilo (lo mismo un 404) y, con varias visitas a la
+    # vez, la cola llegaba a 100 s: el Worker cortaba a los 12 s con 504 y el catálogo
+    # mostraba "No se pudo cargar". Ahora solo se cargan las relaciones de los candidatos.
     proys = db.execute(
         select(Proyecto)
         .options(selectinload(Proyecto.unidades), selectinload(Proyecto.imagenes), selectinload(Proyecto.documentos))
         .where(Proyecto.activo == True)  # noqa: E712
         .where(Proyecto.deleted_at.is_(None))  # excluir papelera
+        .where(or_(
+            Proyecto.id == external_id,
+            Proyecto.extra["external_id"].astext == external_id,
+            Proyecto.extra["jb_id"].astext == external_id,
+        ))
+        .order_by(Proyecto.updated_at.desc())
     ).scalars().all()
     for p in proys:
         if not _is_publicable(p):
