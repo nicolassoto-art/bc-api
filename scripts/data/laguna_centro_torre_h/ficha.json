@@ -1,0 +1,988 @@
+{
+ "name": "Laguna Centro Torre H",
+ "slug": "IquFoRoO-laguna-centro-torre-h",
+ "address": "Avenida Quilín 155",
+ "locality": "Macul",
+ "perks": [
+  "Piso Porcelanato",
+  "Ventanas PCV Termopanel",
+  "Refrigerador Empotrado",
+  "Kit Eléctrico Encimera Vitroceramica Horno y Campana",
+  "Cubierta Cuarzo"
+ ],
+ "perksNearby": [
+  "A pasos de Metro Carlos Valdovinos",
+  "Universidad Inacap",
+  "Universidad San Sebastian",
+  "Unviersidad Federico Santa María",
+  "Supermercado",
+  "Mall Florida Center",
+  "Mall Plaza Vespucio"
+ ],
+ "perksCommonAreas": [
+  "Lavandería",
+  "Gimnasio",
+  "Salon Gourmet",
+  "Salon CoWork",
+  "Piscina y Laguina avegable (Crystal Lagoons)",
+  "Quinchos",
+  "Senderos de paseos",
+  "Pet Spa",
+  "Sala de Juegos Niños",
+  "Sala multiuso",
+  "Sky Bar"
+ ],
+ "dateOfDelivery": "Imediata",
+ "yearOfDelivery": 2026,
+ "stage": "deliveryReady",
+ "description": "Laguna Centro es la combinación perfecta entre relajo y conectividad. Su espectacular laguna navegable, obra de Crystal Lagoons, destaca por su color turquesa y el uso de tecnología innovadora y sustentable con el medioambiente, que se traduce en bajos costos de manteción y uso de energía. Junto a la laguna, los amplios espacios comunes, son una invitación a descansar, relajarse y sentirse en la playa, cualquier día de la semana. ",
+ "gpsLat": "-33.48727800",
+ "gpsLon": "-70.61832400",
+ "allowTransfer": "yesAuthorized",
+ "buildingPermit": "yes",
+ "buildingPermitNumber": null,
+ "coverId": "wPrMYtB8",
+ "developerName": "Vitalia",
+ "developerCoverId": "Bhzll8Q1",
+ "parkingFrom": 378,
+ "parkingTo": 378,
+ "storeFrom": 70,
+ "storeTo": 70,
+ "apartmentFrom": 2955.02,
+ "apartmentTo": 5452.97,
+ "reserveCLP": "250000",
+ "brokerName": null,
+ "brokerEmail": null,
+ "brokerPhone": null,
+ "brokerAvatarId": null,
+ "organizationName": "BigCapital",
+ "organizationLogoId": "z2qXMbZu",
+ "organizationEmail": "contacto@bigcapital.cl",
+ "organizationPhone": null,
+ "organizationAddress": "Coronel Pereira 72 oficina 202. Las Condes, Santiago.",
+ "organizationDescription": "Facilitamos la inversión inmobiliaria!!. Te asesoramos para que puedas invertir en propiedades de forma fácil, segura y en los mejores proyectos. Te acompañamos en todo el proceso, desde la búsqueda del departamento, hasta encontrar a tu arrendatario.",
+ "organizationPrimaryColor": "098de8",
+ "organizationWeb": "https://www.bigcapital.cl/",
+ "buildingCompany": "Ebco",
+ "models": [
+  {
+   "name": "H",
+   "rooms": "2",
+   "bathrooms": "2",
+   "blueprintId": "D14WYZYG",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "northWest"
+   ],
+   "surfaceTotal": [
+    "58.79",
+    "58.27"
+   ],
+   "surfaceInterior": [
+    "48.93",
+    "48.42"
+   ],
+   "surfaceTerrace": [
+    "9.86",
+    "9.85"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 4300.66,
+   "priceFinal": 4300.66,
+   "apartmentsAvailable": 16
+  },
+  {
+   "name": "F",
+   "rooms": "3",
+   "bathrooms": "2",
+   "blueprintId": "DAaEcwpU",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "northWestSouth"
+   ],
+   "surfaceTotal": [
+    "69.95"
+   ],
+   "surfaceInterior": [
+    "60.58"
+   ],
+   "surfaceTerrace": [
+    "9.37"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 5187.77,
+   "priceFinal": 5187.77,
+   "apartmentsAvailable": 8
+  },
+  {
+   "name": "Modelo 2",
+   "rooms": "1",
+   "bathrooms": "1",
+   "blueprintId": "L7foko2z",
+   "discountRate": 0,
+   "discountRateMax": 0,
+   "discountRateMin": 0,
+   "facing": [],
+   "surfaceTotal": [],
+   "surfaceInterior": [],
+   "surfaceTerrace": [],
+   "surfaceLogia": [],
+   "surfaceGarden": [],
+   "priceBase": null,
+   "priceFinal": null,
+   "apartmentsAvailable": 0
+  },
+  {
+   "name": "Modelo 5",
+   "rooms": "2",
+   "bathrooms": "2",
+   "blueprintId": "2nmGTUn9",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "northEast"
+   ],
+   "surfaceTotal": [
+    "53.90"
+   ],
+   "surfaceInterior": [
+    "46.70"
+   ],
+   "surfaceTerrace": [
+    "7.20"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 3898.48,
+   "priceFinal": 3898.48,
+   "apartmentsAvailable": 2
+  },
+  {
+   "name": "Modelo 3",
+   "rooms": "1",
+   "bathrooms": "1",
+   "blueprintId": "5W1h8rXb",
+   "discountRate": 0,
+   "discountRateMax": 0,
+   "discountRateMin": 0,
+   "facing": [],
+   "surfaceTotal": [],
+   "surfaceInterior": [],
+   "surfaceTerrace": [],
+   "surfaceLogia": [],
+   "surfaceGarden": [],
+   "priceBase": null,
+   "priceFinal": null,
+   "apartmentsAvailable": 0
+  },
+  {
+   "name": "Modelo 1",
+   "rooms": "1",
+   "bathrooms": "1",
+   "blueprintId": "TAtIZEto",
+   "discountRate": 0,
+   "discountRateMax": 0,
+   "discountRateMin": 0,
+   "facing": [],
+   "surfaceTotal": [],
+   "surfaceInterior": [],
+   "surfaceTerrace": [],
+   "surfaceLogia": [],
+   "surfaceGarden": [],
+   "priceBase": null,
+   "priceFinal": null,
+   "apartmentsAvailable": 0
+  },
+  {
+   "name": "C",
+   "rooms": "2",
+   "bathrooms": "1",
+   "blueprintId": "1jLx6WJ8",
+   "discountRate": 0,
+   "discountRateMax": 0,
+   "discountRateMin": 0,
+   "facing": [],
+   "surfaceTotal": [],
+   "surfaceInterior": [],
+   "surfaceTerrace": [],
+   "surfaceLogia": [],
+   "surfaceGarden": [],
+   "priceBase": null,
+   "priceFinal": null,
+   "apartmentsAvailable": 0
+  },
+  {
+   "name": "Modelo 4",
+   "rooms": "2",
+   "bathrooms": "1",
+   "blueprintId": "DM2VGzS3",
+   "discountRate": 0,
+   "discountRateMax": 0,
+   "discountRateMin": 0,
+   "facing": [],
+   "surfaceTotal": [],
+   "surfaceInterior": [],
+   "surfaceTerrace": [],
+   "surfaceLogia": [],
+   "surfaceGarden": [],
+   "priceBase": null,
+   "priceFinal": null,
+   "apartmentsAvailable": 0
+  },
+  {
+   "name": "Modelo 6",
+   "rooms": "2",
+   "bathrooms": "2",
+   "blueprintId": "zbYSoIva",
+   "discountRate": 0,
+   "discountRateMax": 0,
+   "discountRateMin": 0,
+   "facing": [],
+   "surfaceTotal": [],
+   "surfaceInterior": [],
+   "surfaceTerrace": [],
+   "surfaceLogia": [],
+   "surfaceGarden": [],
+   "priceBase": null,
+   "priceFinal": null,
+   "apartmentsAvailable": 0
+  },
+  {
+   "name": "A",
+   "rooms": "2",
+   "bathrooms": "2",
+   "blueprintId": "JpoEIVgK",
+   "discountRate": 0,
+   "discountRateMax": 0,
+   "discountRateMin": 0,
+   "facing": [],
+   "surfaceTotal": [],
+   "surfaceInterior": [],
+   "surfaceTerrace": [],
+   "surfaceLogia": [],
+   "surfaceGarden": [],
+   "priceBase": null,
+   "priceFinal": null,
+   "apartmentsAvailable": 0
+  },
+  {
+   "name": "Modelo 14",
+   "rooms": "2",
+   "bathrooms": "2",
+   "blueprintId": "JbtlnpFS",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "northWest"
+   ],
+   "surfaceTotal": [
+    "59.50"
+   ],
+   "surfaceInterior": [
+    "52.30"
+   ],
+   "surfaceTerrace": [
+    "7.20"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 4326.99,
+   "priceFinal": 4326.99,
+   "apartmentsAvailable": 2
+  },
+  {
+   "name": "E",
+   "rooms": "2",
+   "bathrooms": "1",
+   "blueprintId": "AFFLVUDi",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "southEast"
+   ],
+   "surfaceTotal": [
+    "48.85"
+   ],
+   "surfaceInterior": [
+    "40.15"
+   ],
+   "surfaceTerrace": [
+    "8.70"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 3618.17,
+   "priceFinal": 3618.17,
+   "apartmentsAvailable": 1
+  },
+  {
+   "name": "Modelo 7",
+   "rooms": "2",
+   "bathrooms": "2",
+   "blueprintId": "X3ivb9sY",
+   "discountRate": 0,
+   "discountRateMax": 0,
+   "discountRateMin": 0,
+   "facing": [],
+   "surfaceTotal": [],
+   "surfaceInterior": [],
+   "surfaceTerrace": [],
+   "surfaceLogia": [],
+   "surfaceGarden": [],
+   "priceBase": null,
+   "priceFinal": null,
+   "apartmentsAvailable": 0
+  },
+  {
+   "name": "Modelo 8",
+   "rooms": "3",
+   "bathrooms": "2",
+   "blueprintId": "Ik77xEW1",
+   "discountRate": 0,
+   "discountRateMax": 0,
+   "discountRateMin": 0,
+   "facing": [],
+   "surfaceTotal": [],
+   "surfaceInterior": [],
+   "surfaceTerrace": [],
+   "surfaceLogia": [],
+   "surfaceGarden": [],
+   "priceBase": null,
+   "priceFinal": null,
+   "apartmentsAvailable": 0
+  },
+  {
+   "name": "N",
+   "rooms": "2",
+   "bathrooms": "2",
+   "blueprintId": "cDF8wfLD",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "northWestSouth",
+    "northWest"
+   ],
+   "surfaceTotal": [
+    "59.45"
+   ],
+   "surfaceInterior": [
+    "52.25"
+   ],
+   "surfaceTerrace": [
+    "7.20"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 4171.18,
+   "priceFinal": 4171.18,
+   "apartmentsAvailable": 8
+  },
+  {
+   "name": "G1",
+   "rooms": "2",
+   "bathrooms": "2",
+   "blueprintId": "QynP181v",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "northWestSouth"
+   ],
+   "surfaceTotal": [
+    "58.39"
+   ],
+   "surfaceInterior": [
+    "54.24"
+   ],
+   "surfaceTerrace": [
+    "4.15"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 4420,
+   "priceFinal": 4420,
+   "apartmentsAvailable": 1
+  },
+  {
+   "name": "B",
+   "rooms": "1",
+   "bathrooms": "1",
+   "blueprintId": "aABZxagw",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "southEast"
+   ],
+   "surfaceTotal": [
+    "39.56"
+   ],
+   "surfaceInterior": [
+    "32.92"
+   ],
+   "surfaceTerrace": [
+    "6.64"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 3118.69,
+   "priceFinal": 3118.69,
+   "apartmentsAvailable": 2
+  },
+  {
+   "name": "D",
+   "rooms": "1",
+   "bathrooms": "1",
+   "blueprintId": "7MO4BENf",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "southEast"
+   ],
+   "surfaceTotal": [
+    "39.57"
+   ],
+   "surfaceInterior": [
+    "32.93"
+   ],
+   "surfaceTerrace": [
+    "6.64"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 3119.21,
+   "priceFinal": 3119.21,
+   "apartmentsAvailable": 7
+  },
+  {
+   "name": "I",
+   "rooms": "1",
+   "bathrooms": "1",
+   "blueprintId": "c9GqmLfN",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "northWest"
+   ],
+   "surfaceTotal": [
+    "38.94",
+    "39.23"
+   ],
+   "surfaceInterior": [
+    "32.35",
+    "32.64"
+   ],
+   "surfaceTerrace": [
+    "6.59"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 2990,
+   "priceFinal": 2990,
+   "apartmentsAvailable": 6
+  },
+  {
+   "name": "J",
+   "rooms": "1",
+   "bathrooms": "1",
+   "blueprintId": "KzH4DkPU",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "northWest"
+   ],
+   "surfaceTotal": [
+    "39.23"
+   ],
+   "surfaceInterior": [
+    "32.64"
+   ],
+   "surfaceTerrace": [
+    "6.59"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 3005.42,
+   "priceFinal": 3005.42,
+   "apartmentsAvailable": 7
+  },
+  {
+   "name": "K",
+   "rooms": "1",
+   "bathrooms": "1",
+   "blueprintId": "hliMjrZf",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "northWest"
+   ],
+   "surfaceTotal": [
+    "39.23"
+   ],
+   "surfaceInterior": [
+    "32.64"
+   ],
+   "surfaceTerrace": [
+    "6.59"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 3020.83,
+   "priceFinal": 3020.83,
+   "apartmentsAvailable": 3
+  },
+  {
+   "name": "L",
+   "rooms": "1",
+   "bathrooms": "1",
+   "blueprintId": "4eEXFd1M",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "northWest"
+   ],
+   "surfaceTotal": [
+    "39.23"
+   ],
+   "surfaceInterior": [
+    "32.64"
+   ],
+   "surfaceTerrace": [
+    "6.59"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 2955.02,
+   "priceFinal": 2955.02,
+   "apartmentsAvailable": 2
+  },
+  {
+   "name": "F1",
+   "rooms": "2",
+   "bathrooms": "2",
+   "blueprintId": "MVBwnM4d",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "southEast"
+   ],
+   "surfaceTotal": [
+    "62.93"
+   ],
+   "surfaceInterior": [
+    "55.55"
+   ],
+   "surfaceTerrace": [
+    "7.38"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 4516.52,
+   "priceFinal": 4516.52,
+   "apartmentsAvailable": 1
+  },
+  {
+   "name": "G",
+   "rooms": "2",
+   "bathrooms": "2",
+   "blueprintId": "WMjsfzSJ",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "northWestSouth"
+   ],
+   "surfaceTotal": [
+    "61.81"
+   ],
+   "surfaceInterior": [
+    "52.45"
+   ],
+   "surfaceTerrace": [
+    "9.36"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 4572.96,
+   "priceFinal": 4572.96,
+   "apartmentsAvailable": 15
+  },
+  {
+   "name": "M",
+   "rooms": "1",
+   "bathrooms": "1",
+   "blueprintId": "6AJDIFDp",
+   "discountRate": 0,
+   "discountRateMax": 10,
+   "discountRateMin": 10,
+   "facing": [
+    "northWest"
+   ],
+   "surfaceTotal": [
+    "39.57"
+   ],
+   "surfaceInterior": [
+    "32.93"
+   ],
+   "surfaceTerrace": [
+    "6.64"
+   ],
+   "surfaceLogia": [
+    "0.00"
+   ],
+   "surfaceGarden": [
+    "0.00"
+   ],
+   "priceBase": 3016.28,
+   "priceFinal": 3016.28,
+   "apartmentsAvailable": 2
+  }
+ ],
+ "files": [
+  {
+   "id": "YMsHndTs",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Fotos Drone"
+  },
+  {
+   "id": "Cm6NpN1L",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Fotos Drone"
+  },
+  {
+   "id": "4ziDtraH",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Fotos Drone"
+  },
+  {
+   "id": "9xoIo9jD",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Fotos Drone"
+  },
+  {
+   "id": "fORW4e13",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Laguna"
+  },
+  {
+   "id": "dueEJgvK",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Laguna"
+  },
+  {
+   "id": "wjlyICG7",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Laguna"
+  },
+  {
+   "id": "w3qmXL6H",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Laguna"
+  },
+  {
+   "id": "mVFPuXw4",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Laguna"
+  },
+  {
+   "id": "5iqJZlVQ",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Quincho Piso 26"
+  },
+  {
+   "id": "ikYlfn6x",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Quincho Piso 26"
+  },
+  {
+   "id": "bEScWMHI",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Sky Bar Piso 26"
+  },
+  {
+   "id": "uSzF5xcM",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Sky Bar Piso 26"
+  },
+  {
+   "id": "fopXHFQ0",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Hall de acceso"
+  },
+  {
+   "id": "ZcSikbZh",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Hall de acceso"
+  },
+  {
+   "id": "GeBBxEZe",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Gimnasio"
+  },
+  {
+   "id": "b6RtRzXN",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Gimnasio"
+  },
+  {
+   "id": "gaoDHFhh",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Gimnasio"
+  },
+  {
+   "id": "xjYkvHIH",
+   "type": "projectPerkCommonArea",
+   "mime": "image/jpeg",
+   "details": "Gimnasio"
+  },
+  {
+   "id": "eMFK8JMH",
+   "type": "projectBrochure",
+   "mime": "application/pdf",
+   "details": null
+  },
+  {
+   "id": "LWDy9QYu",
+   "type": "projectFloor",
+   "mime": "application/pdf",
+   "details": "Fichas Plantas "
+  },
+  {
+   "id": "czrP4Yp4",
+   "type": "projectPerk",
+   "mime": "image/jpeg",
+   "details": "Foto piloto"
+  },
+  {
+   "id": "yE4jFk8G",
+   "type": "projectPerk",
+   "mime": "image/jpeg",
+   "details": "Foto piloto"
+  },
+  {
+   "id": "Btdc5bnB",
+   "type": "projectPerk",
+   "mime": "image/jpeg",
+   "details": "Foto piloto"
+  },
+  {
+   "id": "etWizZUy",
+   "type": "projectPerk",
+   "mime": "image/jpeg",
+   "details": "Foto piloto"
+  },
+  {
+   "id": "O2NpDHRB",
+   "type": "projectPerk",
+   "mime": "image/jpeg",
+   "details": "Foto piloto"
+  },
+  {
+   "id": "ZjaIGuWR",
+   "type": "projectPerk",
+   "mime": "image/jpeg",
+   "details": "Foto Laguna"
+  },
+  {
+   "id": "5MlcoWJz",
+   "type": "projectPerk",
+   "mime": "image/jpeg",
+   "details": "Foto Laguna"
+  },
+  {
+   "id": "QYYukINe",
+   "type": "projectPerk",
+   "mime": "image/jpeg",
+   "details": "Foto espacios comun es"
+  },
+  {
+   "id": "82cCdOM3",
+   "type": "projectPerk",
+   "mime": "image/jpeg",
+   "details": "Foto espacios comunes"
+  },
+  {
+   "id": "rbRGRAIF",
+   "type": "projectPerk",
+   "mime": "image/jpeg",
+   "details": "Foto espacios comunes"
+  },
+  {
+   "id": "pIOvXENK",
+   "type": "projectPerkCommonArea",
+   "mime": "image/png",
+   "details": null
+  },
+  {
+   "id": "EQW7WDbO",
+   "type": "projectPerkCommonArea",
+   "mime": "image/png",
+   "details": null
+  },
+  {
+   "id": "I4TEEmBv",
+   "type": "projectPerkNearby",
+   "mime": "image/png",
+   "details": null
+  },
+  {
+   "id": "IDk7yLx8",
+   "type": "projectPerkCommonArea",
+   "mime": "image/png",
+   "details": null
+  },
+  {
+   "id": "i0UbXBuX",
+   "type": "projectPerkNearby",
+   "mime": "image/png",
+   "details": null
+  },
+  {
+   "id": "BfltnqDQ",
+   "type": "projectPerkCommonArea",
+   "mime": "image/png",
+   "details": null
+  },
+  {
+   "id": "u1IfB5Zu",
+   "type": "projectPerkCommonArea",
+   "mime": "image/png",
+   "details": null
+  },
+  {
+   "id": "5NpUFsvT",
+   "type": "projectPerkCommonArea",
+   "mime": "image/png",
+   "details": null
+  },
+  {
+   "id": "MUrJIJtH",
+   "type": "projectPerkCommonArea",
+   "mime": "image/png",
+   "details": null
+  }
+ ],
+ "jetGalleryTop": null,
+ "jetGalleryBottom": null,
+ "apartmentCount": 344,
+ "storeCount": 116,
+ "parkingCount": 139,
+ "elevatorsCount": 4,
+ "projectDeveloperSummary": "Inmobiliaria Vitalia es parte del grupo Banmerchant y está presente en el mercado desde el año 2005 contando con más de 30 proyectos construidos en diferentes regiones de Chile.\n",
+ "floors": 25,
+ "reserveTarget": "broker",
+ "fee": "20.00",
+ "installmentsPreEntrega": 1,
+ "installmentsPostEntrega": 12,
+ "payMethodPreEntrega": "Tarjeta de Crédito / Cheque",
+ "payMethodPostEntrega": "Tarjeta de crédito",
+ "reserveName": "RESERVA VA A LA CTA DE LA EMPRESA DE BROKERS",
+ "reserveTaxId": null,
+ "reserveAccountType": null,
+ "reserveAccountNumber": null,
+ "reserveBank": null,
+ "videoPresentationUrl": null,
+ "socialLinkFacebook": "https://www.facebook.com/BigCapitalChile",
+ "socialLinkTwitter": null,
+ "socialLinkInstagram": "https://www.instagram.com/bigcapitalchile/",
+ "socialLinkLinkedin": null,
+ "orgBackgroundBannerJsId": "FBWZ07XS",
+ "mode": "new",
+ "scope": "market",
+ "bestPrice": null,
+ "jb_synced_at": "2026-11-12T19:47:43.256Z"
+}
