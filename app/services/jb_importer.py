@@ -136,6 +136,9 @@ PROYECTOS_PROTEGIDOS = {
     "jb-xmqukatc",  # Distrito Parque
     "jb-aj3ve334",  # Torres del Sol
     "jb-jflw8myr",  # Distrito Bustamante
+    # Stock propio cargado SIN pedir nada a JetBrokers (12-nov-2026):
+    # scripts/proyecto_propio/ + workflow cargar-proyecto-propio.yml
+    "jb-iquforoo",  # Laguna Centro Torre H (Vitalia)
     # Stock propio con sync no-JB: el scraper de MNK mantiene las unidades
     "condominio-la-rioja",  # MNK · publicado en catálogo 2026-09-09; su stock lo
                             # actualiza mnk-scraper (Excel semanal), NO JetBrokers.
